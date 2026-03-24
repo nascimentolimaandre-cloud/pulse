@@ -1,0 +1,202 @@
+##############################################################################
+# PULSE — Local Development Stack
+# Run: docker compose up -d (or: make up)
+# Frontend runs OUTSIDE Docker: cd packages/pulse-web && npm run dev
+##############################################################################
+
+services:
+  # --------------------------------------------------------------------------
+  # Backend APIs
+  # --------------------------------------------------------------------------
+  pulse-api:
+    build:
+      context: ./packages/pulse-api
+      dockerfile: Dockerfile
+    container_name: pulse-api
+    ports:
+      - "${PULSE_API_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      DEVLAKE_API_URL: http://devlake:8080
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+    volumes:
+      - ./packages/pulse-api/src:/app/src
+      - ./config/connections.yaml:/app/config/connections.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pulse-data:
+    build:
+      context: ./packages/pulse-data
+      dockerfile: Dockerfile
+    container_name: pulse-data
+    ports:
+      - "${PULSE_DATA_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      KAFKA_BROKERS: kafka:9092
+      ENVIRONMENT: development
+    volumes:
+      - ./packages/pulse-data/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Workers
+  # --------------------------------------------------------------------------
+  sync-worker:
+    build:
+      context: ./packages/pulse-data
+      dockerfile: Dockerfile
+    container_name: pulse-sync-worker
+    command: python -m src.workers.devlake_sync
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
+      KAFKA_BROKERS: kafka:9092
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      devlake:
+        condition: service_started
+    restart: unless-stopped
+
+  metrics-worker:
+    build:
+      context: ./packages/pulse-data
+      dockerfile: Dockerfile
+    container_name: pulse-metrics-worker
+    command: python -m src.workers.metrics_worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      KAFKA_BROKERS: kafka:9092
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Infrastructure
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: pulse-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pulse}
+      POSTGRES_USER: ${POSTGRES_USER:-pulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulse_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pulse} -d ${POSTGRES_DB:-pulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: pulse-kafka
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      # KRaft mode — NO Zookeeper
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 | grep -q 'ApiVersion'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # DevLake
+  # --------------------------------------------------------------------------
+  devlake:
+    image: apache/devlake:latest
+    container_name: pulse-devlake
+    ports:
+      - "${DEVLAKE_PORT:-8080}:8080"
+      - "${DEVLAKE_API_PORT:-4000}:4000"
+    environment:
+      DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}?sslmode=disable
+      ENCRYPTION_SECRET: ${DEVLAKE_ENCRYPTION_SECRET:-abcdefghijklmnop}
+    depends_on:
+      devlake-pg:
+        condition: service_healthy
+    restart: unless-stopped
+
+  devlake-pg:
+    image: postgres:16-alpine
+    container_name: pulse-devlake-pg
+    ports:
+      - "${DEVLAKE_PG_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: ${DEVLAKE_PG_DB:-lake}
+      POSTGRES_USER: ${DEVLAKE_PG_USER:-devlake}
+      POSTGRES_PASSWORD: ${DEVLAKE_PG_PASSWORD:-devlake_dev}
+    volumes:
+      - devlake_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DEVLAKE_PG_USER:-devlake} -d ${DEVLAKE_PG_DB:-lake}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
+  devlake_pgdata:
+    driver: local

@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Lint
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            packages/pulse-api/package-lock.json
+            packages/pulse-web/package-lock.json
+            packages/pulse-shared/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: packages/pulse-data/requirements.txt
+
+      - name: Install Node dependencies
+        run: |
+          cd packages/pulse-shared && npm ci
+          cd ../pulse-api && npm ci
+          cd ../pulse-web && npm ci
+
+      - name: Install Python dependencies
+        run: |
+          cd packages/pulse-data
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: ESLint — pulse-api
+        run: cd packages/pulse-api && npm run lint
+
+      - name: ESLint — pulse-web
+        run: cd packages/pulse-web && npm run lint
+
+      - name: TypeScript — pulse-shared
+        run: cd packages/pulse-shared && npm run typecheck
+
+      - name: Ruff — pulse-data
+        run: cd packages/pulse-data && ruff check src tests
+
+  # --------------------------------------------------------------------------
+  # Unit Tests
+  # --------------------------------------------------------------------------
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            packages/pulse-api/package-lock.json
+            packages/pulse-web/package-lock.json
+            packages/pulse-shared/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: packages/pulse-data/requirements.txt
+
+      - name: Install Node dependencies
+        run: |
+          cd packages/pulse-shared && npm ci && npm run build
+          cd ../pulse-api && npm ci
+          cd ../pulse-web && npm ci
+
+      - name: Install Python dependencies
+        run: |
+          cd packages/pulse-data
+          pip install -r requirements.txt
+
+      - name: Jest — pulse-api
+        run: cd packages/pulse-api && npm run test -- --coverage --ci
+        continue-on-error: false
+
+      - name: Pytest — pulse-data
+        run: |
+          cd packages/pulse-data
+          python -m pytest tests/unit -v --junitxml=reports/pytest-unit.xml --cov=src --cov-report=xml:reports/coverage.xml
+        continue-on-error: false
+
+      - name: Vitest — pulse-web
+        run: cd packages/pulse-web && npm run test -- --coverage --reporter=junit --outputFile=reports/vitest.xml
+        continue-on-error: false
+
+      - name: Upload coverage — pulse-api
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pulse-api
+          path: packages/pulse-api/coverage/
+          retention-days: 7
+
+      - name: Upload coverage — pulse-data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pulse-data
+          path: packages/pulse-data/reports/
+          retention-days: 7
+
+      - name: Upload coverage — pulse-web
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pulse-web
+          path: packages/pulse-web/coverage/
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # Build
+  # --------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test-unit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            packages/pulse-api/package-lock.json
+            packages/pulse-web/package-lock.json
+            packages/pulse-shared/package-lock.json
+
+      - name: Install Node dependencies
+        run: |
+          cd packages/pulse-shared && npm ci
+          cd ../pulse-api && npm ci
+          cd ../pulse-web && npm ci
+
+      - name: Build — pulse-shared
+        run: cd packages/pulse-shared && npm run build
+
+      - name: Build — pulse-api (NestJS)
+        run: cd packages/pulse-api && npm run build
+
+      - name: Build — pulse-web (Vite)
+        run: cd packages/pulse-web && npm run build
+
+      - name: Build — Docker images
+        run: |
+          docker compose build pulse-api pulse-data

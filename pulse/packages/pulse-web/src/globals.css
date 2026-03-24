@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* globals.css — Design Tokens PULSE */
+:root {
+  /* Colors — Semantic */
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F9FAFB;      /* gray-50 */
+  --color-bg-tertiary: #F3F4F6;       /* gray-100 */
+  --color-bg-surface: #FFFFFF;
+  --color-bg-elevated: #FFFFFF;
+
+  --color-text-primary: #111827;       /* gray-900 */
+  --color-text-secondary: #6B7280;     /* gray-500 */
+  --color-text-tertiary: #9CA3AF;      /* gray-400 */
+  --color-text-inverse: #FFFFFF;
+
+  --color-border-default: #E5E7EB;     /* gray-200 */
+  --color-border-subtle: #F3F4F6;      /* gray-100 */
+
+  /* Brand */
+  --color-brand-primary: #6366F1;      /* indigo-500 */
+  --color-brand-primary-hover: #4F46E5;/* indigo-600 */
+  --color-brand-light: #EEF2FF;        /* indigo-50 */
+
+  /* Semantic Status */
+  --color-success: #10B981;            /* emerald-500 */
+  --color-warning: #F59E0B;            /* amber-500 */
+  --color-danger: #EF4444;             /* red-500 */
+  --color-info: #3B82F6;               /* blue-500 */
+
+  /* DORA Classification */
+  --color-dora-elite: #10B981;         /* emerald */
+  --color-dora-high: #3B82F6;          /* blue */
+  --color-dora-medium: #F59E0B;        /* amber */
+  --color-dora-low: #EF4444;           /* red */
+
+  /* Chart Palette (6 cores distintas para series) */
+  --chart-1: #6366F1;   /* indigo — primary series */
+  --chart-2: #8B5CF6;   /* violet */
+  --chart-3: #EC4899;   /* pink */
+  --chart-4: #F59E0B;   /* amber */
+  --chart-5: #10B981;   /* emerald */
+  --chart-6: #6B7280;   /* gray */
+
+  /* Spacing scale (Tailwind default + custom) */
+  --space-page-padding: 1.5rem;        /* 24px */
+  --space-card-padding: 1.25rem;       /* 20px */
+  --space-section-gap: 1.5rem;         /* 24px */
+
+  /* Radius */
+  --radius-card: 0.75rem;             /* 12px */
+  --radius-button: 0.5rem;            /* 8px */
+  --radius-badge: 9999px;             /* pill */
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* Dark mode (futuro - R2+) */
+.dark {
+  --color-bg-primary: #0F172A;         /* slate-900 */
+  --color-bg-secondary: #1E293B;       /* slate-800 */
+  --color-text-primary: #F1F5F9;       /* slate-100 */
+  --color-border-default: #334155;     /* slate-700 */
+}
+
+/* Base layer resets */
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    border-color: var(--color-border-default);
+  }
+}
