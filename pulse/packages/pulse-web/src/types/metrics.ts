@@ -133,3 +133,86 @@ export interface PullRequest {
   status: 'open' | 'draft' | 'review_requested';
   url: string;
 }
+
+/* ── Home Dashboard ── */
+
+export interface HomeMetrics {
+  deploymentFrequency: DoraMetricItem;
+  leadTimeForChanges: DoraMetricItem;
+  changeFailureRate: DoraMetricItem;
+  cycleTime: {
+    label: string;
+    value: number;
+    unit: string;
+    trend: MetricTrend;
+    sparklineData: number[];
+  };
+  wipCount: {
+    label: string;
+    value: number;
+    unit: string;
+    trend: MetricTrend;
+    sparklineData: number[];
+  };
+  throughput: {
+    label: string;
+    value: number;
+    unit: string;
+    trend: MetricTrend;
+    sparklineData: number[];
+  };
+  prsNeedingAttention: PullRequest[];
+  period: string;
+  teamId: string;
+}
+
+/* ── Throughput Extended ── */
+
+export interface ThroughputAnalytics {
+  avgPrSize: number;
+  avgFirstReviewTimeHours: number;
+  avgReviewTurnaroundHours: number;
+  prSizeDistribution: PrSizeDistributionItem[];
+}
+
+export interface PrSizeDistributionItem {
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL';
+  count: number;
+}
+
+export interface ThroughputResponse {
+  weeklyData: ThroughputDataPoint[];
+  averageMergedPerWeek: number;
+  trend: MetricTrend;
+  sparklineData: number[];
+  analytics: ThroughputAnalytics;
+  period: string;
+  teamId: string;
+}
+
+/* ── Sprint Extended ── */
+
+export interface SprintComparisonItem {
+  sprintName: string;
+  committed: number;
+  completed: number;
+}
+
+export interface SprintResponse {
+  current: SprintOverview | null;
+  recent: SprintOverview[];
+  comparison: SprintComparisonItem[];
+  velocityTrend: 'improving' | 'stable' | 'declining';
+}
+
+/* ── Integration ── */
+
+export interface Integration {
+  id: string;
+  name: string;
+  type: 'github' | 'gitlab' | 'jira' | 'azure_devops';
+  status: 'active' | 'syncing' | 'error' | 'inactive';
+  lastSyncAt: string | null;
+  reposMonitored: number;
+  errorMessage?: string;
+}

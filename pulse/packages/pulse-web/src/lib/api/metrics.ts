@@ -2,13 +2,15 @@ import { dataClient } from './client';
 import type {
   DoraMetrics,
   CycleTimeBreakdown,
-  ThroughputData,
   LeanMetrics,
-  SprintOverview,
   PullRequest,
+  HomeMetrics,
+  ThroughputResponse,
+  SprintResponse,
+  Integration,
 } from '@/types/metrics';
 
-interface MetricsQueryParams {
+export interface MetricsQueryParams {
   teamId: string;
   period: string;
   startDate?: string | null;
@@ -39,8 +41,8 @@ export async function fetchCycleTime(params: MetricsQueryParams): Promise<CycleT
   return response.data;
 }
 
-export async function fetchThroughput(params: MetricsQueryParams): Promise<ThroughputData> {
-  const response = await dataClient.get<ThroughputData>('/metrics/throughput', {
+export async function fetchThroughput(params: MetricsQueryParams): Promise<ThroughputResponse> {
+  const response = await dataClient.get<ThroughputResponse>('/metrics/throughput', {
     params: buildParams(params),
   });
   return response.data;
@@ -53,8 +55,8 @@ export async function fetchLeanMetrics(params: MetricsQueryParams): Promise<Lean
   return response.data;
 }
 
-export async function fetchSprintOverview(params: MetricsQueryParams): Promise<SprintOverview[]> {
-  const response = await dataClient.get<SprintOverview[]>('/metrics/sprints', {
+export async function fetchSprintMetrics(params: MetricsQueryParams): Promise<SprintResponse> {
+  const response = await dataClient.get<SprintResponse>('/metrics/sprints', {
     params: buildParams(params),
   });
   return response.data;
@@ -64,5 +66,17 @@ export async function fetchOpenPullRequests(params: MetricsQueryParams): Promise
   const response = await dataClient.get<PullRequest[]>('/metrics/prs/open', {
     params: buildParams(params),
   });
+  return response.data;
+}
+
+export async function fetchHomeMetrics(params: MetricsQueryParams): Promise<HomeMetrics> {
+  const response = await dataClient.get<HomeMetrics>('/metrics/home', {
+    params: buildParams(params),
+  });
+  return response.data;
+}
+
+export async function fetchIntegrations(): Promise<Integration[]> {
+  const response = await dataClient.get<Integration[]>('/integrations');
   return response.data;
 }
