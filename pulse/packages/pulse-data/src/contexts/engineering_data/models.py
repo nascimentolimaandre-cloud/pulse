@@ -7,7 +7,7 @@ All tables enforce tenant_id (NOT NULL) for RLS.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, Uuid, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, column_property
 from sqlalchemy import case, extract
@@ -19,6 +19,9 @@ class EngPullRequest(TenantModel):
     """Normalized pull request data from GitHub, GitLab, or Azure DevOps."""
 
     __tablename__ = "eng_pull_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_eng_pr_tenant_external"),
+    )
 
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # github | gitlab | azure
@@ -76,6 +79,9 @@ class EngIssue(TenantModel):
     """Normalized issue/work item from Jira, Linear, Azure DevOps Boards, etc."""
 
     __tablename__ = "eng_issues"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_eng_issue_tenant_external"),
+    )
 
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # jira | linear | azure
@@ -126,6 +132,9 @@ class EngDeployment(TenantModel):
     """Normalized deployment event from CI/CD pipelines."""
 
     __tablename__ = "eng_deployments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_eng_deploy_tenant_external"),
+    )
 
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # github | gitlab | azure
@@ -142,6 +151,9 @@ class EngSprint(TenantModel):
     """Normalized sprint data from Jira, Linear, Azure DevOps."""
 
     __tablename__ = "eng_sprints"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_eng_sprint_tenant_external"),
+    )
 
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)

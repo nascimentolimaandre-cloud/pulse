@@ -19,7 +19,7 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       REDIS_URL: redis://redis:6379
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka:29092
       DEVLAKE_API_URL: http://devlake:8080
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITLAB_TOKEN: ${GITLAB_TOKEN:-}
@@ -47,7 +47,7 @@ services:
       - "${PULSE_DATA_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
     volumes:
       - ./packages/pulse-data/src:/app/src
@@ -70,7 +70,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
     depends_on:
       postgres:
@@ -89,7 +89,7 @@ services:
     command: python -m src.workers.metrics_worker
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
     depends_on:
       postgres:

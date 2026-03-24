@@ -1,19 +1,37 @@
 """DORA metrics — pure calculation functions.
 
 All functions take data in, return results. No DB access.
-TDD: tests come first in Phase 2.
 
 DORA four key metrics:
 - Deployment Frequency (DF)
 - Lead Time for Changes (LT)
 - Change Failure Rate (CFR)
 - Mean Time to Recovery (MTTR)
+
+Thresholds from the 2023 Accelerate State of DevOps Report:
+
+| Metric              | Elite       | High           | Medium          | Low        |
+|---------------------|-------------|----------------|-----------------|------------|
+| Deploy Frequency    | >= 1/day    | 1/week–1/day   | 1/month–1/week  | < 1/month  |
+| Lead Time (hours)   | < 1         | 1–168 (1 week) | 168–720 (1 mo)  | >= 720     |
+| Change Failure Rate | < 0.05      | 0.05–0.10      | 0.10–0.15       | > 0.15     |
+| MTTR (hours)        | < 1         | 1–24 (1 day)   | 24–168 (1 week) | >= 168     |
+
+Anti-surveillance: all metrics are TEAM-level aggregates. No individual
+developer attribution is computed or returned.
 """
 
+from __future__ import annotations
+
+import statistics
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Value types
+# ---------------------------------------------------------------------------
 
 
 class DoraLevel(str, Enum):
@@ -26,50 +44,110 @@ class DoraLevel(str, Enum):
 
 
 @dataclass(frozen=True)
-class DoraMetrics:
-    """Result of DORA metric calculations."""
-
-    deployment_frequency: float | None  # deploys per day
-    lead_time_for_changes_hours: float | None  # median hours from commit to deploy
-    change_failure_rate: float | None  # percentage (0.0 - 1.0)
-    mean_time_to_recovery_hours: float | None  # median hours to recover from failure
-    classification: DoraLevel | None
-
-
-@dataclass(frozen=True)
 class DeploymentData:
-    """Input data representing a single deployment."""
+    """Input data representing a single deployment event.
+
+    Maps to columns of eng_deployments:
+        deployed_at, is_failure, recovery_time_hours
+    """
 
     deployed_at: datetime
     is_failure: bool
-    recovery_time_hours: float | None
+    recovery_time_hours: float | None  # None when is_failure=False or not yet recovered
 
 
 @dataclass(frozen=True)
 class PullRequestData:
-    """Input data representing a pull request for lead time calculation."""
+    """Input data for lead time calculation.
+
+    Maps to columns of eng_pull_requests:
+        first_commit_at, merged_at, deployed_at
+    """
 
     first_commit_at: datetime | None
     merged_at: datetime | None
-    deployed_at: datetime | None
+    deployed_at: datetime | None  # preferred endpoint; merged_at used as fallback
+
+
+@dataclass(frozen=True)
+class DoraMetrics:
+    """Fully computed DORA metrics for a team/period.
+
+    Fields:
+        deployment_frequency_per_day: deploys per calendar day.
+        deployment_frequency_per_week: convenience alias (per_day * 7).
+        lead_time_for_changes_hours: median hours from first commit to deploy
+            (or merge when deploy timestamp is absent).
+        change_failure_rate: ratio of failed deployments to total (0.0–1.0).
+        mean_time_to_recovery_hours: median recovery hours of failed deployments.
+        df_level: DORA classification for Deployment Frequency.
+        lt_level: DORA classification for Lead Time.
+        cfr_level: DORA classification for Change Failure Rate.
+        mttr_level: DORA classification for MTTR.
+        overall_level: lowest (worst) classification across all four metrics.
+    """
+
+    deployment_frequency_per_day: float | None
+    deployment_frequency_per_week: float | None
+    lead_time_for_changes_hours: float | None
+    change_failure_rate: float | None
+    mean_time_to_recovery_hours: float | None
+    df_level: DoraLevel | None
+    lt_level: DoraLevel | None
+    cfr_level: DoraLevel | None
+    mttr_level: DoraLevel | None
+    overall_level: DoraLevel | None
+
+
+# ---------------------------------------------------------------------------
+# Individual metric calculations (pure functions)
+# ---------------------------------------------------------------------------
 
 
 def calculate_deployment_frequency(
     deployments: list[DeploymentData],
     start_date: datetime,
     end_date: datetime,
-) -> float | None:
-    """Calculate deployment frequency as deploys per day.
+) -> tuple[float, float] | tuple[None, None]:
+    """Calculate deployment frequency as deploys per day and per week.
+
+    Formula:
+        freq_per_day = count(deployments in [start_date, end_date]) / period_days
+
+    Only successful deployments (is_failure=False) are counted; a deployment
+    that IS a failure means it went out and broke things — it still counts as
+    a deploy event for frequency purposes per DORA guidance.  All deployments
+    (successful or failed) count toward frequency.
 
     Args:
-        deployments: List of deployment events in the period.
+        deployments: All deployment events; filtered to period internally.
         start_date: Period start (inclusive).
         end_date: Period end (inclusive).
 
     Returns:
-        Deploys per day, or None if no data.
+        (deploys_per_day, deploys_per_week), or (None, None) when the period
+        is zero-length or no deployments exist.
     """
-    raise NotImplementedError("Phase 2: TDD — write tests first")
+    if start_date > end_date:
+        return (None, None)
+
+    period_days: float = (end_date - start_date).total_seconds() / 86_400
+    if period_days <= 0:
+        return (None, None)
+
+    # Count deployments that fall within the window
+    count = sum(
+        1
+        for d in deployments
+        if start_date <= d.deployed_at <= end_date
+    )
+
+    if count == 0:
+        return (None, None)
+
+    per_day = count / period_days
+    per_week = per_day * 7
+    return (per_day, per_week)
 
 
 def calculate_lead_time(
@@ -77,62 +155,291 @@ def calculate_lead_time(
 ) -> float | None:
     """Calculate median lead time for changes in hours.
 
-    Lead time = first commit -> deploy (or merge as fallback).
+    Formula:
+        lead_time_hours = deployed_at - first_commit_at
+                         (merged_at substituted when deployed_at is None)
+
+    PRs missing both deployed_at and merged_at, or missing first_commit_at,
+    are excluded from the calculation.
 
     Args:
-        pull_requests: List of merged/deployed PRs in the period.
+        pull_requests: Merged/deployed PRs in the measurement period.
 
     Returns:
-        Median lead time in hours, or None if no data.
+        Median lead time in hours, or None when no measurable PRs exist.
     """
-    raise NotImplementedError("Phase 2: TDD — write tests first")
+    lead_times: list[float] = []
+
+    for pr in pull_requests:
+        if pr.first_commit_at is None:
+            continue
+
+        endpoint = pr.deployed_at if pr.deployed_at is not None else pr.merged_at
+        if endpoint is None:
+            continue
+
+        delta_hours = (endpoint - pr.first_commit_at).total_seconds() / 3_600
+        if delta_hours >= 0:
+            lead_times.append(delta_hours)
+
+    if not lead_times:
+        return None
+
+    return statistics.median(lead_times)
 
 
 def calculate_change_failure_rate(
     deployments: list[DeploymentData],
 ) -> float | None:
-    """Calculate change failure rate as a ratio (0.0 - 1.0).
+    """Calculate change failure rate as a ratio (0.0–1.0).
 
-    CFR = failed deployments / total deployments.
+    Formula:
+        CFR = count(deployments WHERE is_failure=True) / count(deployments)
 
     Args:
-        deployments: List of deployments in the period.
+        deployments: All deployment events in the measurement period.
 
     Returns:
-        Failure rate ratio, or None if no deployments.
+        Failure rate as a decimal (e.g. 0.05 = 5%), or None when no
+        deployments exist.
     """
-    raise NotImplementedError("Phase 2: TDD — write tests first")
+    if not deployments:
+        return None
+
+    total = len(deployments)
+    failures = sum(1 for d in deployments if d.is_failure)
+    return failures / total
 
 
 def calculate_mttr(
     failed_deployments: list[DeploymentData],
 ) -> float | None:
-    """Calculate mean time to recovery in hours.
+    """Calculate median time to recovery in hours.
 
-    MTTR = median recovery_time_hours of failed deployments.
+    Formula:
+        MTTR = median(recovery_time_hours) for failed deployments
+               where recovery_time_hours is not None
+
+    MTTR measures how quickly the team restores service after an incident.
+    Only deployments with is_failure=True AND a recorded recovery_time_hours
+    contribute to the calculation.
 
     Args:
-        failed_deployments: Deployments where is_failure=True and recovery_time_hours is set.
+        failed_deployments: Deployment events where is_failure=True.
 
     Returns:
-        Median MTTR in hours, or None if no failures.
+        Median recovery time in hours, or None when no resolved failures exist.
     """
-    raise NotImplementedError("Phase 2: TDD — write tests first")
+    recovery_times: list[float] = [
+        d.recovery_time_hours
+        for d in failed_deployments
+        if d.is_failure and d.recovery_time_hours is not None and d.recovery_time_hours >= 0
+    ]
+
+    if not recovery_times:
+        return None
+
+    return statistics.median(recovery_times)
+
+
+# ---------------------------------------------------------------------------
+# Classification helpers
+# ---------------------------------------------------------------------------
+
+# Threshold constants mirror the DORA 2023 report exactly.
+# Values are stored as (elite_upper, high_upper, medium_upper) boundaries.
+# Anything above medium_upper is LOW.
+
+# Deployment Frequency: units are deploys/day.
+# Elite: >= 1/day  → per_day >= 1.0
+# High:  1/week–1/day → per_day in [1/7, 1)
+# Medium: 1/month–1/week → per_day in [1/30, 1/7)
+# Low: < 1/month → per_day < 1/30
+
+_DF_ELITE = 1.0        # deploys/day
+_DF_HIGH = 1.0 / 7     # ~0.143 deploys/day  (1/week)
+_DF_MEDIUM = 1.0 / 30  # ~0.033 deploys/day  (1/month)
+
+# Lead Time: units are hours.
+# Elite: < 1h
+# High:  1h–168h (1 week)
+# Medium: 168h–720h (1 month ≈ 30 days)
+# Low:  >= 720h
+
+_LT_ELITE = 1.0    # hours
+_LT_HIGH = 168.0   # hours (7 days)
+_LT_MEDIUM = 720.0 # hours (30 days)
+
+# Change Failure Rate: 0.0–1.0 ratio.
+# Elite: < 5%
+# High:  5–10%
+# Medium: 10–15%
+# Low: > 15%
+
+_CFR_ELITE = 0.05
+_CFR_HIGH = 0.10
+_CFR_MEDIUM = 0.15
+
+# MTTR: units are hours.
+# Elite: < 1h
+# High:  1h–24h
+# Medium: 24h–168h (1 week)
+# Low: >= 168h
+
+_MTTR_ELITE = 1.0    # hours
+_MTTR_HIGH = 24.0    # hours (1 day)
+_MTTR_MEDIUM = 168.0 # hours (7 days)
+
+
+def _classify_deployment_frequency(value: float) -> DoraLevel:
+    if value >= _DF_ELITE:
+        return DoraLevel.ELITE
+    if value >= _DF_HIGH:
+        return DoraLevel.HIGH
+    if value >= _DF_MEDIUM:
+        return DoraLevel.MEDIUM
+    return DoraLevel.LOW
+
+
+def _classify_lead_time(value: float) -> DoraLevel:
+    if value < _LT_ELITE:
+        return DoraLevel.ELITE
+    if value < _LT_HIGH:
+        return DoraLevel.HIGH
+    if value < _LT_MEDIUM:
+        return DoraLevel.MEDIUM
+    return DoraLevel.LOW
+
+
+def _classify_change_failure_rate(value: float) -> DoraLevel:
+    if value < _CFR_ELITE:
+        return DoraLevel.ELITE
+    if value < _CFR_HIGH:
+        return DoraLevel.HIGH
+    if value < _CFR_MEDIUM:
+        return DoraLevel.MEDIUM
+    return DoraLevel.LOW
+
+
+def _classify_mttr(value: float) -> DoraLevel:
+    if value < _MTTR_ELITE:
+        return DoraLevel.ELITE
+    if value < _MTTR_HIGH:
+        return DoraLevel.HIGH
+    if value < _MTTR_MEDIUM:
+        return DoraLevel.MEDIUM
+    return DoraLevel.LOW
+
+
+# Ordering used to determine the worst (lowest) level.
+_LEVEL_ORDER: dict[DoraLevel, int] = {
+    DoraLevel.ELITE: 3,
+    DoraLevel.HIGH: 2,
+    DoraLevel.MEDIUM: 1,
+    DoraLevel.LOW: 0,
+}
+
+
+def _worst_level(levels: list[DoraLevel]) -> DoraLevel:
+    """Return the lowest (worst) DORA level from a list."""
+    return min(levels, key=lambda lvl: _LEVEL_ORDER[lvl])
 
 
 def classify_dora(metrics: DoraMetrics) -> DoraLevel:
-    """Classify DORA performance level based on the four metrics.
+    """Classify overall DORA performance as the worst individual metric level.
 
-    Uses thresholds from the 2023 Accelerate State of DevOps Report:
-    - Elite: DF >= 1/day, LT < 1h, CFR < 5%, MTTR < 1h
-    - High: DF >= 1/week, LT < 1 day, CFR < 10%, MTTR < 1 day
-    - Medium: DF >= 1/month, LT < 1 week, CFR < 15%, MTTR < 1 week
-    - Low: everything else
+    Per DORA guidance the overall classification is the lowest (worst)
+    classification across all four metrics.  A team with Elite deployment
+    frequency but Low MTTR is classified as Low overall.
 
     Args:
-        metrics: Calculated DORA metrics.
+        metrics: Calculated DORA metrics (output of calculate_dora_metrics).
 
     Returns:
-        DoraLevel classification.
+        Overall DoraLevel.  Returns DoraLevel.LOW when no metrics are
+        available (defensive default).
     """
-    raise NotImplementedError("Phase 2: TDD — write tests first")
+    levels: list[DoraLevel] = []
+    if metrics.df_level is not None:
+        levels.append(metrics.df_level)
+    if metrics.lt_level is not None:
+        levels.append(metrics.lt_level)
+    if metrics.cfr_level is not None:
+        levels.append(metrics.cfr_level)
+    if metrics.mttr_level is not None:
+        levels.append(metrics.mttr_level)
+
+    if not levels:
+        return DoraLevel.LOW
+
+    return _worst_level(levels)
+
+
+# ---------------------------------------------------------------------------
+# Composite builder
+# ---------------------------------------------------------------------------
+
+
+def calculate_dora_metrics(
+    deployments: list[DeploymentData],
+    pull_requests: list[PullRequestData],
+    start_date: datetime,
+    end_date: datetime,
+) -> DoraMetrics:
+    """Compute all four DORA metrics and their classifications for a team/period.
+
+    This is the primary entry point for the Metrics Worker.  All inputs are
+    pre-filtered to a single (tenant, team, period) slice by the caller.
+
+    Anti-surveillance guarantee: no per-developer breakdown is returned.
+    All aggregations are at team level.
+
+    Args:
+        deployments: All deployment events in the measurement window.
+        pull_requests: All merged/deployed PRs in the measurement window.
+        start_date: Period start (inclusive) — used for frequency calculation.
+        end_date: Period end (inclusive).
+
+    Returns:
+        DoraMetrics with individual metric values, per-metric classifications,
+        and an overall classification.
+    """
+    # --- Deployment Frequency ---
+    df_per_day, df_per_week = calculate_deployment_frequency(
+        deployments, start_date, end_date
+    )
+    df_level = _classify_deployment_frequency(df_per_day) if df_per_day is not None else None
+
+    # --- Lead Time for Changes ---
+    lt_hours = calculate_lead_time(pull_requests)
+    lt_level = _classify_lead_time(lt_hours) if lt_hours is not None else None
+
+    # --- Change Failure Rate ---
+    cfr = calculate_change_failure_rate(deployments)
+    cfr_level = _classify_change_failure_rate(cfr) if cfr is not None else None
+
+    # --- MTTR ---
+    failed = [d for d in deployments if d.is_failure]
+    mttr_hours = calculate_mttr(failed)
+    mttr_level = _classify_mttr(mttr_hours) if mttr_hours is not None else None
+
+    # --- Overall classification ---
+    levels: list[DoraLevel] = [
+        lvl
+        for lvl in (df_level, lt_level, cfr_level, mttr_level)
+        if lvl is not None
+    ]
+    overall = _worst_level(levels) if levels else None
+
+    return DoraMetrics(
+        deployment_frequency_per_day=df_per_day,
+        deployment_frequency_per_week=df_per_week,
+        lead_time_for_changes_hours=lt_hours,
+        change_failure_rate=cfr,
+        mean_time_to_recovery_hours=mttr_hours,
+        df_level=df_level,
+        lt_level=lt_level,
+        cfr_level=cfr_level,
+        mttr_level=mttr_level,
+        overall_level=overall,
+    )

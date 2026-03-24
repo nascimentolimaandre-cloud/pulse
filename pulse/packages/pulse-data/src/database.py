@@ -9,12 +9,12 @@ from contextlib import asynccontextmanager
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.text import text
+from sqlalchemy import text
 
 from src.config import settings
 
 engine = create_async_engine(
-    settings.database_url,
+    settings.async_database_url,
     echo=settings.debug,
     pool_size=5,
     max_overflow=10,
