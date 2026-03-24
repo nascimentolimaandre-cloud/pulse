@@ -65,14 +65,13 @@ class MetricsWorker(BaseWorker):
 
 
 async def run_worker() -> None:
-    """Run the metrics worker as a long-lived consumer (local dev)."""
-    worker = MetricsWorker()
-    try:
-        await worker.start()
-    except NotImplementedError:
-        logger.warning("Metrics worker not yet implemented — waiting for Phase 2")
-    except KeyboardInterrupt:
-        await worker.stop()
+    """Run the metrics worker as a long-lived consumer (local dev).
+
+    Phase 1 stub: waits idle until Phase 2 implements the pipeline.
+    """
+    logger.warning("Metrics worker not yet implemented — waiting for Phase 2")
+    while True:
+        await asyncio.sleep(60)
 
 
 if __name__ == "__main__":

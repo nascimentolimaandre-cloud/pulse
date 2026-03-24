@@ -38,9 +38,16 @@ export class TenantInterceptor implements NestInterceptor {
   }
 
   private async setTenantContext(tenantId: string): Promise<void> {
+    // Validate UUID format to prevent SQL injection (SET doesn't support $1 params)
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(tenantId)) {
+      throw new Error(`Invalid tenant ID format: ${tenantId}`);
+    }
+
     const queryRunner = this.dataSource.createQueryRunner();
     try {
-      await queryRunner.query(`SET app.current_tenant = $1`, [tenantId]);
+      await queryRunner.query(`SET app.current_tenant = '${tenantId}'`);
       this.logger.debug(`RLS tenant context set: ${tenantId}`);
     } finally {
       await queryRunner.release();

@@ -59,16 +59,12 @@ class DevLakeSyncWorker:
 
 
 async def run_sync_loop() -> None:
-    """Run sync in a loop for local development (every 15 minutes)."""
-    worker = DevLakeSyncWorker()
+    """Run sync in a loop for local development (every 15 minutes).
+
+    Phase 1 stub: waits idle until Phase 2 implements the pipeline.
+    """
+    logger.warning("Sync not yet implemented — waiting for Phase 2")
     while True:
-        try:
-            result = await worker.sync()
-            logger.info("Sync completed: %s", result)
-        except NotImplementedError:
-            logger.warning("Sync not yet implemented — waiting for Phase 2")
-        except Exception:
-            logger.exception("Sync failed")
         await asyncio.sleep(900)  # 15 minutes
 
 
