@@ -48,8 +48,11 @@ export function useGlobalFilters() {
     if (startDate) params.startDate = startDate;
     if (endDate) params.endDate = endDate;
 
+    // Type assertion needed: TanStack Router's strict search param types
+    // require route-level search schema definitions (added in Phase 3).
+    // For now, we cast to allow URL sync without full route typing.
     void navigate({
-      search: params,
+      search: params as never,
       replace: true,
     });
   }, [teamId, period, startDate, endDate, navigate]);
