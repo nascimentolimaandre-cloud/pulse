@@ -140,10 +140,10 @@ class EngDeployment(TenantModel):
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # github | gitlab | azure | jenkins
     repo: Mapped[str] = mapped_column(String(512), nullable=False)
     environment: Mapped[str] = mapped_column(String(64), nullable=False)  # production | staging | dev
-    sha: Mapped[str] = mapped_column(String(64), nullable=False)
-    author: Mapped[str] = mapped_column(String(256), nullable=False)
+    sha: Mapped[str] = mapped_column(String(512), nullable=True, default="")
+    author: Mapped[str] = mapped_column(String(256), nullable=True, default="")
     is_failure: Mapped[bool] = mapped_column(Boolean, default=False)
-    deployed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     recovery_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
