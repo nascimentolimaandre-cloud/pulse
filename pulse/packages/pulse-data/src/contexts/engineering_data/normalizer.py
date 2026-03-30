@@ -80,6 +80,8 @@ def _detect_source(devlake_row: dict[str, Any]) -> str:
         return "jira"
     if "azure" in row_id.lower() or "dev.azure.com" in url.lower():
         return "azure"
+    if "jenkins" in row_id.lower() or "jenkins" in url.lower():
+        return "jenkins"
     return "unknown"
 
 
@@ -276,6 +278,15 @@ def normalize_deployment(
 ) -> dict[str, Any]:
     """Normalize a DevLake cicd_deployment_commit row into PULSE EngDeployment fields.
 
+    Handles data from GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins.
+    DevLake's Jenkins plugin normalizes builds into the same cicd_deployment_commits
+    table, so the schema is consistent — but some fields differ:
+
+    - Jenkins: `result` can be SUCCESS/FAILURE/UNSTABLE/ABORTED/NOT_BUILT
+    - Jenkins: `name` contains the job name (useful for repo/project mapping)
+    - Jenkins: `environment` is derived from deploymentPattern/productionPattern
+      configured in the scope (connections.yaml)
+
     Args:
         devlake_deploy: Raw dict from DevLake cicd_deployment_commits table.
         tenant_id: The PULSE tenant UUID.
@@ -284,7 +295,8 @@ def normalize_deployment(
         Dict matching EngDeployment model columns.
     """
     result = str(devlake_deploy.get("result", "")).upper()
-    is_failure = result in ("FAILURE", "FAILED", "ERROR")
+    # Jenkins UNSTABLE = tests failed but build completed; treat as failure for DORA CFR
+    is_failure = result in ("FAILURE", "FAILED", "ERROR", "UNSTABLE")
 
     finished_date = _parse_datetime(devlake_deploy.get("finished_date"))
     started_date = _parse_datetime(devlake_deploy.get("started_date"))
@@ -294,15 +306,24 @@ def normalize_deployment(
     if environment not in ("production", "staging", "dev", "development", "test"):
         environment = "production"
 
-    repo = _extract_repo_from_id(
-        devlake_deploy.get("repo_id"),
-        None,
-    )
+    source = _detect_source(devlake_deploy)
+
+    # For Jenkins, the job name (in `name` field) serves as a proxy for repo
+    # since Jenkins jobs are typically mapped 1:1 to repos
+    if source == "jenkins":
+        repo = str(devlake_deploy.get("name", "")) or _extract_repo_from_id(
+            devlake_deploy.get("repo_id"), None
+        )
+    else:
+        repo = _extract_repo_from_id(
+            devlake_deploy.get("repo_id"),
+            None,
+        )
 
     return {
         "external_id": str(devlake_deploy["id"]),
         "tenant_id": tenant_id,
-        "source": _detect_source(devlake_deploy),
+        "source": source,
         "repo": repo,
         "environment": environment,
         "sha": devlake_deploy.get("merge_commit_sha", devlake_deploy.get("id", "unknown")),
@@ -362,7 +383,7 @@ def normalize_sprint(
         "tenant_id": tenant_id,
         "source": _detect_source(devlake_sprint),
         "name": devlake_sprint.get("name", ""),
-        "board_id": str(devlake_sprint.get("board_id", "")),
+        "board_id": str(devlake_sprint.get("original_board_id", "")),
         "started_at": started_date,
         "completed_at": ended_date,
         "goal": None,  # Not in DevLake domain table

@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type SourceType = 'github' | 'gitlab' | 'jira' | 'azure_devops';
+export type SourceType = 'github' | 'gitlab' | 'jira' | 'azure_devops' | 'jenkins';
 export type ConnectionStatus = 'active' | 'inactive' | 'error' | 'pending';
 
 @Entity('connections')

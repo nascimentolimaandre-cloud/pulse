@@ -478,6 +478,28 @@ class TestDetectSource:
         result = normalize_pull_request(pr, TENANT_ID)
         assert result["source"] == "azure"
 
+    def test_jenkins_id_detected(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:42",
+            "result": "SUCCESS",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["source"] == "jenkins"
+
+    def test_jenkins_url_detected(self) -> None:
+        deploy = {
+            "id": "deploy-999",
+            "url": "https://jenkins.webmotors.com.br/job/deploy/42",
+            "result": "SUCCESS",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["source"] == "jenkins"
+
     def test_unknown_source_returns_unknown(self) -> None:
         pr = {
             "id": "custom:Thing:1",
@@ -486,3 +508,105 @@ class TestDetectSource:
         }
         result = normalize_pull_request(pr, TENANT_ID)
         assert result["source"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Jenkins-specific deployment normalization
+# ---------------------------------------------------------------------------
+
+
+class TestJenkinsDeploymentNormalization:
+    """Tests for Jenkins-specific behavior in normalize_deployment."""
+
+    def test_jenkins_success_is_not_failure(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:100",
+            "result": "SUCCESS",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["is_failure"] is False
+        assert result["source"] == "jenkins"
+
+    def test_jenkins_failure_is_failure(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:101",
+            "result": "FAILURE",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["is_failure"] is True
+
+    def test_jenkins_unstable_is_failure(self) -> None:
+        """Jenkins UNSTABLE means tests failed — should count as failure for DORA CFR."""
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:102",
+            "result": "UNSTABLE",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["is_failure"] is True
+
+    def test_jenkins_aborted_is_not_failure(self) -> None:
+        """Jenkins ABORTED means manually cancelled — not a failure for DORA."""
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:103",
+            "result": "ABORTED",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["is_failure"] is False
+
+    def test_jenkins_job_name_used_as_repo(self) -> None:
+        """For Jenkins, the job name serves as repo identifier."""
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:200",
+            "result": "SUCCESS",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["repo"] == "webmotors-next-ui/deploy"
+
+    def test_jenkins_empty_name_falls_back_to_repo_id(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:201",
+            "result": "SUCCESS",
+            "environment": "staging",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "",
+            "repo_id": "jenkins:JenkinsJob:1",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["repo"] == "jenkins:JenkinsJob:1"
+
+    def test_jenkins_production_environment_preserved(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:300",
+            "result": "SUCCESS",
+            "environment": "production",
+            "finished_date": "2024-01-15T12:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["environment"] == "production"
+
+    def test_jenkins_staging_environment_preserved(self) -> None:
+        deploy = {
+            "id": "jenkins:JenkinsJob:1:301",
+            "result": "SUCCESS",
+            "environment": "staging",
+            "finished_date": "2024-01-16T10:00:00Z",
+            "name": "webmotors-next-ui/deploy",
+        }
+        result = normalize_deployment(deploy, TENANT_ID)
+        assert result["environment"] == "staging"

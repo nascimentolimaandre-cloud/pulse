@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "generated": "2026-03-27",
+    "method": "READ-ONLY scan of 1404 Jenkins jobs via lastBuild API",
+    "note": "Maps GitHub repos to Jenkins jobs by reading Git remoteUrls from build metadata"
+  },
+  "webmotors-private/webmotors.pf": {
+    "prd_jobs": ["android-pf-prd-firebase", "android-pf-prd-playstore", "ios-pf-prd-firebase", "ios-pf-prd-testflight", "web-cms-pf-prd", "webservicos-web-prd"],
+    "all_jobs": ["android-pf-hk-firebase", "android-pf-prd-firebase", "android-pf-prd-playstore", "android-pf-prd-promotion", "build-webservicos-all-platforms", "ios-pf-hk-firebase", "ios-pf-prd-firebase", "ios-pf-prd-promotion", "ios-pf-prd-testflight", "pf-check-sonar-coverage", "web-cms-pf-hml", "web-cms-pf-prd", "webservicos-check-sonar-coverage", "webservicos-web-azl", "webservicos-web-dev", "webservicos-web-hml", "webservicos-web-prd"]
+  },
+  "webmotors-private/webmotors.next.ui": {
+    "prd_jobs": ["prd-wm-buyer-home-frontend-ui", "prd-wm-buyer-search-frontend-ui", "prd-wm-buyer-subscriptions-frontend-ui"],
+    "all_jobs": ["azl-wm-buyer-home-frontend-ui", "azl-wm-buyer-search-frontend-ui", "hml-wm-buyer-home-frontend-ui", "hml-wm-buyer-search-frontend-ui", "hml-wm-buyer-subscriptions-frontend-ui", "prd-wm-buyer-home-frontend-ui", "prd-wm-buyer-search-frontend-ui", "prd-wm-buyer-subscriptions-frontend-ui"]
+  },
+  "webmotors-private/webmotors.buyer.desktop.ui": {
+    "prd_jobs": ["prd-wm-buyer-lambda-desktop-ui"],
+    "all_jobs": ["azl-wm-buyer-lambda-desktop-ui", "azl-wm-buyer-lambda-desktop-ui-rollback", "hml-wm-buyer-lambda-desktop-ui", "hml-wm-buyer-lambda-desktop-ui-nodejs20", "hml-wm-buyer-lambda-desktop-ui-rollback", "prd-wm-buyer-lambda-desktop-ui", "prd-wm-buyer-lambda-desktop-ui-rollback"]
+  },
+  "webmotors-private/webmotors.portal.ui": {
+    "prd_jobs": ["prd-wm-buyer-lambda-home-ui"],
+    "all_jobs": ["azl-wm-buyer-lambda-home-ui", "hml-wm-buyer-lambda-home-ui", "prd-wm-buyer-lambda-home-ui"]
+  },
+  "webmotors-private/webmotors.buyer.ui": {
+    "prd_jobs": ["prd-wm-buyer-lambda-mobile-ui"],
+    "all_jobs": ["azl-wm-buyer-lambda-mobile-ui", "azl-wm-buyer-lambda-mobile-ui-rollback", "hml-wm-buyer-lambda-mobile-ui", "hml-wm-buyer-lambda-mobile-ui-rollback", "prd-wm-buyer-lambda-mobile-ui", "prd-wm-buyer-lambda-mobile-ui-rollback"]
+  },
+  "webmotors-private/webmotors.catalogo.next.ui": {
+    "prd_jobs": ["catalogo-next-ui-prd"],
+    "all_jobs": ["catalogo-next-ui-azl", "catalogo-next-ui-hml", "catalogo-next-ui-prd"]
+  },
+  "webmotors-private/webmotors.fipe.next.ui": {
+    "prd_jobs": ["fipe-next-ui-prd"],
+    "all_jobs": ["fipe-lambda-edge-hml", "fipe-next-ui-azl", "fipe-next-ui-hml", "fipe-next-ui-prd"]
+  },
+  "webmotors-private/webmotors.app.pf.search.bff": {
+    "prd_jobs": ["webmotors-app-api-search-bff"],
+    "all_jobs": ["webmotors-app-api-search-bff"]
+  },
+  "webmotors-private/eleanor.flutter": {
+    "prd_jobs": ["webmotors-eleanor-flutter"],
+    "all_jobs": ["webmotors-eleanor-flutter"]
+  }
+}

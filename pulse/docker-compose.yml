@@ -26,6 +26,9 @@ services:
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
       JIRA_EMAIL: ${JIRA_EMAIL:-}
       AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      JENKINS_BASE_URL: ${JENKINS_BASE_URL:-}
+      JENKINS_USERNAME: ${JENKINS_USERNAME:-}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
     volumes:
       - ./packages/pulse-api/src:/app/src
       - ./config/connections.yaml:/app/config/connections.yaml:ro

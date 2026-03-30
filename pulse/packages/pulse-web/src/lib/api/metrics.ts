@@ -1,4 +1,9 @@
 import { dataClient } from './client';
+import {
+  transformHomeMetrics,
+  transformCycleTime,
+  transformThroughput,
+} from './transforms';
 import type {
   DoraMetrics,
   CycleTimeBreakdown,
@@ -19,9 +24,12 @@ export interface MetricsQueryParams {
 
 function buildParams(params: MetricsQueryParams): Record<string, string> {
   const result: Record<string, string> = {
-    team_id: params.teamId,
     period: params.period,
   };
+  // Only send team_id if it's a real UUID (not the "default" placeholder)
+  if (params.teamId && params.teamId !== 'default') {
+    result.team_id = params.teamId;
+  }
   if (params.startDate) result.start_date = params.startDate;
   if (params.endDate) result.end_date = params.endDate;
   return result;
@@ -35,17 +43,19 @@ export async function fetchDoraMetrics(params: MetricsQueryParams): Promise<Dora
 }
 
 export async function fetchCycleTime(params: MetricsQueryParams): Promise<CycleTimeBreakdown> {
-  const response = await dataClient.get<CycleTimeBreakdown>('/metrics/cycle-time', {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await dataClient.get<any>('/metrics/cycle-time', {
     params: buildParams(params),
   });
-  return response.data;
+  return transformCycleTime(response.data);
 }
 
 export async function fetchThroughput(params: MetricsQueryParams): Promise<ThroughputResponse> {
-  const response = await dataClient.get<ThroughputResponse>('/metrics/throughput', {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await dataClient.get<any>('/metrics/throughput', {
     params: buildParams(params),
   });
-  return response.data;
+  return transformThroughput(response.data);
 }
 
 export async function fetchLeanMetrics(params: MetricsQueryParams): Promise<LeanMetrics> {
@@ -70,10 +80,11 @@ export async function fetchOpenPullRequests(params: MetricsQueryParams): Promise
 }
 
 export async function fetchHomeMetrics(params: MetricsQueryParams): Promise<HomeMetrics> {
-  const response = await dataClient.get<HomeMetrics>('/metrics/home', {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await dataClient.get<any>('/metrics/home', {
     params: buildParams(params),
   });
-  return response.data;
+  return transformHomeMetrics(response.data);
 }
 
 export async function fetchIntegrations(): Promise<Integration[]> {

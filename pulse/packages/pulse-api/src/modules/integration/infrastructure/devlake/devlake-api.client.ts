@@ -52,15 +52,25 @@ export class DevLakeApiClient {
     name: string,
     endpoint: string,
     token: string,
+    options?: {
+      username?: string;
+    },
   ): Promise<DevLakeConnection> {
     this.logger.log(`Creating DevLake connection: ${plugin}/${name}`);
+
+    // Jenkins plugin uses username + token (Basic Auth), not bearer token
+    const body: Record<string, unknown> = { name, endpoint };
+
+    if (plugin === 'jenkins') {
+      body.username = options?.username ?? '';
+      body.password = token; // Jenkins API token goes in password field
+    } else {
+      body.token = token;
+    }
+
     const response = await this.client.post<DevLakeConnection>(
       `/plugins/${plugin}/connections`,
-      {
-        name,
-        endpoint,
-        token,
-      },
+      body,
     );
     return response.data;
   }

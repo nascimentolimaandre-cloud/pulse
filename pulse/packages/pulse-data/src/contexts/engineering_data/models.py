@@ -137,7 +137,7 @@ class EngDeployment(TenantModel):
     )
 
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    source: Mapped[str] = mapped_column(String(32), nullable=False)  # github | gitlab | azure
+    source: Mapped[str] = mapped_column(String(32), nullable=False)  # github | gitlab | azure | jenkins
     repo: Mapped[str] = mapped_column(String(512), nullable=False)
     environment: Mapped[str] = mapped_column(String(64), nullable=False)  # production | staging | dev
     sha: Mapped[str] = mapped_column(String(64), nullable=False)

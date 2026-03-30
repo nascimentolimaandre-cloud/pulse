@@ -81,9 +81,44 @@ async def _get_latest_snapshot(
             tenant_id=tenant_id,
             metric_type=metric_type,
             team_id=team_id,
-            limit=1,
+            limit=20,
         )
-        return snapshots[0] if snapshots else None
+        for snap in snapshots:
+            if snap.metric_name == metric_name:
+                return snap
+        return None
+
+
+async def _get_all_latest_snapshots(
+    tenant_id: UUID,
+    metric_type: str,
+    team_id: UUID | None,
+) -> dict[str, dict[str, Any]]:
+    """Fetch latest snapshots for all metric_names of a given type.
+
+    Returns a dict keyed by metric_name, each containing the snapshot's
+    value, calculated_at, period_start, and period_end.
+    The worker stores individual metric_names (e.g. "breakdown", "trend")
+    rather than a single "all" snapshot, so this helper collects them.
+    """
+    async with get_session(tenant_id) as session:
+        repo = MetricsRepository(session)
+        snapshots = await repo.get_latest_snapshots(
+            tenant_id=tenant_id,
+            metric_type=metric_type,
+            team_id=team_id,
+            limit=20,
+        )
+        result: dict[str, dict[str, Any]] = {}
+        for snap in snapshots:
+            if snap.metric_name not in result:  # keep latest only
+                result[snap.metric_name] = {
+                    "value": snap.value,
+                    "calculated_at": snap.calculated_at,
+                    "period_start": snap.period_start,
+                    "period_end": snap.period_end,
+                }
+        return result
 
 
 async def _get_snapshot_by_period(
@@ -109,14 +144,17 @@ async def _get_snapshot_by_period(
         if snapshot:
             return snapshot
 
-        # Fall back to the latest snapshot for this metric type
+        # Fall back to the latest snapshot for this metric type/name
         snapshots = await repo.get_latest_snapshots(
             tenant_id=tenant_id,
             metric_type=metric_type,
             team_id=team_id,
-            limit=1,
+            limit=20,
         )
-        return snapshots[0] if snapshots else None
+        for snap in snapshots:
+            if snap.metric_name == metric_name:
+                return snap
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -246,16 +284,14 @@ async def get_cycle_time_metrics(
     """Get cycle time breakdown and trend."""
     period_start, period_end = _parse_period(period)
 
-    snapshot = await _get_snapshot_by_period(
+    # Worker writes separate snapshots: (cycle_time, breakdown) and (cycle_time, trend)
+    all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
         metric_type="cycle_time",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
         team_id=team_id,
     )
 
-    if not snapshot:
+    if not all_snaps:
         return CycleTimeResponse(
             period=period,
             period_start=period_start,
@@ -265,22 +301,37 @@ async def get_cycle_time_metrics(
             data=CycleTimeMetricsData(),
         )
 
-    value = snapshot.value or {}
+    breakdown_snap = all_snaps.get("breakdown", {})
+    trend_snap = all_snaps.get("trend", {})
 
-    breakdown_raw = value.get("breakdown")
+    breakdown_raw = breakdown_snap.get("value") if breakdown_snap else None
     breakdown = None
     if breakdown_raw and isinstance(breakdown_raw, dict):
         breakdown = CycleTimeBreakdownData(**breakdown_raw)
+
+    # trend snapshot value is {"points": [...]}, schema expects the list directly
+    trend_raw = trend_snap.get("value") if trend_snap else None
+    trend_value = None
+    if isinstance(trend_raw, dict):
+        trend_value = trend_raw.get("points")
+    elif isinstance(trend_raw, list):
+        trend_value = trend_raw
+
+    # Pick the most recent calculated_at across sub-snapshots
+    calc_times = [
+        s["calculated_at"] for s in all_snaps.values() if s.get("calculated_at")
+    ]
+    latest_calc = max(calc_times) if calc_times else None
 
     return CycleTimeResponse(
         period=period,
         period_start=period_start,
         period_end=period_end,
         team_id=team_id,
-        calculated_at=snapshot.calculated_at,
+        calculated_at=latest_calc,
         data=CycleTimeMetricsData(
             breakdown=breakdown,
-            trend=value.get("trend"),
+            trend=trend_value,
         ),
     )
 
@@ -299,16 +350,14 @@ async def get_throughput_metrics(
     """Get throughput trend and PR analytics."""
     period_start, period_end = _parse_period(period)
 
-    snapshot = await _get_snapshot_by_period(
+    # Worker writes separate snapshots: (throughput, trend) and (throughput, pr_analytics)
+    all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
         metric_type="throughput",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
         team_id=team_id,
     )
 
-    if not snapshot:
+    if not all_snaps:
         return ThroughputResponse(
             period=period,
             period_start=period_start,
@@ -318,17 +367,34 @@ async def get_throughput_metrics(
             data=ThroughputMetricsData(),
         )
 
-    value = snapshot.value or {}
+    trend_snap = all_snaps.get("trend", {})
+    pr_snap = all_snaps.get("pr_analytics", {})
+
+    # trend snapshot value is {"points": [...]}, schema expects the list directly
+    trend_raw = trend_snap.get("value") if trend_snap else None
+    trend_value = None
+    if isinstance(trend_raw, dict):
+        trend_value = trend_raw.get("points")
+    elif isinstance(trend_raw, list):
+        trend_value = trend_raw
+
+    pr_value = pr_snap.get("value") if pr_snap else None
+
+    # Pick the most recent calculated_at across sub-snapshots
+    calc_times = [
+        s["calculated_at"] for s in all_snaps.values() if s.get("calculated_at")
+    ]
+    latest_calc = max(calc_times) if calc_times else None
 
     return ThroughputResponse(
         period=period,
         period_start=period_start,
         period_end=period_end,
         team_id=team_id,
-        calculated_at=snapshot.calculated_at,
+        calculated_at=latest_calc,
         data=ThroughputMetricsData(
-            trend=value.get("trend"),
-            pr_analytics=value.get("pr_analytics"),
+            trend=trend_value,
+            pr_analytics=pr_value,
         ),
     )
 
@@ -403,59 +469,43 @@ async def get_home_metrics(
     """
     period_start, period_end = _parse_period(period)
 
-    # Fetch all relevant snapshots in parallel-ish (sequential but reuses connection pool)
-    dora_snapshot = await _get_snapshot_by_period(
-        tenant_id=tenant_id,
-        metric_type="dora",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
-        team_id=team_id,
+    # Fetch latest snapshots for each metric type individually.
+    # Worker writes individual metric_names, not a single "all" snapshot.
+    dora_snaps = await _get_all_latest_snapshots(
+        tenant_id=tenant_id, metric_type="dora", team_id=team_id,
     )
-    lean_snapshot = await _get_snapshot_by_period(
-        tenant_id=tenant_id,
-        metric_type="lean",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
-        team_id=team_id,
+    lean_snaps = await _get_all_latest_snapshots(
+        tenant_id=tenant_id, metric_type="lean", team_id=team_id,
     )
-    cycle_time_snapshot = await _get_snapshot_by_period(
-        tenant_id=tenant_id,
-        metric_type="cycle_time",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
-        team_id=team_id,
+    ct_snaps = await _get_all_latest_snapshots(
+        tenant_id=tenant_id, metric_type="cycle_time", team_id=team_id,
     )
-    throughput_snapshot = await _get_snapshot_by_period(
-        tenant_id=tenant_id,
-        metric_type="throughput",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
-        team_id=team_id,
+    tp_snaps = await _get_all_latest_snapshots(
+        tenant_id=tenant_id, metric_type="throughput", team_id=team_id,
     )
 
-    # Build home cards from snapshot values
-    dora_val = (dora_snapshot.value or {}) if dora_snapshot else {}
-    lean_val = (lean_snapshot.value or {}) if lean_snapshot else {}
-    ct_val = (cycle_time_snapshot.value or {}) if cycle_time_snapshot else {}
-    tp_val = (throughput_snapshot.value or {}) if throughput_snapshot else {}
+    # Extract values from individual snapshots
+    # DORA: may have "all" or individual metric names -- not in DB yet, safe defaults
+    dora_all = dora_snaps.get("all", {}).get("value", {}) if dora_snaps.get("all") else {}
 
-    # Extract cycle time P50 from breakdown
-    ct_breakdown = ct_val.get("breakdown", {}) or {}
-    ct_p50 = ct_breakdown.get("total_p50") if isinstance(ct_breakdown, dict) else None
+    # Cycle time: breakdown snapshot contains total_p50
+    ct_breakdown_val = ct_snaps.get("breakdown", {}).get("value", {}) if ct_snaps.get("breakdown") else {}
+    ct_p50 = ct_breakdown_val.get("total_p50") if isinstance(ct_breakdown_val, dict) else None
 
-    # Extract throughput: total merged from pr_analytics
-    tp_analytics = tp_val.get("pr_analytics", {}) or {}
-    tp_total = tp_analytics.get("total_merged") if isinstance(tp_analytics, dict) else None
+    # Throughput: pr_analytics snapshot contains total_merged
+    tp_analytics_val = tp_snaps.get("pr_analytics", {}).get("value", {}) if tp_snaps.get("pr_analytics") else {}
+    tp_total = tp_analytics_val.get("total_merged") if isinstance(tp_analytics_val, dict) else None
+
+    # Lean: wip value
+    lean_all = lean_snaps.get("all", {}).get("value", {}) if lean_snaps.get("all") else {}
+    lean_wip = lean_all.get("wip")
 
     # Determine the latest calculated_at across all snapshots
     timestamps = [
-        s.calculated_at
-        for s in (dora_snapshot, lean_snapshot, cycle_time_snapshot, throughput_snapshot)
-        if s and s.calculated_at
+        s["calculated_at"]
+        for snaps in (dora_snaps, lean_snaps, ct_snaps, tp_snaps)
+        for s in snaps.values()
+        if s.get("calculated_at")
     ]
     latest_calc = max(timestamps) if timestamps else None
 
@@ -467,32 +517,32 @@ async def get_home_metrics(
         calculated_at=latest_calc,
         data=HomeMetricsData(
             deployment_frequency=HomeMetricCard(
-                value=dora_val.get("deployment_frequency_per_day"),
+                value=dora_all.get("deployment_frequency_per_day"),
                 unit="deploys/day",
-                level=dora_val.get("df_level"),
+                level=dora_all.get("df_level"),
             ),
             lead_time=HomeMetricCard(
-                value=dora_val.get("lead_time_for_changes_hours"),
+                value=dora_all.get("lead_time_for_changes_hours"),
                 unit="hours",
-                level=dora_val.get("lt_level"),
+                level=dora_all.get("lt_level"),
             ),
             change_failure_rate=HomeMetricCard(
-                value=dora_val.get("change_failure_rate"),
+                value=dora_all.get("change_failure_rate"),
                 unit="ratio",
-                level=dora_val.get("cfr_level"),
+                level=dora_all.get("cfr_level"),
             ),
             cycle_time=HomeMetricCard(
                 value=ct_p50,
                 unit="hours",
             ),
             wip=HomeMetricCard(
-                value=lean_val.get("wip"),
+                value=lean_wip,
                 unit="items",
             ),
             throughput=HomeMetricCard(
                 value=tp_total,
                 unit="PRs merged",
             ),
-            overall_dora_level=dora_val.get("overall_level"),
+            overall_dora_level=dora_all.get("overall_level"),
         ),
     )

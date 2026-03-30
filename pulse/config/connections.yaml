@@ -8,13 +8,13 @@
 # ===========================================================================
 
 organization:
-  name: "Acme Corp"
-  slug: "acme-corp"
+  name: "Webmotors"
+  slug: "webmotors"
   plan: "team"
 
 # Source system connections
 connections:
-  - name: "Acme GitHub"
+  - name: "Webmotors GitHub"
     source: github
     # Token resolved from environment variable GITHUB_TOKEN
     token_env: GITHUB_TOKEN
@@ -22,41 +22,110 @@ connections:
     sync_interval_minutes: 15
     scope:
       repositories:
-        - "acme-corp/backend-api"
-        - "acme-corp/frontend-app"
-        - "acme-corp/shared-libs"
+        - "webmotors-private/webmotors.next.ui"
+        - "webmotors-private/webmotors.portal.ui"
+        - "webmotors-private/webmotors.buyer.ui"
+        - "webmotors-private/webmotors.buyer.desktop.ui"
+        - "webmotors-private/webmotors.catalogo.next.ui"
+        - "webmotors-private/webmotors.fipe.next.ui"
+        - "webmotors-private/webmotors.pf"
+        - "webmotors-private/eleanor.flutter"
+        - "webmotors-private/webmotors.app.pf.search.bff"
 
-  - name: "Acme Jira"
-    source: jira
-    # Token resolved from JIRA_API_TOKEN env var
-    token_env: JIRA_API_TOKEN
-    email_env: JIRA_EMAIL
-    base_url: https://acme-corp.atlassian.net
+  - name: "Webmotors Jenkins"
+    source: jenkins
+    # Credentials resolved from environment variables
+    username_env: JENKINS_USERNAME
+    token_env: JENKINS_API_TOKEN
+    base_url: ${JENKINS_BASE_URL}
     sync_interval_minutes: 15
     scope:
-      projects:
-        - "BACK"
-        - "FRONT"
+      # Auto-mapped 2026-03-27 by scanning 1404 Jenkins jobs (READ-ONLY).
+      # Each job's lastBuild → BuildData → remoteUrls was matched to our 9 GitHub repos.
+      # Only PRD (production) jobs are included — for DORA Deployment Frequency.
+      # Full mapping saved in config/jenkins-job-mapping.json.
+      #
+      # Since these ARE production jobs (job name contains "prd"), every build
+      # counts as a production deployment. deploymentPattern matches all builds;
+      # productionPattern matches the job name itself (always "prd").
+      jobs:
+        # ── webmotors.next.ui (3 PRD jobs) ─────────────────
+        - fullName: "prd-wm-buyer-home-frontend-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "prd-wm-buyer-search-frontend-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "prd-wm-buyer-subscriptions-frontend-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.portal.ui (1 PRD job) ────────────────
+        - fullName: "prd-wm-buyer-lambda-home-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.buyer.ui (1 PRD job) ─────────────────
+        - fullName: "prd-wm-buyer-lambda-mobile-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.buyer.desktop.ui (1 PRD job) ─────────
+        - fullName: "prd-wm-buyer-lambda-desktop-ui"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.catalogo.next.ui (1 PRD job) ─────────
+        - fullName: "catalogo-next-ui-prd"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.fipe.next.ui (1 PRD job) ─────────────
+        - fullName: "fipe-next-ui-prd"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── webmotors.pf (6 PRD jobs: android, iOS, web) ───
+        - fullName: "android-pf-prd-firebase"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "android-pf-prd-playstore"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "ios-pf-prd-firebase"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "ios-pf-prd-testflight"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "web-cms-pf-prd"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        - fullName: "webservicos-web-prd"
+          deploymentPattern: ".*"
+          productionPattern: "(?i)prd"
+        # ── eleanor.flutter (1 job — no env suffix) ────────
+        - fullName: "webmotors-eleanor-flutter"
+          deploymentPattern: ".*"
+          productionPattern: ".*"
+        # ── webmotors.app.pf.search.bff (1 job — no env suffix)
+        - fullName: "webmotors-app-api-search-bff"
+          deploymentPattern: ".*"
+          productionPattern: ".*"
 
 # Team definitions and their mappings to source system projects
 teams:
-  - name: "Platform Team"
-    slug: "platform-team"
+  - name: "Canais Digitais Web"
+    slug: "canais-digitais-web"
     mappings:
       github:
         repositories:
-          - "acme-corp/backend-api"
-          - "acme-corp/shared-libs"
-      jira:
-        projects:
-          - "BACK"
+          - "webmotors-private/webmotors.next.ui"
+          - "webmotors-private/webmotors.portal.ui"
+          - "webmotors-private/webmotors.buyer.ui"
+          - "webmotors-private/webmotors.buyer.desktop.ui"
+          - "webmotors-private/webmotors.catalogo.next.ui"
+          - "webmotors-private/webmotors.fipe.next.ui"
 
-  - name: "Product Team"
-    slug: "product-team"
+  - name: "Canais Digitais App"
+    slug: "canais-digitais-app"
     mappings:
       github:
         repositories:
-          - "acme-corp/frontend-app"
-      jira:
-        projects:
-          - "FRONT"
+          - "webmotors-private/webmotors.pf"
+          - "webmotors-private/eleanor.flutter"
+          - "webmotors-private/webmotors.app.pf.search.bff"

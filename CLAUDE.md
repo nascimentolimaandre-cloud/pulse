@@ -1,5 +1,9 @@
 # PULSE — Engineering Intelligence Platform
 
+## CRITICAL SAFETY RULES
+
+**NEVER modify, trigger, create, delete, or execute ANY action on external systems (Jenkins, Jira, GitHub, DevLake instances, etc.) in production or staging environments.** PULSE agents are READ-ONLY consumers of external systems. All interactions with Jenkins, Jira, GitHub APIs etc. must be limited to **read/query operations only** (GET requests, API reads, listing jobs, fetching build info). Never POST, PUT, DELETE, or trigger builds/pipelines/deployments on any external system.
+
 ## Project Overview
 
 PULSE is an Engineering Intelligence SaaS providing DORA, Lean/Agile, and Sprint analytics. The project has two parallel workstreams: a high-fidelity HTML/CSS/JS prototype and a full production stack.

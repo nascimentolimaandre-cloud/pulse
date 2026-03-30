@@ -6,7 +6,7 @@ and calculated_at timestamp. Otherwise, it inserts a new row.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +16,19 @@ from src.contexts.metrics.infrastructure.models import MetricsSnapshot
 from src.database import get_session
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert date/datetime objects to ISO strings for JSONB storage."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(item) for item in obj]
+    return obj
 
 
 async def write_snapshot(
@@ -42,6 +55,7 @@ async def write_snapshot(
         period_end: End of the measurement period.
     """
     now = datetime.now(timezone.utc)
+    safe_value = _json_safe(value)
 
     async with get_session(tenant_id) as session:
         stmt = (
@@ -51,7 +65,7 @@ async def write_snapshot(
                 team_id=team_id,
                 metric_type=metric_type,
                 metric_name=metric_name,
-                value=value,
+                value=safe_value,
                 period_start=period_start,
                 period_end=period_end,
                 calculated_at=now,
@@ -59,9 +73,9 @@ async def write_snapshot(
                 updated_at=now,
             )
             .on_conflict_do_update(
-                constraint="uq_metrics_snapshot_key",
+                index_elements=["tenant_id", "team_id", "metric_type", "metric_name", "period_start", "period_end"],
                 set_={
-                    "value": value,
+                    "value": safe_value,
                     "calculated_at": now,
                     "updated_at": now,
                 },
@@ -109,6 +123,7 @@ async def write_snapshots_batch(
     for tenant_id, tenant_snaps in by_tenant.items():
         async with get_session(tenant_id) as session:
             for snap in tenant_snaps:
+                safe_value = _json_safe(snap["value"])
                 stmt = (
                     pg_insert(MetricsSnapshot)
                     .values(
@@ -116,7 +131,7 @@ async def write_snapshots_batch(
                         team_id=snap.get("team_id"),
                         metric_type=snap["metric_type"],
                         metric_name=snap["metric_name"],
-                        value=snap["value"],
+                        value=safe_value,
                         period_start=snap["period_start"],
                         period_end=snap["period_end"],
                         calculated_at=now,
@@ -124,9 +139,9 @@ async def write_snapshots_batch(
                         updated_at=now,
                     )
                     .on_conflict_do_update(
-                        constraint="uq_metrics_snapshot_key",
+                        index_elements=["tenant_id", "team_id", "metric_type", "metric_name", "period_start", "period_end"],
                         set_={
-                            "value": snap["value"],
+                            "value": safe_value,
                             "calculated_at": now,
                             "updated_at": now,
                         },

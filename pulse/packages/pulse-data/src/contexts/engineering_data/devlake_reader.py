@@ -132,17 +132,15 @@ class DevLakeReader:
         """Fetch sprints from DevLake domain table."""
         base = """
             SELECT
-                s.id, s.board_id, s.name, s.url, s.status,
-                s.started_date, s.ended_date,
-                COUNT(si.issue_id) AS total_issues,
-                b.name AS board_name
+                s.id, s.original_board_id, s.name, s.url, s.status,
+                s.started_date, s.ended_date, s.completed_date,
+                COUNT(si.issue_id) AS total_issues
             FROM sprints s
             LEFT JOIN sprint_issues si ON si.sprint_id = s.id
-            LEFT JOIN boards b ON b.id = s.board_id
         """
         group_order = """
-            GROUP BY s.id, s.board_id, s.name, s.url, s.status,
-                     s.started_date, s.ended_date, b.name
+            GROUP BY s.id, s.original_board_id, s.name, s.url, s.status,
+                     s.started_date, s.ended_date, s.completed_date
             ORDER BY s.started_date DESC NULLS LAST
             LIMIT 500
         """

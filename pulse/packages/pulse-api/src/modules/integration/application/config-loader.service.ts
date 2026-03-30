@@ -22,13 +22,28 @@ interface ConnectionConfig {
   name: string;
   source: SourceType;
   token_env: string;
-  email_env?: string;
+  username_env?: string;
   base_url: string;
   sync_interval_minutes: number;
   scope: {
     repositories?: string[];
     projects?: string[];
+    jobs?: JenkinsJobScope[];
   };
+}
+
+/**
+ * Jenkins job scope configuration.
+ * Each job needs its own deploymentPattern and productionPattern
+ * because Webmotors has no standard pipeline naming convention.
+ */
+interface JenkinsJobScope {
+  /** Full job path (e.g., "folder/job-name" or just "job-name") */
+  fullName: string;
+  /** Regex to identify deployment runs (e.g., "(?i)deploy|release") */
+  deploymentPattern?: string;
+  /** Regex to identify production deployments (e.g., "(?i)prod|production") */
+  productionPattern?: string;
 }
 
 interface TeamConfig {
@@ -61,6 +76,7 @@ const SOURCE_TO_PLUGIN: Record<string, string> = {
   gitlab: 'gitlab',
   jira: 'jira',
   azure_devops: 'azuredevops',
+  jenkins: 'jenkins',
 };
 
 /**
@@ -240,11 +256,18 @@ export class ConfigLoaderService implements OnModuleInit {
       // Create DevLake connection
       const plugin = SOURCE_TO_PLUGIN[conn.source] ?? conn.source;
       try {
+        // Jenkins requires username + token (Basic Auth)
+        const connectionOptions: { username?: string } = {};
+        if (conn.source === 'jenkins' && conn.username_env) {
+          connectionOptions.username = process.env[conn.username_env] ?? '';
+        }
+
         const devlakeConn = await this.devLakeClient.createConnection(
           plugin,
           conn.name,
           conn.base_url,
           token,
+          connectionOptions,
         );
 
         this.logger.log(
@@ -379,6 +402,19 @@ export class ConfigLoaderService implements OnModuleInit {
           scopes.push({
             scopeId: project,
             scopeName: project,
+          });
+        }
+      }
+      // Jenkins jobs with per-job deployment/production patterns
+      if (conn.scope.jobs) {
+        for (const job of conn.scope.jobs) {
+          scopes.push({
+            scopeId: job.fullName,
+            scopeName: job.fullName,
+            transformationRules: {
+              deploymentPattern: job.deploymentPattern ?? '',
+              productionPattern: job.productionPattern ?? '',
+            },
           });
         }
       }

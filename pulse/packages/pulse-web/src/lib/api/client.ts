@@ -18,7 +18,7 @@ export const apiClient = axios.create({
  * Proxied via Vite dev server: /data -> localhost:8000
  */
 export const dataClient = axios.create({
-  baseURL: '/data',
+  baseURL: '/data/v1',
   timeout: 30_000,
   headers: {
     'Content-Type': 'application/json',
