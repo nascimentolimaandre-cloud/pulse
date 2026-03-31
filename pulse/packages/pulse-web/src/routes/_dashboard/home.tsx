@@ -59,6 +59,8 @@ function HomePage() {
               unit={data.deploymentFrequency.unit}
               trend={data.deploymentFrequency.trend}
               sparklineData={data.deploymentFrequency.sparklineData}
+              classification={data.deploymentFrequency.classification}
+              benchmarks={data.deploymentFrequency.benchmarks}
               tooltipContent="How often your team deploys to production"
             />
             <MetricCard
@@ -67,6 +69,8 @@ function HomePage() {
               unit={data.leadTimeForChanges.unit}
               trend={data.leadTimeForChanges.trend}
               sparklineData={data.leadTimeForChanges.sparklineData}
+              classification={data.leadTimeForChanges.classification}
+              benchmarks={data.leadTimeForChanges.benchmarks}
               tooltipContent="Time from commit to production deploy"
             />
             <MetricCard
@@ -75,6 +79,8 @@ function HomePage() {
               unit={data.changeFailureRate.unit}
               trend={data.changeFailureRate.trend}
               sparklineData={data.changeFailureRate.sparklineData}
+              classification={data.changeFailureRate.classification}
+              benchmarks={data.changeFailureRate.benchmarks}
               tooltipContent="Percentage of deployments causing failures"
             />
             <MetricCard
@@ -83,6 +89,8 @@ function HomePage() {
               unit={data.cycleTime.unit}
               trend={data.cycleTime.trend}
               sparklineData={data.cycleTime.sparklineData}
+              classification={data.cycleTime.classification}
+              benchmarks={data.cycleTime.benchmarks}
               tooltipContent="Median time from first commit to merge"
             />
             <MetricCard
@@ -91,6 +99,8 @@ function HomePage() {
               unit={data.wipCount.unit}
               trend={data.wipCount.trend}
               sparklineData={data.wipCount.sparklineData}
+              classification={data.wipCount.classification}
+              benchmarks={data.wipCount.benchmarks}
               tooltipContent="Items currently in progress"
             />
             <MetricCard
@@ -99,6 +109,8 @@ function HomePage() {
               unit={data.throughput.unit}
               trend={data.throughput.trend}
               sparklineData={data.throughput.sparklineData}
+              classification={data.throughput.classification}
+              benchmarks={data.throughput.benchmarks}
               tooltipContent="PRs merged per week"
             />
           </>

@@ -2,6 +2,8 @@ export interface MetricTrend {
   direction: 'up' | 'down' | 'flat';
   percentage: number;
   isPositive: boolean;
+  /** false when no previous period data exists for comparison */
+  hasHistoricalData?: boolean;
 }
 
 export interface MetricTarget {
@@ -11,6 +13,13 @@ export interface MetricTarget {
 
 export type DoraClassification = 'elite' | 'high' | 'medium' | 'low';
 
+export interface BenchmarkThresholds {
+  elite: string;
+  high: string;
+  medium: string;
+  low: string;
+}
+
 export interface DoraMetricItem {
   label: string;
   value: number;
@@ -19,6 +28,7 @@ export interface DoraMetricItem {
   classification: DoraClassification;
   sparklineData: number[];
   target?: MetricTarget;
+  benchmarks?: BenchmarkThresholds;
 }
 
 export interface DoraMetrics {
@@ -140,27 +150,9 @@ export interface HomeMetrics {
   deploymentFrequency: DoraMetricItem;
   leadTimeForChanges: DoraMetricItem;
   changeFailureRate: DoraMetricItem;
-  cycleTime: {
-    label: string;
-    value: number;
-    unit: string;
-    trend: MetricTrend;
-    sparklineData: number[];
-  };
-  wipCount: {
-    label: string;
-    value: number;
-    unit: string;
-    trend: MetricTrend;
-    sparklineData: number[];
-  };
-  throughput: {
-    label: string;
-    value: number;
-    unit: string;
-    trend: MetricTrend;
-    sparklineData: number[];
-  };
+  cycleTime: DoraMetricItem;
+  wipCount: DoraMetricItem;
+  throughput: DoraMetricItem;
   prsNeedingAttention: PullRequest[];
   period: string;
   teamId: string;

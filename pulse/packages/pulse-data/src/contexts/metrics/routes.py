@@ -456,6 +456,63 @@ async def get_sprint_metrics(
 # ---------------------------------------------------------------------------
 
 
+def _compute_trend(
+    current: float | None,
+    previous: float | None,
+) -> tuple[float | None, str | None]:
+    """Compute % change and direction between current and previous values.
+
+    Returns (trend_percentage, trend_direction).
+    - trend_percentage is None when comparison is impossible (no previous data).
+    - trend_direction is "up" | "down" | "flat".
+    """
+    if current is None or previous is None:
+        return None, None
+    if previous == 0:
+        if current == 0:
+            return 0.0, "flat"
+        return None, None  # can't compute % from zero base
+
+    pct = round(((current - previous) / abs(previous)) * 100, 1)
+    if pct > 5:
+        direction = "up"
+    elif pct < -5:
+        direction = "down"
+    else:
+        direction = "flat"
+    return pct, direction
+
+
+async def _get_previous_period_snapshots(
+    tenant_id: UUID,
+    metric_type: str,
+    team_id: UUID | None,
+    cutoff_date: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Fetch snapshots calculated BEFORE the cutoff date (previous period).
+
+    Used for period-over-period comparison. For a 30d view, pass
+    cutoff_date = now - 30 days to get snapshots from the previous 30d window.
+    """
+    async with get_session(tenant_id) as session:
+        repo = MetricsRepository(session)
+        snapshots = await repo.get_snapshots_before_date(
+            tenant_id=tenant_id,
+            metric_type=metric_type,
+            before_date=cutoff_date,
+            team_id=team_id,
+            limit=20,
+        )
+        result: dict[str, dict[str, Any]] = {}
+        for snap in snapshots:
+            if snap.metric_name not in result:
+                result[snap.metric_name] = {
+                    "value": snap.value,
+                    "calculated_at": snap.calculated_at,
+                }
+        return result
+
+
 @router.get("/home", response_model=HomeMetricsResponse)
 async def get_home_metrics(
     tenant_id: UUID = Depends(get_tenant_id),
@@ -466,11 +523,18 @@ async def get_home_metrics(
 
     Aggregates key values from DORA, Lean, Cycle Time, and Throughput
     snapshots into a single response for the overview cards.
+
+    Includes period-over-period trend comparison:
+    e.g. Last 30d vs the 30d before that.
     """
     period_start, period_end = _parse_period(period)
 
-    # Fetch latest snapshots for each metric type individually.
-    # Worker writes individual metric_names, not a single "all" snapshot.
+    # Parse period days for previous-period cutoff
+    match = _PERIOD_RE.match(period)
+    period_days = int(match.group(1))  # type: ignore[union-attr]
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
+
+    # ── Current period snapshots ──
     dora_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id, metric_type="dora", team_id=team_id,
     )
@@ -484,23 +548,56 @@ async def get_home_metrics(
         tenant_id=tenant_id, metric_type="throughput", team_id=team_id,
     )
 
-    # Extract values from individual snapshots
-    # DORA: may have "all" or individual metric names -- not in DB yet, safe defaults
-    dora_all = dora_snaps.get("all", {}).get("value", {}) if dora_snaps.get("all") else {}
+    # ── Previous period snapshots (for trend comparison) ──
+    prev_dora = await _get_previous_period_snapshots(
+        tenant_id, "dora", team_id, cutoff_date,
+    )
+    prev_lean = await _get_previous_period_snapshots(
+        tenant_id, "lean", team_id, cutoff_date,
+    )
+    prev_ct = await _get_previous_period_snapshots(
+        tenant_id, "cycle_time", team_id, cutoff_date,
+    )
+    prev_tp = await _get_previous_period_snapshots(
+        tenant_id, "throughput", team_id, cutoff_date,
+    )
 
-    # Cycle time: breakdown snapshot contains total_p50
+    # ── Extract CURRENT values ──
+    dora_all = dora_snaps.get("all", {}).get("value", {}) if dora_snaps.get("all") else {}
     ct_breakdown_val = ct_snaps.get("breakdown", {}).get("value", {}) if ct_snaps.get("breakdown") else {}
     ct_p50 = ct_breakdown_val.get("total_p50") if isinstance(ct_breakdown_val, dict) else None
-
-    # Throughput: pr_analytics snapshot contains total_merged
     tp_analytics_val = tp_snaps.get("pr_analytics", {}).get("value", {}) if tp_snaps.get("pr_analytics") else {}
     tp_total = tp_analytics_val.get("total_merged") if isinstance(tp_analytics_val, dict) else None
-
-    # Lean: wip value
     lean_all = lean_snaps.get("all", {}).get("value", {}) if lean_snaps.get("all") else {}
     lean_wip = lean_all.get("wip")
 
-    # Determine the latest calculated_at across all snapshots
+    # ── Extract PREVIOUS values ──
+    prev_dora_all = prev_dora.get("all", {}).get("value", {}) if prev_dora.get("all") else {}
+    prev_ct_val = prev_ct.get("breakdown", {}).get("value", {}) if prev_ct.get("breakdown") else {}
+    prev_ct_p50 = prev_ct_val.get("total_p50") if isinstance(prev_ct_val, dict) else None
+    prev_tp_val = prev_tp.get("pr_analytics", {}).get("value", {}) if prev_tp.get("pr_analytics") else {}
+    prev_tp_total = prev_tp_val.get("total_merged") if isinstance(prev_tp_val, dict) else None
+    prev_lean_all = prev_lean.get("all", {}).get("value", {}) if prev_lean.get("all") else {}
+    prev_lean_wip = prev_lean_all.get("wip")
+
+    # ── Compute trends (current vs previous) ──
+    df_val = dora_all.get("deployment_frequency_per_day")
+    prev_df_val = prev_dora_all.get("deployment_frequency_per_day")
+    df_pct, df_dir = _compute_trend(df_val, prev_df_val)
+
+    lt_val = dora_all.get("lead_time_for_changes_hours")
+    prev_lt_val = prev_dora_all.get("lead_time_for_changes_hours")
+    lt_pct, lt_dir = _compute_trend(lt_val, prev_lt_val)
+
+    cfr_val = dora_all.get("change_failure_rate")
+    prev_cfr_val = prev_dora_all.get("change_failure_rate")
+    cfr_pct, cfr_dir = _compute_trend(cfr_val, prev_cfr_val)
+
+    ct_pct, ct_dir = _compute_trend(ct_p50, prev_ct_p50)
+    wip_pct, wip_dir = _compute_trend(lean_wip, prev_lean_wip)
+    tp_pct, tp_dir = _compute_trend(tp_total, prev_tp_total)
+
+    # ── Determine latest calculated_at ──
     timestamps = [
         s["calculated_at"]
         for snaps in (dora_snaps, lean_snaps, ct_snaps, tp_snaps)
@@ -517,31 +614,49 @@ async def get_home_metrics(
         calculated_at=latest_calc,
         data=HomeMetricsData(
             deployment_frequency=HomeMetricCard(
-                value=dora_all.get("deployment_frequency_per_day"),
+                value=df_val,
                 unit="deploys/day",
                 level=dora_all.get("df_level"),
+                trend_direction=df_dir,
+                trend_percentage=df_pct,
+                previous_value=prev_df_val,
             ),
             lead_time=HomeMetricCard(
-                value=dora_all.get("lead_time_for_changes_hours"),
+                value=lt_val,
                 unit="hours",
                 level=dora_all.get("lt_level"),
+                trend_direction=lt_dir,
+                trend_percentage=lt_pct,
+                previous_value=prev_lt_val,
             ),
             change_failure_rate=HomeMetricCard(
-                value=dora_all.get("change_failure_rate"),
+                value=cfr_val,
                 unit="ratio",
                 level=dora_all.get("cfr_level"),
+                trend_direction=cfr_dir,
+                trend_percentage=cfr_pct,
+                previous_value=prev_cfr_val,
             ),
             cycle_time=HomeMetricCard(
                 value=ct_p50,
                 unit="hours",
+                trend_direction=ct_dir,
+                trend_percentage=ct_pct,
+                previous_value=prev_ct_p50,
             ),
             wip=HomeMetricCard(
                 value=lean_wip,
                 unit="items",
+                trend_direction=wip_dir,
+                trend_percentage=wip_pct,
+                previous_value=prev_lean_wip,
             ),
             throughput=HomeMetricCard(
                 value=tp_total,
                 unit="PRs merged",
+                trend_direction=tp_dir,
+                trend_percentage=tp_pct,
+                previous_value=prev_tp_total,
             ),
             overall_dora_level=dora_all.get("overall_level"),
         ),

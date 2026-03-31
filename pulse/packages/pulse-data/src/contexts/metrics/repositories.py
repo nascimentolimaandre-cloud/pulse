@@ -180,3 +180,35 @@ class MetricsRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_snapshots_before_date(
+        self,
+        tenant_id: UUID,
+        metric_type: str,
+        before_date: datetime,
+        team_id: UUID | None = None,
+        limit: int = 20,
+    ) -> list[MetricsSnapshot]:
+        """Fetch most recent snapshots for a metric type calculated before a date.
+
+        Used for period-over-period comparison: e.g. to get the "previous 30d"
+        snapshot, pass before_date = now - 30 days.
+        """
+        conditions = [
+            MetricsSnapshot.tenant_id == tenant_id,
+            MetricsSnapshot.metric_type == metric_type,
+            MetricsSnapshot.calculated_at < before_date,
+        ]
+        if team_id:
+            conditions.append(MetricsSnapshot.team_id == team_id)
+        else:
+            conditions.append(MetricsSnapshot.team_id.is_(None))
+
+        stmt = (
+            select(MetricsSnapshot)
+            .where(and_(*conditions))
+            .order_by(MetricsSnapshot.calculated_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

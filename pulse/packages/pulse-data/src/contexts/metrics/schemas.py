@@ -196,7 +196,9 @@ class HomeMetricCard(BaseModel):
     value: float | None = None
     unit: str | None = None
     level: str | None = None
-    trend_direction: str | None = None  # "up" | "down" | "stable" | None
+    trend_direction: str | None = None  # "up" | "down" | "flat" | None
+    trend_percentage: float | None = None  # % change vs previous period (null = no data)
+    previous_value: float | None = None  # value from previous equivalent period
 
 
 class HomeMetricsData(BaseModel):

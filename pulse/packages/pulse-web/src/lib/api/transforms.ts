@@ -10,6 +10,7 @@ import type {
   MetricTrend,
   DoraMetricItem,
   DoraClassification,
+  BenchmarkThresholds,
   CycleTimeBreakdown,
   CycleTimePhase,
   ThroughputResponse,
@@ -20,10 +21,11 @@ import type {
 
 /* ── Helpers ── */
 
-const FLAT_TREND: MetricTrend = {
+const NO_DATA_TREND: MetricTrend = {
   direction: 'flat',
   percentage: 0,
   isPositive: true,
+  hasHistoricalData: false,
 };
 
 function safeNumber(value: unknown, fallback = 0): number {
@@ -32,12 +34,52 @@ function safeNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function mapTrendDirection(
   direction: string | null | undefined,
 ): MetricTrend['direction'] {
   if (direction === 'up') return 'up';
   if (direction === 'down') return 'down';
   return 'flat';
+}
+
+/**
+ * Build a MetricTrend from API trend fields.
+ * @param trendPct - % change from API (null = no historical data)
+ * @param trendDir - direction from API
+ * @param polarity - which direction is "good" for this metric
+ */
+function buildTrendFromApi(
+  trendPct: number | null | undefined,
+  trendDir: string | null | undefined,
+  polarity: 'higher-is-better' | 'lower-is-better',
+): MetricTrend {
+  if (trendPct === null || trendPct === undefined) {
+    return { ...NO_DATA_TREND };
+  }
+
+  const direction = mapTrendDirection(trendDir);
+  const absPct = Math.abs(Math.round(trendPct * 10) / 10);
+
+  // "isPositive" means the change is good for the team
+  let isPositive: boolean;
+  if (direction === 'flat') {
+    isPositive = true;
+  } else if (polarity === 'higher-is-better') {
+    isPositive = direction === 'up';
+  } else {
+    isPositive = direction === 'down';
+  }
+
+  return {
+    direction,
+    percentage: absPct,
+    isPositive,
+    hasHistoricalData: true,
+  };
 }
 
 /**
@@ -50,11 +92,11 @@ function computeTrend(
   polarity: 'higher-is-better' | 'lower-is-better',
 ): MetricTrend {
   const nonZero = data.filter((v) => v > 0);
-  if (nonZero.length < 2) return { ...FLAT_TREND };
+  if (nonZero.length < 2) return { ...NO_DATA_TREND };
 
   const recent = nonZero[nonZero.length - 1]!;
   const previous = nonZero[nonZero.length - 2]!;
-  if (previous === 0) return { ...FLAT_TREND };
+  if (previous === 0) return { ...NO_DATA_TREND };
 
   const pctChange = Math.round(((recent - previous) / previous) * 100);
   const dir: MetricTrend['direction'] =
@@ -65,7 +107,7 @@ function computeTrend(
       ? dir === 'up' || dir === 'flat'
       : dir === 'down' || dir === 'flat';
 
-  return { direction: dir, percentage: Math.abs(pctChange), isPositive };
+  return { direction: dir, percentage: Math.abs(pctChange), isPositive, hasHistoricalData: true };
 }
 
 function mapClassification(
@@ -77,6 +119,76 @@ function mapClassification(
   return 'low';
 }
 
+/* ── Benchmark definitions (DORA 2023 State of DevOps Report) ── */
+
+const BENCHMARKS: Record<string, BenchmarkThresholds> = {
+  deployment_frequency: {
+    elite: '\u2265 1/day',
+    high: '\u2265 1/week',
+    medium: '\u2265 1/month',
+    low: '< 1/month',
+  },
+  lead_time: {
+    elite: '< 1 hour',
+    high: '< 1 week',
+    medium: '< 1 month',
+    low: '\u2265 1 month',
+  },
+  change_failure_rate: {
+    elite: '< 5%',
+    high: '< 10%',
+    medium: '< 15%',
+    low: '> 15%',
+  },
+  cycle_time: {
+    elite: '< 2h',
+    high: '< 24h',
+    medium: '< 72h',
+    low: '\u2265 72h',
+  },
+  wip: {
+    elite: '\u2264 3',
+    high: '\u2264 6',
+    medium: '\u2264 10',
+    low: '> 10',
+  },
+  throughput: {
+    elite: '\u2265 50/wk',
+    high: '\u2265 20/wk',
+    medium: '\u2265 5/wk',
+    low: '< 5/wk',
+  },
+};
+
+/* ── Classification helpers for non-DORA metrics ── */
+
+function classifyCycleTime(hours: number): DoraClassification {
+  if (hours < 2) return 'elite';
+  if (hours < 24) return 'high';
+  if (hours < 72) return 'medium';
+  return 'low';
+}
+
+function classifyWip(count: number): DoraClassification {
+  if (count <= 3) return 'elite';
+  if (count <= 6) return 'high';
+  if (count <= 10) return 'medium';
+  return 'low';
+}
+
+function classifyThroughput(total: number, periodDays: number): DoraClassification {
+  const perWeek = (total / Math.max(periodDays, 1)) * 7;
+  if (perWeek >= 50) return 'elite';
+  if (perWeek >= 20) return 'high';
+  if (perWeek >= 5) return 'medium';
+  return 'low';
+}
+
+function periodToDays(period: string): number {
+  const match = period.match(/^(\d+)d$/);
+  return match ? parseInt(match[1]!, 10) : 30;
+}
+
 /* ── Raw API shapes (snake_case) ── */
 
 interface RawHomeMetricItem {
@@ -84,6 +196,8 @@ interface RawHomeMetricItem {
   unit: string | null;
   level: string | null;
   trend_direction: string | null;
+  trend_percentage: number | null;
+  previous_value: number | null;
 }
 
 interface RawHomeResponse {
@@ -161,66 +275,74 @@ interface RawThroughputResponse {
 function buildDoraMetricItem(
   raw: RawHomeMetricItem,
   label: string,
+  polarity: 'higher-is-better' | 'lower-is-better',
+  benchmarkKey: string,
 ): DoraMetricItem {
   return {
     label,
-    value: safeNumber(raw.value),
+    value: round2(safeNumber(raw.value)),
     unit: raw.unit ?? '',
-    trend: {
-      direction: mapTrendDirection(raw.trend_direction),
-      percentage: 0,
-      isPositive: true,
-    },
+    trend: buildTrendFromApi(raw.trend_percentage, raw.trend_direction, polarity),
     classification: mapClassification(raw.level),
     sparklineData: [],
+    benchmarks: BENCHMARKS[benchmarkKey],
   };
 }
 
 export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
   const d = raw.data;
+  const days = periodToDays(raw.period);
+
+  // CFR: convert ratio (0-1) to percentage display
+  const cfrItem = buildDoraMetricItem(d.change_failure_rate, 'Change Failure Rate', 'lower-is-better', 'change_failure_rate');
+  cfrItem.value = round2(safeNumber(d.change_failure_rate.value) * 100);
+  cfrItem.unit = '%';
+
+  // Non-DORA metrics: classify locally
+  const ctValue = round2(safeNumber(d.cycle_time.value));
+  const wipValue = safeNumber(d.wip.value);
+  const tpValue = safeNumber(d.throughput.value);
 
   return {
     deploymentFrequency: buildDoraMetricItem(
       d.deployment_frequency,
       'Deployment Frequency',
+      'higher-is-better',
+      'deployment_frequency',
     ),
-    leadTimeForChanges: buildDoraMetricItem(d.lead_time, 'Lead Time for Changes'),
-    changeFailureRate: buildDoraMetricItem(
-      d.change_failure_rate,
-      'Change Failure Rate',
+    leadTimeForChanges: buildDoraMetricItem(
+      d.lead_time,
+      'Lead Time for Changes',
+      'lower-is-better',
+      'lead_time',
     ),
+    changeFailureRate: cfrItem,
     cycleTime: {
       label: 'Cycle Time',
-      value: safeNumber(d.cycle_time.value),
+      value: ctValue,
       unit: d.cycle_time.unit ?? 'hours',
-      trend: {
-        direction: mapTrendDirection(d.cycle_time.trend_direction),
-        percentage: 0,
-        isPositive: true,
-      },
+      trend: buildTrendFromApi(d.cycle_time.trend_percentage, d.cycle_time.trend_direction, 'lower-is-better'),
+      classification: classifyCycleTime(ctValue),
       sparklineData: [],
+      benchmarks: BENCHMARKS['cycle_time'],
     },
     wipCount: {
       label: 'Work in Progress',
-      value: safeNumber(d.wip.value),
+      value: wipValue,
       unit: d.wip.unit ?? 'items',
-      trend: {
-        direction: mapTrendDirection(d.wip.trend_direction),
-        percentage: 0,
-        isPositive: true,
-      },
+      trend: buildTrendFromApi(d.wip.trend_percentage, d.wip.trend_direction, 'lower-is-better'),
+      classification: classifyWip(wipValue),
       sparklineData: [],
+      benchmarks: BENCHMARKS['wip'],
     },
     throughput: {
       label: 'Throughput',
-      value: safeNumber(d.throughput.value),
+      value: tpValue,
       unit: d.throughput.unit ?? 'PRs merged',
-      trend: {
-        direction: mapTrendDirection(d.throughput.trend_direction),
-        percentage: 0,
-        isPositive: true,
-      },
+      trend: buildTrendFromApi(d.throughput.trend_percentage, d.throughput.trend_direction, 'higher-is-better'),
+      classification: classifyThroughput(tpValue, days),
       sparklineData: [],
+      benchmarks: BENCHMARKS['throughput'],
     },
     prsNeedingAttention: [],
     period: raw.period,
