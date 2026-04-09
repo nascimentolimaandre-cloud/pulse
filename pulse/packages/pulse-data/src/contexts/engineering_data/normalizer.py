@@ -1,12 +1,16 @@
-"""Normalizer — transforms DevLake domain data into PULSE schema.
+"""Normalizer — transforms source connector data into PULSE schema.
 
-Pure functions that map DevLake's table structures into PULSE's
+Pure functions that map connector output dicts into PULSE's
 eng_pull_requests, eng_issues, eng_deployments, eng_sprints models.
+
+Connector output format is compatible with the original DevLake domain
+table structure, so this normalizer works with both DevLake and direct
+API connectors (GitHub, Jira, Jenkins).
 
 Also handles:
 - Status mapping (raw Jira/GitHub statuses to normalized todo/in_progress/done)
 - Issue-to-PR linking via branch name regex patterns (e.g., "PROJ-123")
-- Source detection from DevLake IDs/URLs
+- Source detection from connector IDs/URLs
 """
 
 from __future__ import annotations
@@ -256,6 +260,12 @@ def normalize_pull_request(
     created_date = _parse_datetime(devlake_pr.get("created_date"))
     merged_date = _parse_datetime(devlake_pr.get("merged_date"))
 
+    # Enrichment fields from GitHub connector (prefixed with underscore)
+    first_review_at = _parse_datetime(devlake_pr.get("_first_review_at"))
+    approved_at = _parse_datetime(devlake_pr.get("_approved_at"))
+    files_changed = devlake_pr.get("_files_changed", 0) or 0
+    reviewers = devlake_pr.get("_reviewers", []) or []
+
     return {
         "external_id": str(devlake_pr["id"]),
         "tenant_id": tenant_id,
@@ -264,15 +274,15 @@ def normalize_pull_request(
         "title": devlake_pr.get("title", ""),
         "author": devlake_pr.get("author_name", "unknown"),
         "state": state,
-        "first_commit_at": created_date,  # DevLake doesn't have first_commit; use created_date
-        "first_review_at": None,  # Not available from DevLake domain table
-        "approved_at": None,
+        "first_commit_at": created_date,  # Use created_date as proxy for first commit
+        "first_review_at": first_review_at,
+        "approved_at": approved_at,
         "merged_at": merged_date,
         "deployed_at": None,  # Linked via deployment data later
         "additions": devlake_pr.get("additions", 0) or 0,
         "deletions": devlake_pr.get("deletions", 0) or 0,
-        "files_changed": 0,  # Not in DevLake domain table
-        "reviewers": [],
+        "files_changed": files_changed,
+        "reviewers": reviewers,
         "linked_issue_ids": [],
         "created_at": created_date or datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),

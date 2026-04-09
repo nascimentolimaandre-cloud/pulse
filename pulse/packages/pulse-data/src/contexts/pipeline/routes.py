@@ -1,11 +1,9 @@
 """Pipeline Monitor API routes.
 
 Provides a consolidated view of the data pipeline health: stage
-statuses, record counts (DevLake vs PULSE), sync logs, errors,
-and DevLake API pipeline status.
+statuses, PULSE DB record counts, connector health, sync logs, and errors.
 
-All DevLake calls are wrapped in try/except — the pipeline monitor
-degrades gracefully when DevLake is unavailable.
+v2: Uses direct source connectors instead of DevLake (ADR-005).
 """
 
 from __future__ import annotations
@@ -15,17 +13,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from src.config import settings
-from src.contexts.engineering_data.devlake_reader import DevLakeReader
 from src.contexts.engineering_data.models import (
     EngDeployment,
     EngIssue,
     EngPullRequest,
     EngSprint,
 )
-from src.contexts.pipeline.devlake_api import DevLakeAPIClient
 from src.contexts.metrics.infrastructure.models import MetricsSnapshot
 from src.contexts.pipeline.models import PipelineEvent, PipelineSyncLog, PipelineWatermark
 from src.contexts.pipeline.schemas import (
@@ -53,32 +49,28 @@ router = APIRouter(prefix="/data/v1/pipeline", tags=["Pipeline Monitor"])
 # ---------------------------------------------------------------------------
 
 
-async def _get_devlake_counts(reader: DevLakeReader) -> dict[str, int]:
-    """Query DevLake DB for record counts per entity type.
+async def _get_connector_health() -> dict[str, dict]:
+    """Check health of configured source connectors.
 
-    Returns a dict like {"pull_requests": 120, "issues": 300, ...}.
-    Falls back to zeros if any query fails.
+    Returns a dict like {"github": {"status": "healthy", ...}, ...}.
     """
-    counts: dict[str, int] = {
-        "pull_requests": 0,
-        "issues": 0,
-        "deployments": 0,
-        "sprints": 0,
-    }
-    table_map = {
-        "pull_requests": "pull_requests",
-        "issues": "issues",
-        "deployments": "cicd_deployment_commits",
-        "sprints": "sprints",
-    }
-    async with reader._session_factory() as session:
-        for entity, table in table_map.items():
-            try:
-                result = await session.execute(text(f"SELECT COUNT(*) FROM {table}"))  # noqa: S608
-                counts[entity] = result.scalar() or 0
-            except Exception:
-                logger.warning("Could not count DevLake table %s", table)
-    return counts
+    health: dict[str, dict] = {}
+    configured_sources = []
+
+    if settings.github_token:
+        configured_sources.append(("github", "GitHub"))
+    if settings.jira_api_token:
+        configured_sources.append(("jira", "Jira Cloud"))
+    if settings.jenkins_api_token:
+        configured_sources.append(("jenkins", "Jenkins"))
+
+    for source_type, label in configured_sources:
+        health[source_type] = {
+            "status": "configured",
+            "label": label,
+        }
+
+    return health
 
 
 # ---------------------------------------------------------------------------
@@ -110,30 +102,16 @@ async def get_pipeline_status() -> PipelineStatusResponse:
         "sprints": sprint_count,
     }
 
-    # --- 2. Record counts (DevLake DB) ---
-    devlake_counts: dict[str, int] = {
-        "pull_requests": 0,
-        "issues": 0,
-        "deployments": 0,
-        "sprints": 0,
-    }
-    try:
-        reader = DevLakeReader()
-        devlake_counts = await _get_devlake_counts(reader)
-        await reader.close()
-    except Exception:
-        logger.warning("Could not connect to DevLake DB for record counts")
-
+    # --- 2. Record counts (direct connectors — no intermediate DB) ---
     record_counts = []
     for entity in ["pull_requests", "issues", "deployments", "sprints"]:
-        dl = devlake_counts.get(entity, 0)
         pl = pulse_counts.get(entity, 0)
         record_counts.append(RecordCount(
             entity=entity,
-            devlake_count=dl,
+            devlake_count=pl,  # No separate source DB; use PULSE count
             pulse_count=pl,
-            difference=dl - pl,
-            is_synced=abs(dl - pl) <= 5,  # tolerance of 5 records
+            difference=0,
+            is_synced=True,
         ))
 
     # --- 3. Recent sync logs ---
@@ -197,21 +175,12 @@ async def get_pipeline_status() -> PipelineStatusResponse:
         and s.status in ("completed", "partial")
     )
 
-    # --- 7. Pending sync (difference between DevLake and PULSE) ---
-    pending = sum(max(0, rc.difference) for rc in record_counts)
+    # --- 7. Pending sync ---
+    pending = 0  # No intermediate DB; pending is tracked via watermarks
 
-    # --- 8. DevLake API status ---
-    devlake_info = DevLakePipelineInfo()
-    try:
-        client = DevLakeAPIClient()
-        health = await client.get_pipeline_health()
-        devlake_info = DevLakePipelineInfo(
-            is_running=health.get("is_running", False),
-            last_status=health.get("last_status"),
-            last_finished_at=health.get("last_finished_at"),
-        )
-    except Exception:
-        logger.warning("Could not reach DevLake API for pipeline health")
+    # --- 8. Connector health ---
+    connector_health = await _get_connector_health()
+    devlake_info = DevLakePipelineInfo()  # Kept for schema compat; always empty
 
     # --- 9. Build stage statuses ---
     total_records = sum(pulse_counts.values())
@@ -220,20 +189,16 @@ async def get_pipeline_status() -> PipelineStatusResponse:
     latest_sync = sync_logs[0] if sync_logs else None
     if errors_24h > 5:
         overall = "error"
-    elif errors_24h > 0 or pending > 50:
+    elif errors_24h > 0:
         overall = "degraded"
-    elif devlake_info.is_running or (latest_sync and latest_sync.status == "running"):
+    elif latest_sync and latest_sync.status == "running":
         overall = "syncing"
     else:
         overall = "healthy"
 
     # Determine per-stage status
-    source_status = "healthy" if total_records > 0 else "idle"
-    devlake_status = (
-        "syncing"
-        if devlake_info.is_running
-        else ("healthy" if devlake_info.last_status == "TASK_COMPLETED" else "idle")
-    )
+    num_connectors = len(connector_health)
+    source_status = "healthy" if num_connectors > 0 and total_records > 0 else "idle"
     sync_status = (
         "syncing"
         if (latest_sync and latest_sync.status == "running")
@@ -246,14 +211,8 @@ async def get_pipeline_status() -> PipelineStatusResponse:
         PipelineStageStatus(
             name="sources",
             status=source_status,
-            label="Sources",
-            detail=f"{len([r for r in record_counts if r.devlake_count > 0])} active",
-        ),
-        PipelineStageStatus(
-            name="devlake",
-            status=devlake_status,
-            label="DevLake",
-            detail="ETL Layer",
+            label="Connectors",
+            detail=f"{num_connectors} configured",
         ),
         PipelineStageStatus(
             name="sync_worker",
@@ -300,14 +259,21 @@ async def get_pipeline_status() -> PipelineStatusResponse:
     except Exception:
         logger.warning("Could not fetch pipeline events (table may not exist yet)")
 
-    # --- 11. Source connections (static for MVP) ---
+    # --- 11. Source connections (from connector health) ---
     source_connections: list[dict] = [
-        {"type": "github", "label": "GitHub", "icon": "code", "active": True, "syncing": True},
-        {"type": "jira", "label": "Jira Cloud", "icon": "task_alt", "active": True, "syncing": False},
-        {"type": "jenkins", "label": "Jenkins", "icon": "terminal", "active": True, "syncing": False},
-        {"type": "bitbucket", "label": "Bitbucket", "icon": "code", "active": False, "syncing": False},
-        {"type": "gitlab", "label": "GitLab", "icon": "code", "active": False, "syncing": False},
+        {
+            "type": src,
+            "label": info.get("label", src),
+            "icon": {"github": "code", "jira": "task_alt", "jenkins": "terminal"}.get(src, "code"),
+            "active": True,
+            "syncing": latest_sync.status == "running" if latest_sync else False,
+        }
+        for src, info in connector_health.items()
     ]
+    # Add unconfigured sources as inactive
+    for src, label, icon in [("bitbucket", "Bitbucket", "code"), ("gitlab", "GitLab", "code")]:
+        if src not in connector_health:
+            source_connections.append({"type": src, "label": label, "icon": icon, "active": False, "syncing": False})
 
     return PipelineStatusResponse(
         overall_status=overall,
@@ -398,11 +364,11 @@ async def get_source_status(source_type: str) -> SourceFilteredStatus:
     }
 
     # --- Stages (same pipeline, status adjusted for source) ---
-    is_active = source_type in ("github", "jira")
+    is_active = source_type in ("github", "jira", "jenkins")
     source_stage_status = "healthy" if is_active and entity_count > 0 else "idle"
     stages = [
-        PipelineStageStatus(name="ingestion", status=source_stage_status, label="Ingestion", detail=f"{entity_count} records"),
-        PipelineStageStatus(name="devlake", status="healthy" if is_active else "standby", label="DevLake ETL", detail="Transform"),
+        PipelineStageStatus(name="connector", status=source_stage_status, label="Connector", detail=f"{entity_count} records"),
+        PipelineStageStatus(name="normalizer", status="healthy" if is_active else "standby", label="Normalizer", detail="Transform"),
         PipelineStageStatus(name="sync_worker", status="healthy" if is_active else "standby", label="Sync Worker", detail="Kafka"),
         PipelineStageStatus(name="pulse_db", status="healthy" if entity_count > 0 else "standby", label="PULSE DB", detail="Persist"),
     ]

@@ -1,5 +1,5 @@
 ##############################################################################
-# PULSE — Local Development Stack
+# PULSE — Local Development Stack (v2 — Custom Connectors, no DevLake)
 # Run: docker compose up -d (or: make up)
 # Frontend runs OUTSIDE Docker: cd packages/pulse-web && npm run dev
 ##############################################################################
@@ -20,9 +20,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:29092
-      DEVLAKE_API_URL: http://devlake:8080
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_ORG: ${GITHUB_ORG:-webmotors-private}
       GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
       JIRA_EMAIL: ${JIRA_EMAIL:-}
       AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
@@ -50,18 +51,24 @@ services:
       - "${PULSE_DATA_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
-      DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
-      DEVLAKE_API_URL: http://devlake:8080
       KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
+      # Source API credentials (connectors read directly from APIs)
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_ORG: ${GITHUB_ORG:-webmotors-private}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECTS: ${JIRA_PROJECTS:-DESC,ENO,ANCR,PUSO,APPF,FID,CTURBO,PTURB}
+      JENKINS_BASE_URL: ${JENKINS_BASE_URL:-}
+      JENKINS_USERNAME: ${JENKINS_USERNAME:-}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
     volumes:
       - ./packages/pulse-data/src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
-        condition: service_healthy
-      devlake-pg:
         condition: service_healthy
     restart: unless-stopped
 
@@ -76,9 +83,18 @@ services:
     command: python -m src.workers.devlake_sync
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
-      DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
       KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
+      # Source API credentials
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_ORG: ${GITHUB_ORG:-webmotors-private}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECTS: ${JIRA_PROJECTS:-DESC,ENO,ANCR,PUSO,APPF,FID,CTURBO,PTURB}
+      JENKINS_BASE_URL: ${JENKINS_BASE_URL:-}
+      JENKINS_USERNAME: ${JENKINS_USERNAME:-}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
     volumes:
       - ./packages/pulse-data/src:/app/src
     depends_on:
@@ -86,8 +102,6 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      devlake:
-        condition: service_started
     restart: unless-stopped
 
   metrics-worker:
@@ -171,43 +185,6 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # --------------------------------------------------------------------------
-  # DevLake
-  # --------------------------------------------------------------------------
-  devlake:
-    image: apache/devlake:v1.0.3-beta7
-    container_name: pulse-devlake
-    ports:
-      - "${DEVLAKE_PORT:-8080}:8080"
-      - "${DEVLAKE_API_PORT:-4000}:4000"
-    environment:
-      DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}?sslmode=disable
-      ENCRYPTION_SECRET: ${DEVLAKE_ENCRYPTION_SECRET:-abcdefghijklmnop}
-    depends_on:
-      devlake-pg:
-        condition: service_healthy
-    restart: unless-stopped
-
-  devlake-pg:
-    image: postgres:16-alpine
-    container_name: pulse-devlake-pg
-    ports:
-      - "${DEVLAKE_PG_PORT:-5433}:5432"
-    environment:
-      POSTGRES_DB: ${DEVLAKE_PG_DB:-lake}
-      POSTGRES_USER: ${DEVLAKE_PG_USER:-devlake}
-      POSTGRES_PASSWORD: ${DEVLAKE_PG_PASSWORD:-devlake_dev}
-    volumes:
-      - devlake_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DEVLAKE_PG_USER:-devlake} -d ${DEVLAKE_PG_DB:-lake}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
   pgdata:
-    driver: local
-  devlake_pgdata:
     driver: local
