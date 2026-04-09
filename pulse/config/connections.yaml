@@ -107,6 +107,79 @@ connections:
           deploymentPattern: ".*"
           productionPattern: ".*"
 
+  - name: "Webmotors Jira"
+    source: jira
+    # Jira Cloud uses Basic Auth: email (username) + API token (password)
+    username_env: JIRA_EMAIL
+    token_env: JIRA_API_TOKEN
+    base_url: https://webmotors.atlassian.net
+    sync_interval_minutes: 15
+    scope:
+      projects:
+        # Canais Digitais Web (Kanban)
+        - "DESC"    # PF - Descobrir veículo
+        - "ENO"     # PF - Encontrar oferta
+        - "ANCR"    # PF - Anunciar
+        - "PUSO"    # PF - USO
+        # Canais Digitais App (Kanban)
+        - "APPF"    # PF - Aplicativo
+        # Sprint-based projects
+        - "FID"     # Fidelidade
+        - "CTURBO"  # Consultor Turbo Lab
+        - "PTURB"   # Portal Turbo Lab
+
+# Issue status mapping — Webmotors Jira (Portuguese) → PULSE normalized
+# Primary source; overrides DEFAULT_STATUS_MAPPING in normalizer.py.
+# Normalized values: todo | in_progress | in_review | done
+# ADR: "testing" states map to "in_review" (both are post-dev WIP for CFD)
+# ADR: "Aguardando Deploy Produção" = done (dev work complete; deploy tracked by Jenkins/DORA)
+status_mapping:
+  # ── Backlog / To Do ──
+  "refinado": "todo"
+  "backlog": "todo"
+  "quebra de histórias": "todo"
+  "to do": "todo"
+  "open": "todo"
+  "new": "todo"
+  # ── In Progress ──
+  "em design": "in_progress"
+  "em imersão": "in_progress"
+  "em desenvolvimento": "in_progress"
+  "in progress": "in_progress"
+  "em andamento": "in_progress"
+  # ── Review / Testing (collapsed to in_review for CFD 5-band model) ──
+  "aguardando code review": "in_review"
+  "em code review": "in_review"
+  "product review": "in_review"
+  "planejando testes": "in_review"
+  "em teste azul": "in_review"
+  "aguardando teste azul": "in_review"
+  "em teste hml": "in_review"
+  "testando": "in_review"
+  "qa": "in_review"
+  # ── Backlog / Waiting (Kanban upstream stages) ──
+  "priorizado": "todo"
+  "aguardando histórias": "todo"
+  "aguardando desenvolvimento": "todo"
+  "priorizado gp": "todo"
+  "pronto para o gp": "todo"
+  # ── In Progress (active work, pre-dev analysis) ──
+  "construção de hipótese": "in_progress"
+  "desenvolvimento": "in_progress"
+  "design": "in_progress"
+  "analise": "in_progress"
+  "discovery": "in_progress"
+  "entendimento": "in_progress"
+  # ── Done ──
+  "pós-implantação": "done"
+  "aguardando deploy produção": "done"
+  "concluído": "done"
+  "cancelado": "done"
+  "fechado": "done"
+  "done": "done"
+  "closed": "done"
+  "resolved": "done"
+
 # Team definitions and their mappings to source system projects
 teams:
   - name: "Canais Digitais Web"
@@ -120,6 +193,12 @@ teams:
           - "webmotors-private/webmotors.buyer.desktop.ui"
           - "webmotors-private/webmotors.catalogo.next.ui"
           - "webmotors-private/webmotors.fipe.next.ui"
+      jira:
+        projects:
+          - "DESC"
+          - "ENO"
+          - "ANCR"
+          - "PUSO"
 
   - name: "Canais Digitais App"
     slug: "canais-digitais-app"
@@ -129,3 +208,21 @@ teams:
           - "webmotors-private/webmotors.pf"
           - "webmotors-private/eleanor.flutter"
           - "webmotors-private/webmotors.app.pf.search.bff"
+      jira:
+        projects:
+          - "APPF"
+
+  - name: "Fidelidade"
+    slug: "fidelidade"
+    mappings:
+      jira:
+        projects:
+          - "FID"
+
+  - name: "Turbo Lab"
+    slug: "turbo-lab"
+    mappings:
+      jira:
+        projects:
+          - "CTURBO"
+          - "PTURB"

@@ -9,6 +9,9 @@ import {
   fetchOpenPullRequests,
   fetchHomeMetrics,
   fetchIntegrations,
+  fetchPipelineStatus,
+  fetchSourceFilteredStatus,
+  fetchMetricsWorkerStatus,
 } from '@/lib/api/metrics';
 import type {
   DoraMetrics,
@@ -20,6 +23,11 @@ import type {
   SprintResponse,
   Integration,
 } from '@/types/metrics';
+import type {
+  PipelineStatusData,
+  SourceFilteredStatus,
+  MetricsWorkerStatus,
+} from '@/types/pipeline';
 
 function useFilterParams() {
   const { teamId, period, startDate, endDate } = useFilterStore();
@@ -87,5 +95,35 @@ export function useIntegrations() {
     queryKey: ['integrations'],
     queryFn: fetchIntegrations,
     staleTime: 30 * 1000,
+  });
+}
+
+/* ── Pipeline Monitor Hooks ── */
+
+export function usePipelineStatus() {
+  return useQuery<PipelineStatusData>({
+    queryKey: ['pipeline-status'],
+    queryFn: fetchPipelineStatus,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}
+
+export function useSourceFilteredStatus(sourceType: string | null) {
+  return useQuery<SourceFilteredStatus>({
+    queryKey: ['pipeline-source-status', sourceType],
+    queryFn: () => fetchSourceFilteredStatus(sourceType!),
+    enabled: !!sourceType,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+}
+
+export function useMetricsWorkerStatus() {
+  return useQuery<MetricsWorkerStatus>({
+    queryKey: ['metrics-worker-status'],
+    queryFn: fetchMetricsWorkerStatus,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 }

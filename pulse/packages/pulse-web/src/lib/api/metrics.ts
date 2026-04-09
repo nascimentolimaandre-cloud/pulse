@@ -3,6 +3,8 @@ import {
   transformHomeMetrics,
   transformCycleTime,
   transformThroughput,
+  transformLeanMetrics,
+  transformSprintMetrics,
 } from './transforms';
 import type {
   DoraMetrics,
@@ -14,6 +16,11 @@ import type {
   SprintResponse,
   Integration,
 } from '@/types/metrics';
+import type {
+  PipelineStatusData,
+  SourceFilteredStatus,
+  MetricsWorkerStatus,
+} from '@/types/pipeline';
 
 export interface MetricsQueryParams {
   teamId: string;
@@ -59,17 +66,19 @@ export async function fetchThroughput(params: MetricsQueryParams): Promise<Throu
 }
 
 export async function fetchLeanMetrics(params: MetricsQueryParams): Promise<LeanMetrics> {
-  const response = await dataClient.get<LeanMetrics>('/metrics/lean', {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await dataClient.get<any>('/metrics/lean', {
     params: buildParams(params),
   });
-  return response.data;
+  return transformLeanMetrics(response.data);
 }
 
 export async function fetchSprintMetrics(params: MetricsQueryParams): Promise<SprintResponse> {
-  const response = await dataClient.get<SprintResponse>('/metrics/sprints', {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await dataClient.get<any>('/metrics/sprints', {
     params: buildParams(params),
   });
-  return response.data;
+  return transformSprintMetrics(response.data);
 }
 
 export async function fetchOpenPullRequests(params: MetricsQueryParams): Promise<PullRequest[]> {
@@ -89,5 +98,28 @@ export async function fetchHomeMetrics(params: MetricsQueryParams): Promise<Home
 
 export async function fetchIntegrations(): Promise<Integration[]> {
   const response = await dataClient.get<Integration[]>('/integrations');
+  return response.data;
+}
+
+/* ── Pipeline Monitor APIs ── */
+
+export async function fetchPipelineStatus(): Promise<PipelineStatusData> {
+  const response = await dataClient.get<PipelineStatusData>('/pipeline/status');
+  return response.data;
+}
+
+export async function fetchSourceFilteredStatus(
+  sourceType: string,
+): Promise<SourceFilteredStatus> {
+  const response = await dataClient.get<SourceFilteredStatus>(
+    `/pipeline/status/source/${sourceType}`,
+  );
+  return response.data;
+}
+
+export async function fetchMetricsWorkerStatus(): Promise<MetricsWorkerStatus> {
+  const response = await dataClient.get<MetricsWorkerStatus>(
+    '/pipeline/metrics-worker/status',
+  );
   return response.data;
 }

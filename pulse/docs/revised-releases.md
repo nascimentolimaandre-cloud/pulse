@@ -218,7 +218,21 @@ Config YAML → PULSE Bootstrap → DevLake API (create connections) → DevLake
 | MVP-1.6.5 | Como sistema, preciso publicar eventos normalizados no Kafka (domain.pr.normalized, domain.issue.normalized, domain.deployment.normalized) | DADO que Sync Worker processou dados QUANDO escreve no PULSE DB ENTÃO também publica no Kafka topic correspondente | 🟡 Média |
 | MVP-1.6.6 | Como sistema, preciso que o Metrics Worker consuma eventos do Kafka e calcule métricas pre-agregadas em `metrics_snapshots` | DADO que eventos de PR/Issue/Deploy chegam no Kafka QUANDO Metrics Worker processa ENTÃO `metrics_snapshots` contém métricas calculadas por team/period/type | 🟡 Média |
 
-**Total Épico 1: 14 stories**
+**Feature Set 1.7 — Pipeline Monitor Dashboard**
+
+| Story ID | User Story | Acceptance Criteria | Complexidade |
+|---|---|---|---|
+| MVP-1.7.1 | Como sistema, preciso persistir watermarks do Sync Worker no banco (`pipeline_watermarks`) em vez de manter em memoria, para que o estado sobreviva restarts | DADO que Sync Worker completa um ciclo QUANDO watermark e atualizado ENTAO o registro em `pipeline_watermarks` reflete o novo timestamp E persiste apos restart | 🟢 Baixa |
+| MVP-1.7.2 | Como sistema, preciso registrar cada ciclo de sync (inicio, fim, status, contagens, erros) na tabela `pipeline_sync_log` | DADO que Sync Worker inicia um ciclo QUANDO `sync()` e chamado ENTAO um registro e inserido com `status='running'` e atualizado ao final com contagens e status final (completed/failed/partial) | 🟡 Media |
+| MVP-1.7.3 | Como EM, quero acessar `GET /data/v1/pipeline/status` para obter status consolidado das 4 etapas do pipeline, contagens, e erros recentes | DADO que pipeline esta saudavel QUANDO acesso o endpoint ENTAO recebo JSON com `overall_status`, status por etapa, record counts (DevLake vs PULSE DB), Kafka lag, e ultimos 10 erros | 🔴 Alta |
+| MVP-1.7.4 | Como sistema, preciso de metodos no DevLakeReader que retornem contagens de registros (`COUNT(*)`) para comparar com PULSE DB | DADO que DevLake DB contem dados QUANDO chamo `reader.count_all()` ENTAO recebo `{"pull_requests": N, "issues": N, "deployments": N, "sprints": N}` | 🟢 Baixa |
+| MVP-1.7.5 | Como EM, quero ver diagrama de fluxo horizontal com 5 etapas (Source, DevLake, Sync Worker, PULSE DB, Metrics) com status, contadores animados, e setas de conexao | DADO que acesso /integrations (tab Pipeline) QUANDO a pagina carrega ENTAO vejo 5 cards conectados por setas animadas com dots fluindo quando dados estao em transito | 🔴 Alta |
+| MVP-1.7.6 | Como EM, quero tabela comparando contagens de registros entre DevLake e PULSE DB, com Kafka lag e timestamp do ultimo sync | DADO que DevLake tem 1247 PRs e PULSE DB tem 1243 QUANDO a tabela renderiza ENTAO a linha Pull Requests e destacada em amarelo com tooltip "4 records pending sync" | 🟡 Media |
+| MVP-1.7.7 | Como EM, quero painel colapsavel de erros recentes com stage, timestamp, mensagem resumida e contexto | DADO que ha 3 erros recentes QUANDO a pagina renderiza ENTAO header mostra "Errors (3)" com badge vermelho, painel expandido automaticamente | 🟡 Media |
+| MVP-1.7.8 | Como sistema, preciso consultar API do DevLake para obter status do pipeline mais recente e pipeline em execucao | DADO que DevLake tem pipelines finalizados QUANDO consulto a API ENTAO obtenho pipeline mais recente com id, status, started_at, finished_at, e detalhes de tasks | 🟡 Media |
+| MVP-1.7.9 | Como EM, quero que Pipeline Monitor atualize automaticamente a cada 30s com indicador de freshness ("Updated 5s ago") | DADO que estou na pagina QUANDO 30s se passam ENTAO dados sao re-fetched sem reload E o indicador mostra tempo desde ultima atualizacao | 🟢 Baixa |
+
+**Total Épico 1: 23 stories** (14 originais + 9 Pipeline Monitor)
 
 ---
 
@@ -289,14 +303,14 @@ Config YAML → PULSE Bootstrap → DevLake API (create connections) → DevLake
 
 | Épico | Stories | Foco |
 |---|---|---|
-| Épico 1 — Data Pipeline | 14 | Conectores (config estática), DevLake, normalização, Kafka, metrics worker |
+| Épico 1 — Data Pipeline | 23 | Conectores (config estática), DevLake, normalização, Kafka, metrics worker, **pipeline monitor** |
 | Épico 2 — DORA & Delivery | 10 | DORA dashboard, Cycle Time, Throughput, PR analytics |
 | Épico 3 — Lean + Shell | 12 | CFD, WIP, Lead Time, Sprints, Sidebar, Filtros, Home |
-| **TOTAL** | **36** | |
+| **TOTAL** | **45** | |
 
-**Redução vs v2.0:** De 39 stories para 36. Mas a redução real de esforço é maior porque as stories removidas (login, OAuth, onboarding wizard com 5 steps, team management UI) eram complexas em UX.
+**Redução vs v2.0:** De 39 stories para 36 originais. +9 stories de Pipeline Monitor (MVP-1.7) adicionadas para garantir confiança do usuario na qualidade dos dados. Destas 9, 2 (watermark persistence + sync logging) substituem trabalho ja necessario, resultando em ~7 dias de esforço liquido adicional.
 
-**Estimativa revisada: 10-14 semanas** com time de 4-5 devs.
+**Estimativa revisada: 12-16 semanas** com time de 4-5 devs (+2 semanas vs estimativa anterior para Pipeline Monitor).
 
 ---
 
@@ -351,14 +365,14 @@ JORNADA ► CONNECT(static)  OBSERVE           UNDERSTAND       NAVIGATE
           ■ ADO conn.      ■ Throughput                         status (r/o)
           ■ Deploy config  ■ PR Analytics                     ■ Skeleton
           ■ Status mapping ■ Open PR list                       loading
-            (YAML)         ■ CFD
-          ■ Team config    ■ WIP Monitor
-            (YAML)         ■ Lead Time Dist.
-          ■ Data pipeline  ■ Scatterplot
-            (normalize)    ■ Throughput Run
-          ■ Backfill 3m    ■ Sprint Overview
-          ■ Sync 15min     ■ Sprint Compare
-          ■ Kafka events
+            (YAML)         ■ CFD                              ■ Pipeline
+          ■ Team config    ■ WIP Monitor                        Monitor (1.7)
+            (YAML)         ■ Lead Time Dist.                    - Flow diagram
+          ■ Data pipeline  ■ Scatterplot                        - Record counts
+            (normalize)    ■ Throughput Run                     - Error panel
+          ■ Backfill 3m    ■ Sprint Overview                    - Auto-refresh
+          ■ Sync 15min     ■ Sprint Compare                     - Watermarks DB
+          ■ Kafka events                                        - Sync log DB
           ■ Metrics Worker
 
  R1       ■ Login SSO      ■ Cross-team Comp ■ Flow Effic.    ■ Onboarding

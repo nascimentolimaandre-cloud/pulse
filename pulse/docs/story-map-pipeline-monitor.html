@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PULSE — Pipeline Monitor Harmonized Backlog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #6366F1;
+      --brand-light: #EEF2FF;
+      --brand-dark: #4338CA;
+      --bg-primary: #FFFFFF;
+      --bg-secondary: #F9FAFB;
+      --bg-tertiary: #F3F4F6;
+      --text-primary: #111827;
+      --text-secondary: #6B7280;
+      --text-tertiary: #9CA3AF;
+      --border: #E5E7EB;
+      --border-subtle: #F3F4F6;
+      --success: #10B981;
+      --success-light: #ECFDF5;
+      --success-text: #065F46;
+      --warning: #F59E0B;
+      --warning-light: #FFFBEB;
+      --warning-text: #92400E;
+      --danger: #EF4444;
+      --danger-light: #FEF2F2;
+      --danger-text: #991B1B;
+      --info: #3B82F6;
+      --info-light: #EFF6FF;
+      --info-text: #1E40AF;
+      --purple: #8B5CF6;
+      --purple-light: #F5F3FF;
+      --purple-text: #5B21B6;
+      --gray: #9CA3AF;
+      --gray-light: #F9FAFB;
+      --gray-text: #4B5563;
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-pill: 9999px;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Page Header ─── */
+    .page-header {
+      background: linear-gradient(135deg, #312E81 0%, #4338CA 50%, #6366F1 100%);
+      color: white;
+      padding: 40px 48px 32px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(49,46,129,0.3);
+    }
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    .page-header .subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+      font-weight: 400;
+    }
+    .header-meta {
+      display: flex;
+      gap: 16px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .header-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .header-badge .dot.green { background: #34D399; }
+    .header-badge .dot.blue { background: #60A5FA; }
+    .header-badge .dot.purple { background: #A78BFA; }
+    .header-badge .dot.amber { background: #FBBF24; }
+
+    /* ─── Legend ─── */
+    .legend-bar {
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 48px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 99;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .legend-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .legend-group-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-tertiary);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+    .legend-stripe {
+      width: 4px;
+      height: 16px;
+      border-radius: 2px;
+    }
+
+    /* ─── Main Container ─── */
+    .container {
+      max-width: 1700px;
+      margin: 0 auto;
+      padding: 32px 32px 80px;
+    }
+
+    /* ─── Screen Reference ─── */
+    .screen-ref {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 40px;
+      flex-wrap: wrap;
+    }
+    .screen-card {
+      flex: 1;
+      min-width: 280px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow-card);
+    }
+    .screen-card h4 {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .screen-card .screen-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--brand-light);
+      color: var(--brand);
+    }
+    .screen-card p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .screen-card .features {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    /* ─── Story Map Grid ─── */
+    .story-map {
+      display: grid;
+      grid-template-columns: 140px repeat(5, 1fr);
+      gap: 0;
+      margin-top: 32px;
+    }
+
+    /* ─── Phase Header Row ─── */
+    .phase-header {
+      background: var(--brand);
+      color: white;
+      padding: 16px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+      margin: 0 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+    }
+    .phase-header .phase-icon {
+      font-size: 20px;
+      opacity: 0.8;
+    }
+    .phase-header .phase-count {
+      font-size: 10px;
+      background: rgba(255,255,255,0.2);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+    .corner-cell {
+      /* empty top-left */
+    }
+
+    /* ─── Swim Lane Label ─── */
+    .lane-label {
+      padding: 20px 12px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      text-align: right;
+      border-right: 3px solid var(--border);
+      min-height: 200px;
+    }
+    .lane-label-content {
+      position: sticky;
+      top: 140px;
+    }
+    .lane-label h3 {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-primary);
+    }
+    .lane-label p {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+    .lane-label.must-have { border-right-color: var(--danger); }
+    .lane-label.should-have { border-right-color: var(--warning); }
+    .lane-label.nice-to-have { border-right-color: var(--text-tertiary); }
+
+    /* ─── Lane Cell ─── */
+    .lane-cell {
+      padding: 12px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+      min-height: 120px;
+    }
+
+    /* ─── Story Card ─── */
+    .story-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-card);
+      padding: 12px;
+      transition: box-shadow 0.2s, transform 0.2s;
+      cursor: default;
+      position: relative;
+    }
+    .story-card:hover {
+      box-shadow: var(--shadow-elevated);
+      transform: translateY(-1px);
+    }
+
+    /* Harmonization stripe */
+    .story-card.unchanged { border-left: 4px solid var(--success); }
+    .story-card.modified { border-left: 4px solid var(--info); }
+    .story-card.new-story { border-left: 4px solid var(--purple); }
+    .story-card.backlog-only { border-left: 4px solid var(--gray); }
+
+    .story-card .story-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .story-card .story-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--brand);
+    }
+    .story-card .complexity-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .complexity-dot.alta { background: var(--danger); }
+    .complexity-dot.media { background: var(--warning); }
+    .complexity-dot.baixa { background: var(--success); }
+
+    .story-card .story-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.4;
+    }
+    .story-card .story-meta {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .story-tag {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: var(--radius-pill);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .story-tag.backend { background: #DBEAFE; color: #1E40AF; }
+    .story-tag.api { background: #CCFBF1; color: #065F46; }
+    .story-tag.frontend { background: #FCE7F3; color: #9D174D; }
+    .story-tag.pipeline { background: #FEF3C7; color: #92400E; }
+
+    .screen-pill {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: var(--radius-pill);
+      background: var(--brand-light);
+      color: var(--brand);
+    }
+
+    .new-badge {
+      position: absolute;
+      top: -6px;
+      right: 8px;
+      font-size: 8px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: var(--radius-pill);
+      background: var(--purple);
+      color: white;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    /* ─── Summary Section ─── */
+    .summary-section {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .summary-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .summary-card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .summary-card-body {
+      padding: 16px 20px;
+    }
+
+    /* ─── Stats Grid ─── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+    .stat-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      box-shadow: var(--shadow-card);
+    }
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    /* ─── Complexity Bar ─── */
+    .complexity-bar {
+      display: flex;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+    .complexity-bar .segment { transition: width 0.5s ease; }
+
+    /* ─── Harmonization Bar ─── */
+    .harmonization-bar {
+      display: flex;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+
+    /* ─── Table ─── */
+    .mini-table {
+      width: 100%;
+      font-size: 12px;
+      border-collapse: collapse;
+    }
+    .mini-table th {
+      text-align: left;
+      padding: 6px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border);
+    }
+    .mini-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: top;
+    }
+    .mini-table td:first-child {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--brand);
+      white-space: nowrap;
+    }
+
+    /* ─── Footer ─── */
+    .page-footer {
+      text-align: center;
+      padding: 32px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      border-top: 1px solid var(--border);
+      margin-top: 48px;
+    }
+    .page-footer strong {
+      color: var(--text-secondary);
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1200px) {
+      .story-map { overflow-x: auto; min-width: 1100px; }
+      .container { padding: 24px 16px 80px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header class="page-header">
+  <h1>PULSE — Pipeline Monitor: Backlog Harmonizado</h1>
+  <p class="subtitle">Epic 1.7 harmonizado com 3 telas Stitch (Google AI Studio) &mdash; Story Map MoSCoW</p>
+  <div class="header-meta">
+    <span class="header-badge"><span class="dot green"></span> 22 Stories Total</span>
+    <span class="header-badge"><span class="dot blue"></span> 11 Must Have</span>
+    <span class="header-badge"><span class="dot amber"></span> 10 Should Have</span>
+    <span class="header-badge"><span class="dot purple"></span> 1 Nice to Have</span>
+    <span class="header-badge">~4&ndash;6 semanas estimadas</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════ LEGEND ═══════════════════════ -->
+<div class="legend-bar">
+  <div class="legend-group">
+    <span class="legend-group-title">Status</span>
+    <span class="legend-item"><span class="legend-stripe" style="background:var(--success)"></span> Inalterada</span>
+    <span class="legend-item"><span class="legend-stripe" style="background:var(--info)"></span> Modificada</span>
+    <span class="legend-item"><span class="legend-stripe" style="background:var(--purple)"></span> Nova (Stitch)</span>
+  </div>
+  <span style="width:1px;height:16px;background:var(--border);display:block"></span>
+  <div class="legend-group">
+    <span class="legend-group-title">Complexidade</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span> Alta</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--warning)"></span> Media</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--success)"></span> Baixa</span>
+  </div>
+  <span style="width:1px;height:16px;background:var(--border);display:block"></span>
+  <div class="legend-group">
+    <span class="legend-group-title">Telas</span>
+    <span class="legend-item"><span class="screen-pill">T1</span> Main View</span>
+    <span class="legend-item"><span class="screen-pill">T2</span> Jira Filtered</span>
+    <span class="legend-item"><span class="screen-pill">T3</span> Metrics Worker</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ═══════════════════════ SCREEN REFERENCES ═══════════════════════ -->
+<section class="screen-ref">
+  <div class="screen-card">
+    <h4><span class="screen-badge">T1</span> Pipeline Monitor &mdash; Source Filters</h4>
+    <p>Visao principal do pipeline. Flow diagram de 5 nos, KPI cards, source filter bar, accordions de detalhe, record counts, error panel, activity timeline.</p>
+    <p class="features">11 features identificadas &bull; Arquivo: pipeline_monitor_source_filters/</p>
+  </div>
+  <div class="screen-card">
+    <h4><span class="screen-badge">T2</span> Pipeline Monitor &mdash; Jira Filtered</h4>
+    <p>Visao filtrada por fonte (Jira Cloud selecionado). KPIs especificos da fonte, board syncs table, live ingestion logs, flow diagram contextual.</p>
+    <p class="features">5 features identificadas &bull; Arquivo: pipeline_monitor_jira_filtered/</p>
+  </div>
+  <div class="screen-card">
+    <h4><span class="screen-badge">T3</span> Metrics Worker Snapshots</h4>
+    <p>Drill-down no stage Metrics Worker. Performance KPIs (req/s, latency), snapshot inspector table com tipo de metrica, duracao e status.</p>
+    <p class="features">4 features identificadas &bull; Arquivo: metrics_worker_snapshots/</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ STORY MAP GRID ═══════════════════════ -->
+<div style="overflow-x:auto;">
+<div class="story-map">
+
+  <!-- ─── Phase Header Row ─── -->
+  <div class="corner-cell"></div>
+  <div class="phase-header">
+    <span class="phase-icon">&#x1F4E6;</span>
+    Backend Infra
+    <span class="phase-count">5 stories</span>
+  </div>
+  <div class="phase-header">
+    <span class="phase-icon">&#x1F310;</span>
+    API Layer
+    <span class="phase-count">4 stories</span>
+  </div>
+  <div class="phase-header">
+    <span class="phase-icon">&#x1F5A5;</span>
+    Main View
+    <span class="phase-count">7 stories</span>
+  </div>
+  <div class="phase-header">
+    <span class="phase-icon">&#x1F50D;</span>
+    Filtered View
+    <span class="phase-count">3 stories</span>
+  </div>
+  <div class="phase-header">
+    <span class="phase-icon">&#x1F52C;</span>
+    Drill-Down
+    <span class="phase-count">3 stories</span>
+  </div>
+
+  <!-- ═══════════ MUST HAVE ROW ═══════════ -->
+  <div class="lane-label must-have">
+    <div class="lane-label-content">
+      <h3>Must Have</h3>
+      <p>MVP essencial<br>11 stories</p>
+    </div>
+  </div>
+
+  <!-- Backend Infra / Must Have -->
+  <div class="lane-cell">
+    <div class="story-card unchanged">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.1</span>
+        <span class="complexity-dot baixa"></span>
+      </div>
+      <div class="story-title">Persistir watermarks em DB (pipeline_watermarks)</div>
+      <div class="story-meta">
+        <span class="story-tag backend">Backend</span>
+        <span class="story-tag pipeline">Pipeline</span>
+      </div>
+    </div>
+    <div class="story-card unchanged">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.2</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Registrar ciclos de sync em pipeline_sync_log</div>
+      <div class="story-meta">
+        <span class="story-tag backend">Backend</span>
+        <span class="screen-pill">T1</span><span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card unchanged">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.4</span>
+        <span class="complexity-dot baixa"></span>
+      </div>
+      <div class="story-title">DevLakeReader count_all() para contagens comparativas</div>
+      <div class="story-meta">
+        <span class="story-tag backend">Backend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Layer / Must Have -->
+  <div class="lane-cell">
+    <div class="story-card modified">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.3</span>
+        <span class="complexity-dot alta"></span>
+      </div>
+      <div class="story-title">GET /pipeline/status &mdash; status consolidado expandido</div>
+      <div class="story-meta">
+        <span class="story-tag api">API</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+    <div class="story-card unchanged">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.8</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Query DevLake API para pipeline status mais recente</div>
+      <div class="story-meta">
+        <span class="story-tag api">API</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main View / Must Have -->
+  <div class="lane-cell">
+    <div class="story-card modified">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.5</span>
+        <span class="complexity-dot alta"></span>
+      </div>
+      <div class="story-title">Pipeline Flow Diagram &mdash; 5 nos, shimmer, status + throughput</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+    <div class="story-card modified">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.6a</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">KPI Counter Strip &mdash; Total, Synced, Pending, Errors</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+    <div class="story-card modified">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.6b</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Record Counts by Entity + comparacao DevLake vs PULSE DB</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+    <div class="story-card modified">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.7</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Error Panel colapsavel com acoes retry/ignore</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+    <div class="story-card unchanged">
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.9</span>
+        <span class="complexity-dot baixa"></span>
+      </div>
+      <div class="story-title">Auto-refresh 30s + freshness indicator</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtered View / Must Have -->
+  <div class="lane-cell">
+    <!-- empty - no must have in filtered view -->
+  </div>
+
+  <!-- Drill-Down / Must Have -->
+  <div class="lane-cell">
+    <!-- empty - no must have in drill-down -->
+  </div>
+
+  <!-- ═══════════ SHOULD HAVE ROW ═══════════ -->
+  <div class="lane-label should-have">
+    <div class="lane-label-content">
+      <h3>Should Have</h3>
+      <p>Alto valor<br>10 stories</p>
+    </div>
+  </div>
+
+  <!-- Backend Infra / Should Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.10</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Tabela pipeline_events para feed de atividade</div>
+      <div class="story-meta">
+        <span class="story-tag backend">Backend</span>
+        <span class="screen-pill">T1</span><span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.11</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Metadata de snapshots do Metrics Worker</div>
+      <div class="story-meta">
+        <span class="story-tag backend">Backend</span>
+        <span class="screen-pill">T3</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Layer / Should Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.12</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">GET /pipeline/status?source={type} &mdash; filtro por fonte</div>
+      <div class="story-meta">
+        <span class="story-tag api">API</span>
+        <span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.13</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">GET /pipeline/metrics-worker/snapshots &mdash; lista paginada</div>
+      <div class="story-meta">
+        <span class="story-tag api">API</span>
+        <span class="screen-pill">T3</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main View / Should Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.14</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Source Connection Filter Bar</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span><span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.15</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Recent Activity Timeline</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtered View / Should Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.16</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Source-Specific KPI Cards (KPIs dinamicos por fonte)</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.17</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Active Board Syncs Table (detalhe por board/repo)</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T2</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.18</span>
+        <span class="complexity-dot media"></span>
+      </div>
+      <div class="story-title">Live Ingestion Logs Panel (terminal-style)</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span><span class="screen-pill">T2</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drill-Down / Should Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.19</span>
+        <span class="complexity-dot baixa"></span>
+      </div>
+      <div class="story-title">Metrics Worker Performance KPI Cards</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T3</span>
+      </div>
+    </div>
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.20</span>
+        <span class="complexity-dot alta"></span>
+      </div>
+      <div class="story-title">Metrics Worker Snapshot Inspector Table (paginada)</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T3</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ NICE TO HAVE ROW ═══════════ -->
+  <div class="lane-label nice-to-have">
+    <div class="lane-label-content">
+      <h3>Nice to Have</h3>
+      <p>Bonus<br>1 story</p>
+    </div>
+  </div>
+
+  <!-- Backend / Nice to Have -->
+  <div class="lane-cell"></div>
+  <!-- API / Nice to Have -->
+  <div class="lane-cell"></div>
+
+  <!-- Main View / Nice to Have -->
+  <div class="lane-cell">
+    <div class="story-card new-story">
+      <span class="new-badge">NEW</span>
+      <div class="story-header">
+        <span class="story-id">MVP-1.7.21</span>
+        <span class="complexity-dot baixa"></span>
+      </div>
+      <div class="story-title">Performance Alert Card (threshold-based)</div>
+      <div class="story-meta">
+        <span class="story-tag frontend">Frontend</span>
+        <span class="screen-pill">T1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtered / Nice to Have -->
+  <div class="lane-cell"></div>
+  <!-- Drill-Down / Nice to Have -->
+  <div class="lane-cell"></div>
+
+</div>
+</div>
+
+<!-- ═══════════════════════ STATS ═══════════════════════ -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--brand)">22</div>
+    <div class="stat-label">Stories Total</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">11</div>
+    <div class="stat-label">Must Have (MVP)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--warning)">10</div>
+    <div class="stat-label">Should Have</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--text-tertiary)">1</div>
+    <div class="stat-label">Nice to Have</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ SUMMARY ═══════════════════════ -->
+<section class="summary-section">
+
+  <!-- Harmonization Summary -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x1F504; Resultado da Harmonizacao</div>
+    <div class="summary-card-body">
+      <div class="harmonization-bar">
+        <div class="segment" style="width:22.7%;background:var(--success)" title="5 inalteradas"></div>
+        <div class="segment" style="width:22.7%;background:var(--info)" title="5 modificadas"></div>
+        <div class="segment" style="width:54.6%;background:var(--purple)" title="12 novas"></div>
+      </div>
+      <table class="mini-table" style="margin-top:12px">
+        <tr><td style="color:var(--success)">&#9679;</td><td>Inalteradas do backlog original</td><td style="text-align:right;font-weight:700">5</td></tr>
+        <tr><td style="color:var(--info)">&#9679;</td><td>Modificadas/split (enriquecidas pelas telas)</td><td style="text-align:right;font-weight:700">5</td></tr>
+        <tr><td style="color:var(--purple)">&#9679;</td><td>Novas (features descobertas nas telas Stitch)</td><td style="text-align:right;font-weight:700">12</td></tr>
+      </table>
+      <p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Backlog original: 9 stories &rarr; Harmonizado: 22 stories (+144%)</p>
+    </div>
+  </div>
+
+  <!-- Effort Estimate -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x23F1; Estimativa de Esforco</div>
+    <div class="summary-card-body">
+      <table class="mini-table">
+        <thead>
+          <tr><th>Prioridade</th><th>Stories</th><th>Estimativa</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="color:var(--danger)">Must Have</td><td>11</td><td>~2&ndash;3 semanas</td></tr>
+          <tr><td style="color:var(--warning)">Should Have</td><td>10</td><td>~2&ndash;3 semanas</td></tr>
+          <tr><td style="color:var(--text-tertiary)">Nice to Have</td><td>1</td><td>~1 dia</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:16px;padding:12px;background:var(--brand-light);border-radius:var(--radius-sm);font-size:12px;color:var(--brand-dark)">
+        <strong>Recomendacao:</strong> Entregar Must Have em Sprint 1 (2 sem), Should Have em Sprint 2 (2 sem). Total: ~4 semanas.
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer Distribution -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x1F4CA; Distribuicao por Camada</div>
+    <div class="summary-card-body">
+      <table class="mini-table">
+        <thead>
+          <tr><th>Camada</th><th>Qtd</th><th>%</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="color:#1E40AF">&#9632; Backend</td><td>5</td><td>23%</td></tr>
+          <tr><td style="color:#065F46">&#9632; API</td><td>4</td><td>18%</td></tr>
+          <tr><td style="color:#9D174D">&#9632; Frontend</td><td>13</td><td>59%</td></tr>
+        </tbody>
+      </table>
+      <div class="complexity-bar" style="margin-top:16px">
+        <div class="segment" style="width:23%;background:#DBEAFE" title="Backend"></div>
+        <div class="segment" style="width:18%;background:#CCFBF1" title="API"></div>
+        <div class="segment" style="width:59%;background:#FCE7F3" title="Frontend"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen Coverage -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x1F3AF; Cobertura das Telas</div>
+    <div class="summary-card-body">
+      <table class="mini-table">
+        <thead>
+          <tr><th>Tela</th><th>Features</th><th>Stories</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="screen-pill">T1</span></td><td>11 features</td><td>14 stories cobrem</td></tr>
+          <tr><td><span class="screen-pill">T2</span></td><td>5 features</td><td>7 stories cobrem</td></tr>
+          <tr><td><span class="screen-pill">T3</span></td><td>4 features</td><td>4 stories cobrem</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Todas as features visiveis nas 3 telas Stitch estao mapeadas para pelo menos 1 story.</p>
+    </div>
+  </div>
+
+  <!-- Complexity Distribution -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x1F534; Distribuicao de Complexidade</div>
+    <div class="summary-card-body">
+      <div class="complexity-bar">
+        <div class="segment" style="width:14%;background:var(--danger)" title="Alta"></div>
+        <div class="segment" style="width:59%;background:var(--warning)" title="Media"></div>
+        <div class="segment" style="width:27%;background:var(--success)" title="Baixa"></div>
+      </div>
+      <table class="mini-table" style="margin-top:8px">
+        <tr><td style="color:var(--danger)">&#9679;</td><td>Alta (Pipeline Flow, API Status, Snapshot Table)</td><td style="text-align:right;font-weight:700">3</td></tr>
+        <tr><td style="color:var(--warning)">&#9679;</td><td>Media (maioria das stories)</td><td style="text-align:right;font-weight:700">13</td></tr>
+        <tr><td style="color:var(--success)">&#9679;</td><td>Baixa (watermarks, counters, auto-refresh, alert card)</td><td style="text-align:right;font-weight:700">6</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Dependencies -->
+  <div class="summary-card">
+    <div class="summary-card-header">&#x1F517; Dependencias Criticas</div>
+    <div class="summary-card-body" style="font-size:12px;line-height:1.8">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:600">1.7.1</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:600">1.7.2</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#CCFBF1;color:#065F46;font-size:11px;font-weight:600">1.7.3</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#FCE7F3;color:#9D174D;font-size:11px;font-weight:600">1.7.5</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#DBEAFE;color:#1E40AF;font-size:11px;font-weight:600">1.7.4</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#CCFBF1;color:#065F46;font-size:11px;font-weight:600">1.7.3</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#FCE7F3;color:#9D174D;font-size:11px;font-weight:600">1.7.6a + 1.7.6b</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#CCFBF1;color:#065F46;font-size:11px;font-weight:600">1.7.8</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#CCFBF1;color:#065F46;font-size:11px;font-weight:600">1.7.3</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#F5F3FF;color:#5B21B6;font-size:11px;font-weight:600">1.7.10</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#F5F3FF;color:#5B21B6;font-size:11px;font-weight:600">1.7.15 + 1.7.18</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#F5F3FF;color:#5B21B6;font-size:11px;font-weight:600">1.7.11</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#F5F3FF;color:#5B21B6;font-size:11px;font-weight:600">1.7.13</span>
+        <span style="color:var(--text-tertiary)">&rarr;</span>
+        <span style="padding:4px 10px;border-radius:var(--radius-sm);background:#F5F3FF;color:#5B21B6;font-size:11px;font-weight:600">1.7.19 + 1.7.20</span>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════ FULL STORY LIST ═══════════════════════ -->
+<div style="margin-top:48px">
+  <h2 style="font-size:20px;font-weight:700;margin-bottom:20px">Lista Completa &mdash; 22 Stories</h2>
+  <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-card)">
+    <table class="mini-table" style="width:100%">
+      <thead>
+        <tr style="background:var(--bg-tertiary)">
+          <th style="width:100px">ID</th>
+          <th>Titulo</th>
+          <th style="width:80px">Camada</th>
+          <th style="width:70px">Compl.</th>
+          <th style="width:90px">Status</th>
+          <th style="width:90px">Prioridade</th>
+          <th style="width:60px">Tela</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>MVP-1.7.1</td><td>Persistir watermarks em DB (pipeline_watermarks)</td><td><span class="story-tag backend">Backend</span></td><td><span class="complexity-dot baixa" style="display:inline-block;width:8px;height:8px"></span> Baixa</td><td style="color:var(--success)">Inalterada</td><td style="color:var(--danger)">Must Have</td><td>&mdash;</td></tr>
+        <tr><td>MVP-1.7.2</td><td>Registrar ciclos de sync em pipeline_sync_log</td><td><span class="story-tag backend">Backend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--success)">Inalterada</td><td style="color:var(--danger)">Must Have</td><td>T1 T2</td></tr>
+        <tr><td>MVP-1.7.3</td><td>GET /pipeline/status &mdash; status consolidado expandido</td><td><span class="story-tag api">API</span></td><td><span class="complexity-dot alta" style="display:inline-block;width:8px;height:8px"></span> Alta</td><td style="color:var(--info)">Modificada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.4</td><td>DevLakeReader count_all() para contagens comparativas</td><td><span class="story-tag backend">Backend</span></td><td><span class="complexity-dot baixa" style="display:inline-block;width:8px;height:8px"></span> Baixa</td><td style="color:var(--success)">Inalterada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.5</td><td>Pipeline Flow Diagram &mdash; 5 nos, shimmer, status + throughput</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot alta" style="display:inline-block;width:8px;height:8px"></span> Alta</td><td style="color:var(--info)">Modificada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.6a</td><td>KPI Counter Strip &mdash; Total, Synced, Pending, Errors</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--info)">Split</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.6b</td><td>Record Counts by Entity + comparacao DevLake vs PULSE DB</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--info)">Split</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.7</td><td>Error Panel colapsavel com acoes retry/ignore</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--info)">Modificada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.8</td><td>Query DevLake API para pipeline status mais recente</td><td><span class="story-tag api">API</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--success)">Inalterada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr><td>MVP-1.7.9</td><td>Auto-refresh 30s + freshness indicator</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot baixa" style="display:inline-block;width:8px;height:8px"></span> Baixa</td><td style="color:var(--success)">Inalterada</td><td style="color:var(--danger)">Must Have</td><td>T1</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.10</td><td>Tabela pipeline_events para feed de atividade</td><td><span class="story-tag backend">Backend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T1 T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.11</td><td>Metadata de snapshots do Metrics Worker</td><td><span class="story-tag backend">Backend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T3</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.12</td><td>GET /pipeline/status?source={type} &mdash; filtro por fonte</td><td><span class="story-tag api">API</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.13</td><td>GET /pipeline/metrics-worker/snapshots &mdash; lista paginada</td><td><span class="story-tag api">API</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T3</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.14</td><td>Source Connection Filter Bar</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T1 T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.15</td><td>Recent Activity Timeline</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T1</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.16</td><td>Source-Specific KPI Cards (KPIs dinamicos por fonte)</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.17</td><td>Active Board Syncs Table (detalhe por board/repo)</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.18</td><td>Live Ingestion Logs Panel (terminal-style)</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot media" style="display:inline-block;width:8px;height:8px"></span> Media</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T1 T2</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.19</td><td>Metrics Worker Performance KPI Cards</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot baixa" style="display:inline-block;width:8px;height:8px"></span> Baixa</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T3</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.20</td><td>Metrics Worker Snapshot Inspector Table (paginada)</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot alta" style="display:inline-block;width:8px;height:8px"></span> Alta</td><td style="color:var(--purple)">Nova</td><td style="color:var(--warning)">Should Have</td><td>T3</td></tr>
+        <tr style="background:var(--purple-light)"><td>MVP-1.7.21</td><td>Performance Alert Card (threshold-based)</td><td><span class="story-tag frontend">Frontend</span></td><td><span class="complexity-dot baixa" style="display:inline-block;width:8px;height:8px"></span> Baixa</td><td style="color:var(--purple)">Nova</td><td style="color:var(--text-tertiary)">Nice to Have</td><td>T1</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+<footer class="page-footer">
+  <strong>PULSE</strong> &mdash; Pipeline Monitor Harmonized Backlog v1.0 &bull;
+  Gerado em 08 Abr 2026 &bull;
+  Epic 1.7 &bull; 22 Stories &bull; 3 Telas Stitch &bull;
+  <span style="font-family:'JetBrains Mono',monospace;font-size:11px">story-map-pipeline-monitor.html</span>
+</footer>
+
+</body>
+</html>

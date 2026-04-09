@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # DevLake PostgreSQL (read-only, used by sync worker)
     devlake_db_url: str = "postgresql://devlake:devlake@localhost:5432/lake"
 
+    # DevLake REST API (read-only, used by pipeline monitor)
+    devlake_api_url: str = "http://localhost:4000"
+
     # Redis
     redis_url: str = "redis://localhost:6379"
 

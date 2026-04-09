@@ -56,6 +56,12 @@
   /* Shadows */
   --shadow-card: 0 1px 3px rgba(0,0,0,0.05);
   --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+
+  /* Pipeline-specific */
+  --pipeline-bg: #f8f9ff;
+  --pipeline-surface-low: #eff4ff;
+  --pipeline-surface-lowest: #ffffff;
+  --pipeline-inverse: #213145;
 }
 
 /* Dark mode (futuro - R2+) */
@@ -64,6 +70,76 @@
   --color-bg-secondary: #1E293B;       /* slate-800 */
   --color-text-primary: #F1F5F9;       /* slate-100 */
   --color-border-default: #334155;     /* slate-700 */
+}
+
+/* ── Pipeline Monitor Animations ── */
+
+/* Shimmer flow on connector lines */
+@keyframes shimmer-flow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-shimmer-flow {
+  animation: shimmer-flow 2s ease-in-out infinite;
+}
+
+/* Pulse ring for active source connections */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  80%, 100% { transform: scale(1.4); opacity: 0; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+}
+
+/* Data flow animation for pipeline connectors */
+@keyframes data-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.animate-data-flow {
+  background: linear-gradient(90deg, transparent 0%, #6366F1 30%, #818CF8 50%, #6366F1 70%, transparent 100%);
+  background-size: 200% 100%;
+  animation: data-flow 2s linear infinite;
+}
+
+/* Subtle glow for syncing nodes */
+@keyframes node-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.0); }
+  50% { box-shadow: 0 0 16px 4px rgba(99, 102, 241, 0.15); }
+}
+.animate-node-glow {
+  animation: node-glow 2s ease-in-out infinite;
+}
+
+/* Terminal cursor blink */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* Indigo gradient for primary actions */
+.pulse-gradient {
+  background: linear-gradient(135deg, #4648d4 0%, #6063ee 100%);
+}
+
+/* Ambient shadow (design system spec) */
+.ambient-shadow {
+  box-shadow: 0 32px 64px -4px rgba(11, 28, 48, 0.06);
+}
+
+/* Ghost border (design system spec — 15% opacity) */
+.ghost-border {
+  border: 1px solid rgba(199, 196, 215, 0.15);
+}
+
+/* Glass effect for floating elements */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(24px);
 }
 
 /* Base layer resets */

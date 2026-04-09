@@ -160,6 +160,9 @@ class SprintOverviewData(BaseModel):
     committed_points: float = 0.0
     completed_points: float = 0.0
     completion_rate_points: float | None = None
+    sprint_name: str | None = Field(None, description="Sprint name from metadata")
+    started_at: str | None = Field(None, description="Sprint start date (ISO)")
+    completed_at: str | None = Field(None, description="Sprint end date (ISO)")
 
 
 class SprintComparisonData(BaseModel):
@@ -265,12 +268,12 @@ class IssueItem(BaseModel):
     source: str
     project_key: str
     title: str
-    type: str
+    issue_type: str
     status: str
     normalized_status: str
     assignee: str | None = None
     story_points: float | None = None
-    sprint_id: UUID | None = None
+    sprint_id: str | None = None
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None

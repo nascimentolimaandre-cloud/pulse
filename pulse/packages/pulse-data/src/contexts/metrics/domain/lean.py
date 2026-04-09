@@ -26,7 +26,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 
@@ -202,8 +202,8 @@ def calculate_cfd(
     current_day = start_date
 
     while current_day <= end_date:
-        # End-of-day threshold: 23:59:59 on current_day
-        eod = datetime(current_day.year, current_day.month, current_day.day, 23, 59, 59)
+        # End-of-day threshold: 23:59:59 on current_day (timezone-aware UTC)
+        eod = datetime(current_day.year, current_day.month, current_day.day, 23, 59, 59, tzinfo=timezone.utc)
 
         counts: dict[str, int] = {
             "backlog": 0,

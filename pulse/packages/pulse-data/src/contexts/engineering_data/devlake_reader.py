@@ -83,21 +83,28 @@ class DevLakeReader:
             return [dict(row) for row in rows]
 
     async def fetch_issues(self, since: datetime | None = None) -> list[dict[str, Any]]:
-        """Fetch issues from DevLake domain table."""
+        """Fetch issues from DevLake domain table.
+
+        Uses updated_date for incremental sync watermark instead of created_date,
+        because Jira issues may have been created long ago but only recently
+        ingested/updated in DevLake. Using created_date would miss old issues
+        that were just collected for the first time.
+        """
         base = """
             SELECT
                 i.id, i.url, i.issue_key, i.title, i.status,
                 i.original_status, i.story_point, i.priority,
-                i.created_date, i.resolution_date, i.lead_time_minutes,
+                i.created_date, i.updated_date, i.resolution_date,
+                i.lead_time_minutes,
                 i.assignee_name, i.type, si.sprint_id
             FROM issues i
             LEFT JOIN sprint_issues si ON si.issue_id = i.id
         """
         if since is not None:
-            query = text(base + " WHERE i.created_date > :since ORDER BY i.created_date DESC LIMIT 5000")
+            query = text(base + " WHERE i.updated_date > :since ORDER BY i.updated_date DESC LIMIT 5000")
             params = {"since": since}
         else:
-            query = text(base + " ORDER BY i.created_date DESC LIMIT 5000")
+            query = text(base + " ORDER BY i.updated_date DESC LIMIT 5000")
             params = {}
 
         async with self._session_factory() as session:
@@ -156,6 +163,96 @@ class DevLakeReader:
             rows = result.mappings().all()
             logger.info("Fetched %d sprints from DevLake (since=%s)", len(rows), since)
             return [dict(row) for row in rows]
+
+    async def fetch_issue_changelogs(
+        self, issue_ids: list[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch status transition changelogs for a batch of issues.
+
+        Queries DevLake's issue_changelogs table for status field changes.
+        Returns a dict mapping issue_id -> list of status transitions,
+        sorted chronologically.
+
+        DevLake populates this table from Jira's changelog API.
+        For GitHub issues (which lack changelogs), this returns empty lists.
+        """
+        if not issue_ids:
+            return {}
+
+        query = text("""
+            SELECT
+                ic.issue_id,
+                ic.original_from_value AS from_status,
+                ic.original_to_value AS to_status,
+                ic.created_date
+            FROM issue_changelogs ic
+            WHERE ic.issue_id = ANY(:issue_ids)
+              AND LOWER(ic.field_name) = 'status'
+            ORDER BY ic.issue_id, ic.created_date ASC
+        """)
+
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(query, {"issue_ids": issue_ids})
+                rows = result.mappings().all()
+        except Exception:
+            # Table may not exist if Jira plugin is not yet configured in DevLake
+            logger.warning(
+                "Could not fetch issue_changelogs (table may not exist yet) — "
+                "returning empty transitions"
+            )
+            return {}
+
+        changelogs: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            issue_id = str(row["issue_id"])
+            if issue_id not in changelogs:
+                changelogs[issue_id] = []
+            changelogs[issue_id].append(dict(row))
+
+        logger.info(
+            "Fetched changelogs for %d issues (%d total transitions)",
+            len(changelogs),
+            len(rows),
+        )
+        return changelogs
+
+    # ------------------------------------------------------------------
+    # Count helpers — used by Pipeline Monitor for source/target comparison
+    # ------------------------------------------------------------------
+
+    async def count_pull_requests(self) -> int:
+        """Count total pull requests in DevLake DB."""
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text("SELECT COUNT(*) FROM pull_requests"))
+            return result.scalar() or 0
+
+    async def count_issues(self) -> int:
+        """Count total issues in DevLake DB."""
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text("SELECT COUNT(*) FROM issues"))
+            return result.scalar() or 0
+
+    async def count_deployments(self) -> int:
+        """Count total deployment commits in DevLake DB."""
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text("SELECT COUNT(*) FROM cicd_deployment_commits"))
+            return result.scalar() or 0
+
+    async def count_sprints(self) -> int:
+        """Count total sprints in DevLake DB."""
+        async with self._engine.connect() as conn:
+            result = await conn.execute(text("SELECT COUNT(*) FROM sprints"))
+            return result.scalar() or 0
+
+    async def count_all(self) -> dict[str, int]:
+        """Count all entities in DevLake DB for comparison with PULSE DB."""
+        return {
+            "pull_requests": await self.count_pull_requests(),
+            "issues": await self.count_issues(),
+            "deployments": await self.count_deployments(),
+            "sprints": await self.count_sprints(),
+        }
 
     async def fetch_sprint_issues(self, sprint_id: str) -> list[dict[str, Any]]:
         """Fetch all issues belonging to a specific sprint."""

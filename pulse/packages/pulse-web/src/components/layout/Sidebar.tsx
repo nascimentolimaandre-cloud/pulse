@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Sprints', path: '/metrics/sprints', icon: Zap },
   { label: 'Open PRs', path: '/prs', icon: GitPullRequest },
   { label: 'Integrations', path: '/integrations', icon: Cable },
+  { label: 'Pipeline', path: '/pipeline-monitor', icon: Activity },
 ];
 
 export function Sidebar() {

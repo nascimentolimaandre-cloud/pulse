@@ -13,6 +13,7 @@ import { leanRoute } from './routes/_dashboard/metrics/lean';
 import { sprintsRoute } from './routes/_dashboard/metrics/sprints';
 import { prsRoute } from './routes/_dashboard/prs';
 import { integrationsRoute } from './routes/_dashboard/integrations';
+import { pipelineMonitorRoute } from './routes/_dashboard/pipeline-monitor';
 
 export const routeTree = rootRoute.addChildren([
   homeRoute,
@@ -23,4 +24,5 @@ export const routeTree = rootRoute.addChildren([
   sprintsRoute,
   prsRoute,
   integrationsRoute,
+  pipelineMonitorRoute,
 ]);
