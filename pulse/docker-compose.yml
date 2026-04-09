@@ -50,6 +50,8 @@ services:
       - "${PULSE_DATA_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
+      DEVLAKE_API_URL: http://devlake:8080
       KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
     volumes:
@@ -58,6 +60,8 @@ services:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      devlake-pg:
         condition: service_healthy
     restart: unless-stopped
 
@@ -75,6 +79,8 @@ services:
       DEVLAKE_DB_URL: postgresql://${DEVLAKE_PG_USER:-devlake}:${DEVLAKE_PG_PASSWORD:-devlake_dev}@devlake-pg:5432/${DEVLAKE_PG_DB:-lake}
       KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
+    volumes:
+      - ./packages/pulse-data/src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,6 +100,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       KAFKA_BROKERS: kafka:29092
       ENVIRONMENT: development
+    volumes:
+      - ./packages/pulse-data/src:/app/src
     depends_on:
       postgres:
         condition: service_healthy
@@ -167,7 +175,7 @@ services:
   # DevLake
   # --------------------------------------------------------------------------
   devlake:
-    image: apache/devlake:latest
+    image: apache/devlake:v1.0.3-beta7
     container_name: pulse-devlake
     ports:
       - "${DEVLAKE_PORT:-8080}:8080"

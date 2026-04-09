@@ -17,6 +17,12 @@ import type {
   ThroughputDataPoint,
   ThroughputAnalytics,
   PrSizeDistributionItem,
+  LeanMetrics,
+  CfdDataPoint,
+  ScatterplotDataPoint,
+  SprintResponse,
+  SprintOverview,
+  SprintComparisonItem,
 } from '@/types/metrics';
 
 /* ── Helpers ── */
@@ -454,5 +460,171 @@ export function transformThroughput(raw: RawThroughputResponse): ThroughputRespo
     analytics: transformedAnalytics,
     period: raw.period,
     teamId: 'default',
+  };
+}
+
+/* ── Lean Metrics ── */
+
+interface RawLeanCfdPoint {
+  date: string;
+  backlog: number;
+  todo: number;
+  in_progress: number;
+  in_review: number;
+  done: number;
+}
+
+interface RawLeanScatterPoint {
+  issue_id: string;
+  completed_date: string;
+  lead_time_hours: number;
+  is_outlier: boolean;
+}
+
+interface RawLeanResponse {
+  period: string;
+  team_id: string | null;
+  data: {
+    cfd: RawLeanCfdPoint[] | null;
+    wip: number | null;
+    lead_time_distribution: {
+      p50_hours: number | null;
+      p85_hours: number | null;
+      p95_hours: number | null;
+      buckets: unknown[];
+      total_issues: number;
+    } | null;
+    throughput: unknown[] | null;
+    scatterplot: {
+      points: RawLeanScatterPoint[];
+      p50_hours: number | null;
+      p85_hours: number | null;
+      p95_hours: number | null;
+    } | null;
+  };
+}
+
+export function transformLeanMetrics(raw: RawLeanResponse): LeanMetrics {
+  const d = raw.data;
+  const lt = d.lead_time_distribution;
+
+  const cfdData: CfdDataPoint[] = (d.cfd ?? []).map((p) => ({
+    week: p.date,
+    backlog: p.backlog,
+    todo: p.todo,
+    inProgress: p.in_progress,
+    review: p.in_review,
+    done: p.done,
+  }));
+
+  const scatterplotData: ScatterplotDataPoint[] = (
+    d.scatterplot?.points ?? []
+  ).map((p) => ({
+    id: p.issue_id,
+    title: '',
+    leadTimeDays: round2(p.lead_time_hours / 24),
+    closedAt: p.completed_date,
+    isOutlier: p.is_outlier,
+  }));
+
+  return {
+    wipCount: safeNumber(d.wip),
+    wipLimit: 10,
+    wipAgingItems: 0,
+    leadTimeP50Days: round2(safeNumber(lt?.p50_hours) / 24),
+    leadTimeP85Days: round2(safeNumber(lt?.p85_hours) / 24),
+    leadTimeP95Days: round2(safeNumber(lt?.p95_hours) / 24),
+    cfdData,
+    scatterplotData,
+    period: raw.period,
+    teamId: raw.team_id ?? 'default',
+  };
+}
+
+/* ── Sprint Metrics ── */
+
+interface RawSprintOverview {
+  committed_items: number;
+  added_items: number;
+  removed_items: number;
+  completed_items: number;
+  carried_over_items: number;
+  final_scope_items: number;
+  completion_rate: number | null;
+  scope_creep_pct: number | null;
+  carryover_rate: number | null;
+  committed_points: number;
+  completed_points: number;
+  completion_rate_points: number | null;
+  sprint_name?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+interface RawSprintComparisonItem {
+  sprint_id: string;
+  name: string;
+  committed_items: number;
+  completed_items: number;
+  velocity_points: number;
+  completion_rate: number | null;
+  scope_creep_pct: number | null;
+}
+
+interface RawSprintResponse {
+  team_id: string | null;
+  calculated_at: string | null;
+  data: {
+    overview: RawSprintOverview | null;
+    comparison: {
+      sprints: RawSprintComparisonItem[];
+      avg_velocity: number | null;
+      velocity_trend: string;
+    } | null;
+  };
+}
+
+export function transformSprintMetrics(raw: RawSprintResponse): SprintResponse {
+  const ov = raw.data.overview;
+  const comp = raw.data.comparison;
+
+  const current: SprintOverview | null = ov
+    ? {
+        id: '',
+        name: ov.sprint_name ?? 'Current Sprint',
+        startDate: ov.started_at ?? '',
+        endDate: ov.completed_at ?? '',
+        status: 'active',
+        metrics: {
+          committed: ov.committed_items,
+          added: ov.added_items,
+          completed: ov.completed_items,
+          removed: ov.removed_items,
+          carryOver: ov.carried_over_items,
+          completionRate: round2(safeNumber(ov.completion_rate) * 100),
+        },
+        burndownData: [],
+        teamId: raw.team_id ?? 'default',
+      }
+    : null;
+
+  const comparison: SprintComparisonItem[] = (comp?.sprints ?? []).map(
+    (s) => ({
+      sprintName: s.name,
+      committed: s.committed_items,
+      completed: s.completed_items,
+    }),
+  );
+
+  const velocityTrend = (comp?.velocity_trend ?? 'stable') as
+    | 'improving'
+    | 'stable'
+    | 'declining';
+
+  return {
+    current,
+    recent: [],
+    comparison,
+    velocityTrend,
   };
 }

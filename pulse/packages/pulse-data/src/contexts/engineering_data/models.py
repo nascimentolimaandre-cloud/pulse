@@ -4,10 +4,9 @@ Tables: eng_pull_requests, eng_issues, eng_deployments, eng_sprints.
 All tables enforce tenant_id (NOT NULL) for RLS.
 """
 
-import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, Uuid, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, column_property
 from sqlalchemy import case, extract
@@ -87,14 +86,13 @@ class EngIssue(TenantModel):
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # jira | linear | azure
     project_key: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[str] = mapped_column(String(64), nullable=False)  # bug | story | task | epic
+    issue_type: Mapped[str] = mapped_column(String(64), nullable=False)  # bug | story | task | epic
     status: Mapped[str] = mapped_column(String(128), nullable=False)  # raw status from source
     normalized_status: Mapped[str] = mapped_column(String(32), nullable=False)  # todo | in_progress | done
     assignee: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    labels: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
     story_points: Mapped[float | None] = mapped_column(Float, nullable=True)
-    sprint_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    sprint_id: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
 
     # Status transition log for CFD / flow metrics
     status_transitions: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)

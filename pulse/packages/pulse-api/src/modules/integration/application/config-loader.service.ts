@@ -121,6 +121,9 @@ export class ConfigLoaderService implements OnModuleInit {
       // Store status mapping for use by sync worker
       this.statusMapping = this.config.status_mapping ?? {};
 
+      // Wait for DevLake API to be available (handles startup race condition)
+      await this.devLakeClient.waitForReady();
+
       // Ensure organization exists
       const org = await this.ensureOrganization(this.config.organization);
 
@@ -130,8 +133,8 @@ export class ConfigLoaderService implements OnModuleInit {
       // Create team records
       await this.provisionTeams(this.config.teams, org.id);
 
-      // Create DevLake blueprints
-      await this.createBlueprints(this.config.connections);
+      // Provision Jira scopes (boards) and blueprint automatically
+      await this.provisionJiraScopes(this.config.connections);
 
       this.logger.log('Configuration loaded successfully');
     } catch (error) {
@@ -239,40 +242,69 @@ export class ConfigLoaderService implements OnModuleInit {
 
       if (existing) {
         this.logger.log(
-          `Connection '${conn.name}' (${conn.source}) already exists -- skipping`,
+          `Connection '${conn.name}' (${conn.source}) already exists in PULSE DB — skipping`,
         );
         continue;
       }
 
-      // Resolve token from environment
-      const token = process.env[conn.token_env];
-      if (!token) {
-        this.logger.warn(
-          `Token env '${conn.token_env}' not set -- skipping ${conn.name}`,
-        );
-        continue;
-      }
-
-      // Create DevLake connection
       const plugin = SOURCE_TO_PLUGIN[conn.source] ?? conn.source;
+
       try {
-        // Jenkins requires username + token (Basic Auth)
-        const connectionOptions: { username?: string } = {};
-        if (conn.source === 'jenkins' && conn.username_env) {
-          connectionOptions.username = process.env[conn.username_env] ?? '';
+        // Check DevLake for existing connection (handles persistent volume restarts)
+        const existingDevLakeConnections =
+          await this.devLakeClient.listConnections(plugin);
+        const existingDevLake = existingDevLakeConnections.find(
+          (dlc) => dlc.name.toLowerCase() === conn.name.toLowerCase(),
+        );
+
+        let devlakeConnectionId: number;
+
+        if (existingDevLake) {
+          this.logger.log(
+            `DevLake connection '${conn.name}' already exists (id=${existingDevLake.id}) — linking to PULSE`,
+          );
+          devlakeConnectionId = existingDevLake.id;
+        } else {
+          // Resolve token from environment
+          const token = process.env[conn.token_env];
+          if (!token) {
+            this.logger.warn(
+              `Token env '${conn.token_env}' not set — skipping ${conn.name}`,
+            );
+            continue;
+          }
+
+          const connectionOptions: {
+            username?: string;
+            rateLimitPerHour?: number;
+            enableGraphql?: boolean;
+          } = {};
+
+          if (
+            (conn.source === 'jenkins' || conn.source === 'jira') &&
+            conn.username_env
+          ) {
+            connectionOptions.username =
+              process.env[conn.username_env] ?? '';
+          }
+          if (conn.source === 'github') {
+            connectionOptions.rateLimitPerHour = 4500;
+            connectionOptions.enableGraphql = true;
+          }
+
+          const devlakeConn = await this.devLakeClient.createConnection(
+            plugin,
+            conn.name,
+            conn.base_url,
+            token,
+            connectionOptions,
+          );
+
+          devlakeConnectionId = devlakeConn.id;
+          this.logger.log(
+            `Created DevLake connection: ${plugin}/${conn.name} (id=${devlakeConnectionId})`,
+          );
         }
-
-        const devlakeConn = await this.devLakeClient.createConnection(
-          plugin,
-          conn.name,
-          conn.base_url,
-          token,
-          connectionOptions,
-        );
-
-        this.logger.log(
-          `Created DevLake connection: ${plugin}/${conn.name} (id=${devlakeConn.id})`,
-        );
 
         // Create PULSE connection record
         const connectionEntity = this.connectionRepo.create({
@@ -280,7 +312,7 @@ export class ConfigLoaderService implements OnModuleInit {
           orgId,
           sourceType: conn.source,
           config: {
-            devlake_connection_id: devlakeConn.id,
+            devlake_connection_id: devlakeConnectionId,
             devlake_plugin: plugin,
             base_url: conn.base_url,
             sync_interval_minutes: conn.sync_interval_minutes,
@@ -295,7 +327,7 @@ export class ConfigLoaderService implements OnModuleInit {
         );
       } catch (error) {
         this.logger.error(
-          `Failed to create DevLake connection for '${conn.name}': ${
+          `Failed to provision connection '${conn.name}': ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -347,9 +379,203 @@ export class ConfigLoaderService implements OnModuleInit {
     }
   }
 
+  /**
+   * Board selection heuristic for Jira projects.
+   * Prefers Downstream boards (dev issues), then Development, then Épicos.
+   */
+  private selectBestBoard(
+    boards: Array<{ id: number; name: string; type: string; projectKey: string }>,
+  ): { id: number; name: string; type: string; projectKey: string } | null {
+    if (boards.length === 0) return null;
+    if (boards.length === 1) return boards[0];
+
+    const priorities = [
+      (b: { name: string }) => /downstream/i.test(b.name),
+      (b: { name: string }) => /desenvolvimento|development/i.test(b.name),
+      (b: { name: string }) => /épicos|epicos/i.test(b.name),
+    ];
+
+    for (const predicate of priorities) {
+      const match = boards.find(predicate);
+      if (match) return match;
+    }
+
+    return boards[0]; // last resort
+  }
+
+  /**
+   * Discover Jira boards for each project key, register as DevLake scopes,
+   * and create/update a blueprint — fully automated and idempotent.
+   */
+  private async provisionJiraScopes(
+    connections: ConnectionConfig[],
+  ): Promise<void> {
+    const jiraConns = connections.filter((c) => c.source === 'jira');
+    if (jiraConns.length === 0) return;
+
+    const tenantId = this.configService.getOrThrow<string>('DEFAULT_TENANT_ID');
+
+    for (const conn of jiraConns) {
+      // Find the PULSE connection to get the DevLake connection ID
+      const pulseConn = await this.connectionRepo.findOne({
+        where: { tenantId, sourceType: 'jira' as SourceType },
+      });
+
+      if (!pulseConn) {
+        this.logger.warn('No PULSE Jira connection found — skipping scope provisioning');
+        continue;
+      }
+
+      const devlakeConnectionId = (pulseConn.config as Record<string, unknown>)
+        ?.devlake_connection_id as number;
+
+      if (!devlakeConnectionId) {
+        this.logger.warn('No DevLake connection ID for Jira — skipping');
+        continue;
+      }
+
+      const projects = conn.scope.projects ?? [];
+      if (projects.length === 0) continue;
+
+      // Get already-registered scopes
+      let existingScopes: Array<Record<string, unknown>> = [];
+      try {
+        existingScopes = await this.devLakeClient.listScopes('jira', devlakeConnectionId);
+      } catch {
+        this.logger.warn('Could not list existing Jira scopes');
+      }
+      const existingBoardIds = new Set(
+        existingScopes.map((s) => Number(s.boardId)),
+      );
+
+      const allBoardIds: number[] = [...existingBoardIds];
+
+      for (const projectKey of projects) {
+        // Discover boards for this project
+        const boards = await this.devLakeClient.discoverJiraBoards(
+          devlakeConnectionId,
+          projectKey,
+        );
+
+        if (boards.length === 0) {
+          this.logger.warn(
+            `No Jira boards found for project ${projectKey} — skipping`,
+          );
+          continue;
+        }
+
+        const best = this.selectBestBoard(boards);
+        if (!best) continue;
+
+        if (existingBoardIds.has(best.id)) {
+          this.logger.log(
+            `Board ${best.id} (${best.name}) already registered for ${projectKey}`,
+          );
+          if (!allBoardIds.includes(best.id)) allBoardIds.push(best.id);
+          continue;
+        }
+
+        // Register the board as a DevLake scope
+        try {
+          await this.devLakeClient.registerScopes('jira', devlakeConnectionId, [
+            {
+              boardId: best.id,
+              connectionId: devlakeConnectionId,
+              name: best.name,
+              self: `https://webmotors.atlassian.net/rest/agile/1.0/board/${best.id}`,
+              type: best.type,
+            },
+          ]);
+          allBoardIds.push(best.id);
+          this.logger.log(
+            `Registered Jira board ${best.id} (${best.name}) for project ${projectKey}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to register board for ${projectKey}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      // Create or update blueprint
+      if (allBoardIds.length === 0) {
+        this.logger.warn('No Jira boards available for blueprint');
+        return;
+      }
+
+      const blueprintScopes = allBoardIds.map((id) => ({
+        scopeId: String(id),
+      }));
+
+      try {
+        const existingBlueprints = await this.devLakeClient.listBlueprints();
+        const existing = existingBlueprints.find(
+          (bp) => bp.name === 'PULSE-Jira-MVP',
+        );
+
+        if (existing) {
+          await this.devLakeClient.updateBlueprint(existing.id, [
+            {
+              pluginName: 'jira',
+              connectionId: devlakeConnectionId,
+              scopes: blueprintScopes,
+            },
+          ]);
+          this.logger.log(
+            `Updated blueprint 'PULSE-Jira-MVP' (id=${existing.id}) with ${allBoardIds.length} scopes`,
+          );
+        } else {
+          const blueprint = await this.devLakeClient.createBlueprint(
+            'PULSE-Jira-MVP',
+            '0 */4 * * *',
+            [
+              {
+                plugin: 'jira',
+                connectionId: devlakeConnectionId,
+                scopes: blueprintScopes as unknown[],
+              },
+            ],
+          );
+          this.logger.log(
+            `Created blueprint 'PULSE-Jira-MVP' (id=${blueprint.id}) with ${allBoardIds.length} scopes`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to provision Jira blueprint: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+  }
+
+  /** @deprecated Use provisionJiraScopes instead */
   private async createBlueprints(
     connections: ConnectionConfig[],
   ): Promise<void> {
+    // Check if blueprint already exists in DevLake
+    try {
+      const existingBlueprints = await this.devLakeClient.listBlueprints();
+      const existing = existingBlueprints.find(
+        (bp) => bp.name === 'PULSE-MVP-Blueprint',
+      );
+      if (existing) {
+        this.logger.log(
+          `Blueprint 'PULSE-MVP-Blueprint' already exists (id=${existing.id}) — skipping`,
+        );
+        return;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not check existing blueprints: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
     const tenantId = this.configService.getOrThrow<string>('DEFAULT_TENANT_ID');
 
     // Fetch all PULSE connection records to get DevLake connection IDs

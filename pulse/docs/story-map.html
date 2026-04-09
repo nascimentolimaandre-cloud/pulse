@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PULSE — Story Map MVP v3.0</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ─── Reset & Base ─── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #6366F1;
+      --brand-light: #EEF2FF;
+      --brand-dark: #4338CA;
+      --bg-primary: #FFFFFF;
+      --bg-secondary: #F9FAFB;
+      --bg-tertiary: #F3F4F6;
+      --text-primary: #111827;
+      --text-secondary: #6B7280;
+      --text-tertiary: #9CA3AF;
+      --border: #E5E7EB;
+      --border-subtle: #F3F4F6;
+      --success: #10B981;
+      --success-light: #ECFDF5;
+      --success-text: #065F46;
+      --warning: #F59E0B;
+      --warning-light: #FFFBEB;
+      --warning-text: #92400E;
+      --danger: #EF4444;
+      --danger-light: #FEF2F2;
+      --danger-text: #991B1B;
+      --info: #3B82F6;
+      --info-light: #EFF6FF;
+      --info-text: #1E40AF;
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-pill: 9999px;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Page Header ─── */
+    .page-header {
+      background: linear-gradient(135deg, #312E81 0%, #4338CA 50%, #6366F1 100%);
+      color: white;
+      padding: 40px 48px 32px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(49,46,129,0.3);
+    }
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    .page-header .subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+      font-weight: 400;
+    }
+    .header-meta {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .header-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #34D399;
+    }
+
+    /* ─── Legend ─── */
+    .legend-bar {
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 48px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 99;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    /* ─── Main Container ─── */
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 32px 48px 80px;
+    }
+
+    /* ─── Backbone (User Journey) ─── */
+    .backbone {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 0;
+      margin-bottom: 0;
+    }
+
+    /* ─── Row Labels (Left Column) ─── */
+    .row-label {
+      padding: 16px 20px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      text-align: right;
+      border-right: 3px solid var(--border);
+      min-height: 60px;
+    }
+    .row-label-content {
+      position: sticky;
+      top: 120px;
+    }
+    .row-label h3 {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-primary);
+    }
+    .row-label p {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+    }
+
+    /* ─── Activity Row (Backbone) ─── */
+    .activity-row {
+      display: flex;
+      gap: 12px;
+      padding: 16px 20px;
+      overflow-x: auto;
+    }
+
+    .activity-card {
+      flex: 0 0 auto;
+      min-width: 200px;
+      max-width: 260px;
+      background: var(--brand);
+      color: white;
+      padding: 14px 18px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+      position: relative;
+    }
+    .activity-card::after {
+      content: '→';
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 16px;
+      color: var(--brand);
+      font-weight: 700;
+      z-index: 1;
+    }
+    .activity-card:last-child::after { display: none; }
+    .activity-icon {
+      width: 32px;
+      height: 32px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    /* ─── Epic Separator ─── */
+    .epic-separator {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 24px 0 12px;
+      margin-top: 8px;
+    }
+    .epic-separator:first-of-type { margin-top: 0; padding-top: 12px; }
+    .epic-tag {
+      flex-shrink: 0;
+      padding: 8px 20px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    .epic-tag.epic-1 { background: #DBEAFE; color: #1E40AF; }
+    .epic-tag.epic-2 { background: #FCE7F3; color: #9D174D; }
+    .epic-tag.epic-3 { background: #D1FAE5; color: #065F46; }
+    .epic-line {
+      flex: 1;
+      height: 2px;
+      background: var(--border);
+      border-radius: 1px;
+    }
+    .epic-count {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    /* ─── Feature Set Row ─── */
+    .fs-row {
+      display: flex;
+      gap: 12px;
+      padding: 8px 20px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+
+    /* ─── Feature Set Card ─── */
+    .fs-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-card);
+      width: 280px;
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .fs-card:hover {
+      box-shadow: var(--shadow-elevated);
+      transform: translateY(-2px);
+    }
+    .fs-card.new-feature {
+      border-color: var(--brand);
+      border-width: 2px;
+      position: relative;
+    }
+    .fs-card.new-feature::before {
+      content: 'NEW';
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: var(--brand);
+      color: white;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      letter-spacing: 1px;
+      z-index: 2;
+    }
+
+    .fs-header {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .fs-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+    }
+    .fs-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 2px;
+    }
+    .fs-story-count {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      background: var(--bg-tertiary);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+
+    /* ─── Story Cards inside FS ─── */
+    .stories-list {
+      padding: 8px 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .story-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-secondary);
+      border: 1px solid transparent;
+      transition: border-color 0.15s, background 0.15s;
+      cursor: default;
+    }
+    .story-card:hover {
+      border-color: var(--border);
+      background: var(--bg-tertiary);
+    }
+
+    .complexity-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+    .complexity-dot.alta { background: var(--danger); }
+    .complexity-dot.media { background: var(--warning); }
+    .complexity-dot.baixa { background: var(--success); }
+
+    .story-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .story-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--brand);
+    }
+    .story-title {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.4;
+      margin-top: 1px;
+    }
+    .story-persona {
+      font-size: 10px;
+      color: var(--text-tertiary);
+      margin-top: 2px;
+      font-style: italic;
+    }
+
+    .story-tags {
+      display: flex;
+      gap: 4px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+    .story-tag {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: var(--radius-pill);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .story-tag.backend { background: #DBEAFE; color: #1E40AF; }
+    .story-tag.frontend { background: #FCE7F3; color: #9D174D; }
+    .story-tag.pipeline { background: #FEF3C7; color: #92400E; }
+    .story-tag.infra { background: #E0E7FF; color: #3730A3; }
+    .story-tag.api { background: #CCFBF1; color: #065F46; }
+
+    /* ─── Summary Section ─── */
+    .summary-section {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .summary-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .summary-card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .summary-card-body {
+      padding: 16px 20px;
+    }
+
+    /* ─── Stats Grid ─── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+    .stat-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      box-shadow: var(--shadow-card);
+    }
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--brand);
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    /* ─── Complexity Bar ─── */
+    .complexity-bar {
+      display: flex;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+    .complexity-bar .segment {
+      transition: width 0.5s ease;
+    }
+
+    /* ─── Dependency Flow ─── */
+    .dep-flow {
+      padding: 12px 0;
+    }
+    .dep-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 12px;
+    }
+    .dep-node {
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .dep-arrow {
+      color: var(--text-tertiary);
+      font-size: 14px;
+    }
+
+    /* ─── Release Timeline ─── */
+    .release-timeline {
+      margin-top: 48px;
+    }
+    .timeline-header {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--text-primary);
+    }
+    .timeline-track {
+      display: flex;
+      gap: 0;
+      position: relative;
+      height: 120px;
+    }
+    .timeline-segment {
+      flex: 1;
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .timeline-segment.mvp {
+      background: linear-gradient(135deg, #6366F1, #8B5CF6);
+      color: white;
+      z-index: 3;
+      border-radius: var(--radius) 0 0 var(--radius);
+    }
+    .timeline-segment.r1 {
+      background: linear-gradient(135deg, #3B82F6, #60A5FA);
+      color: white;
+      z-index: 2;
+      margin-left: -8px;
+      border-radius: 0;
+    }
+    .timeline-segment.r2 {
+      background: linear-gradient(135deg, #8B5CF6, #A78BFA);
+      color: white;
+      z-index: 1;
+      margin-left: -8px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .timeline-segment h4 {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .timeline-segment p {
+      font-size: 11px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    .timeline-segment .timeline-stories {
+      font-size: 20px;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1024px) {
+      .container { padding: 20px; }
+      .page-header { padding: 24px 20px; }
+      .legend-bar { padding: 12px 20px; }
+      .backbone { grid-template-columns: 1fr; }
+      .row-label {
+        justify-content: flex-start;
+        text-align: left;
+        border-right: none;
+        border-bottom: 2px solid var(--border);
+        padding: 12px 16px;
+      }
+      .fs-card { width: 260px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media print {
+      .page-header { position: static; }
+      .legend-bar { position: static; }
+      .fs-card:hover { transform: none; box-shadow: var(--shadow-card); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Page Header ─── -->
+  <header class="page-header">
+    <h1>PULSE — User Story Map</h1>
+    <p class="subtitle">MVP v3.0 &mdash; Pipeline &amp; Dashboards &mdash; Engineering Intelligence Platform</p>
+    <div class="header-meta">
+      <span class="header-badge"><span class="dot"></span> 45 Stories</span>
+      <span class="header-badge">3 Epics</span>
+      <span class="header-badge">7 Feature Sets</span>
+      <span class="header-badge">12-16 Semanas</span>
+      <span class="header-badge">Abril 2026</span>
+    </div>
+  </header>
+
+  <!-- ─── Legend ─── -->
+  <div class="legend-bar">
+    <strong style="font-weight: 700; color: var(--text-primary);">Complexidade:</strong>
+    <span class="legend-item"><span class="legend-dot" style="background: var(--danger);"></span> Alta</span>
+    <span class="legend-item"><span class="legend-dot" style="background: var(--warning);"></span> Media</span>
+    <span class="legend-item"><span class="legend-dot" style="background: var(--success);"></span> Baixa</span>
+    <span style="margin-left: 16px;"><strong style="font-weight: 700; color: var(--text-primary);">Tags:</strong></span>
+    <span class="legend-item"><span class="story-tag backend">Backend</span></span>
+    <span class="legend-item"><span class="story-tag frontend">Frontend</span></span>
+    <span class="legend-item"><span class="story-tag pipeline">Pipeline</span></span>
+    <span class="legend-item"><span class="story-tag api">API</span></span>
+    <span class="legend-item"><span class="story-tag infra">Infra</span></span>
+  </div>
+
+  <div class="container">
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <!--  BACKBONE — User Journey Activities (Jeff Patton style) -->
+    <!-- ════════════════════════════════════════════════════════ -->
+
+    <div class="backbone">
+
+      <!-- Backbone Row -->
+      <div class="row-label" style="background: var(--bg-tertiary); border-radius: 12px 0 0 0;">
+        <div class="row-label-content">
+          <h3>Jornada</h3>
+          <p>User Activities</p>
+        </div>
+      </div>
+      <div class="activity-row" style="background: var(--bg-tertiary); border-radius: 0 12px 0 0;">
+        <div class="activity-card">
+          <div class="activity-icon">⚙️</div>
+          <div>
+            <div style="font-size: 13px;">Configurar</div>
+            <div style="font-size: 10px; opacity: 0.7; font-weight: 400;">YAML + Tokens</div>
+          </div>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">🔗</div>
+          <div>
+            <div style="font-size: 13px;">Conectar Fontes</div>
+            <div style="font-size: 10px; opacity: 0.7; font-weight: 400;">GitHub, Jira, GitLab, ADO</div>
+          </div>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">🔄</div>
+          <div>
+            <div style="font-size: 13px;">Coletar &amp; Processar</div>
+            <div style="font-size: 10px; opacity: 0.7; font-weight: 400;">DevLake + Workers</div>
+          </div>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">📊</div>
+          <div>
+            <div style="font-size: 13px;">Observar Metricas</div>
+            <div style="font-size: 10px; opacity: 0.7; font-weight: 400;">DORA, Lean, Sprint</div>
+          </div>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">🧭</div>
+          <div>
+            <div style="font-size: 13px;">Navegar &amp; Monitorar</div>
+            <div style="font-size: 10px; opacity: 0.7; font-weight: 400;">Dashboard Shell</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════ EPIC 1 ═══════════════════ -->
+      <div class="epic-separator">
+        <span class="epic-tag epic-1">EPICO 1 &mdash; Data Pipeline</span>
+        <span class="epic-line"></span>
+        <span class="epic-count">23 stories &bull; Conectar + Coletar + Monitorar</span>
+      </div>
+
+      <!-- FS 1.1 -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Configurar</h3>
+          <p>Bootstrap</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.1</div>
+              <div class="fs-title">Bootstrap &amp; Config Loader</div>
+            </div>
+            <span class="fs-story-count">4 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.1.1</div>
+                <div class="story-title">Ler connections.yaml + env vars e configurar DevLake automaticamente</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span><span class="story-tag infra">Infra</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.1.2</div>
+                <div class="story-title">Ler teams do YAML e criar registros no PULSE DB</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.1.3</div>
+                <div class="story-title">Ler status_mapping do YAML para normalizar status de issues</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.1.4</div>
+                <div class="story-title">Configurar deploy detection conforme deploy_config</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FS 1.2, 1.3, 1.4, 1.5 (Connectors) -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Conectar Fontes</h3>
+          <p>Connectors</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.2</div>
+              <div class="fs-title">GitHub Connector</div>
+            </div>
+            <span class="fs-story-count">2 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.2.1</div>
+                <div class="story-title">Importar PRs, commits, reviews e deploy events via DevLake</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.2.2</div>
+                <div class="story-title">Detectar deployments do GitHub (tags/releases/Actions)</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.3</div>
+              <div class="fs-title">GitLab Connector</div>
+            </div>
+            <span class="fs-story-count">1 story</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.3.1</div>
+                <div class="story-title">Importar MRs, commits e pipelines via DevLake</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.4</div>
+              <div class="fs-title">Jira Connector</div>
+            </div>
+            <span class="fs-story-count">1 story</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.4.1</div>
+                <div class="story-title">Importar issues, sprints e status transitions dos boards</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.5</div>
+              <div class="fs-title">Azure DevOps Connector</div>
+            </div>
+            <span class="fs-story-count">1 story</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.5.1</div>
+                <div class="story-title">Importar PRs, work items e pipelines via DevLake</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FS 1.6 Pipeline Core -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Coletar &amp; Processar</h3>
+          <p>Pipeline Core</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.6</div>
+              <div class="fs-title">Data Pipeline Core</div>
+            </div>
+            <span class="fs-story-count">6 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.1</div>
+                <div class="story-title">Normalizar GitHub/GitLab/ADO em modelo unificado de PR</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.2</div>
+                <div class="story-title">Normalizar Jira/ADO em modelo unificado de Issue com status_transitions</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.3</div>
+                <div class="story-title">Vincular Issues ↔ PRs automaticamente (branch name / commit msg)</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.4</div>
+                <div class="story-title">Backfill 3 meses de historico + sync incremental a cada 15 min</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span><span class="story-tag infra">Infra</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.5</div>
+                <div class="story-title">Publicar eventos normalizados no Kafka</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag pipeline">Pipeline</span><span class="story-tag infra">Infra</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.6.6</div>
+                <div class="story-title">Metrics Worker consome Kafka e calcula metricas em metrics_snapshots</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span><span class="story-tag pipeline">Pipeline</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FS 1.7 Pipeline Monitor (NEW!) -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Monitorar Pipeline</h3>
+          <p>Observabilidade</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card new-feature">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 1.7</div>
+              <div class="fs-title">Pipeline Monitor Dashboard</div>
+            </div>
+            <span class="fs-story-count">9 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.1</div>
+                <div class="story-title">Persistir watermarks do Sync Worker no banco</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span><span class="story-tag infra">Infra</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.2</div>
+                <div class="story-title">Registrar historico de ciclos do Sync Worker (pipeline_sync_log)</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.3</div>
+                <div class="story-title">API endpoint GET /data/v1/pipeline/status (status consolidado)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag api">API</span><span class="story-tag backend">Backend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.4</div>
+                <div class="story-title">Metodos COUNT(*) no DevLakeReader para comparar com PULSE DB</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag backend">Backend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot alta"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.5</div>
+                <div class="story-title">Flow Diagram UI: 5 nodes + pipes animados + status badges</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.6</div>
+                <div class="story-title">Tabela de contagens DevLake vs PULSE DB + Kafka lag</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.7</div>
+                <div class="story-title">Painel colapsavel de erros recentes com contexto</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.8</div>
+                <div class="story-title">Leitura de status de pipelines do DevLake via API</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag api">API</span><span class="story-tag backend">Backend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-1.7.9</div>
+                <div class="story-title">Auto-refresh a cada 30s + indicador de freshness</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════ EPIC 2 ═══════════════════ -->
+      <div class="epic-separator">
+        <span class="epic-tag epic-2">EPICO 2 &mdash; DORA &amp; Delivery</span>
+        <span class="epic-line"></span>
+        <span class="epic-count">10 stories &bull; Calcular + Exibir</span>
+      </div>
+
+      <!-- FS 2.1 DORA -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>DORA Metrics</h3>
+          <p>4 Key Metrics</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 2.1</div>
+              <div class="fs-title">DORA Metrics</div>
+            </div>
+            <span class="fs-story-count">5 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.1.1</div>
+                <div class="story-title">Deployment Frequency por time e periodo</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.1.2</div>
+                <div class="story-title">Lead Time for Changes com breakdown</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.1.3</div>
+                <div class="story-title">Change Failure Rate</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.1.4</div>
+                <div class="story-title">Mean Time to Recovery (MTTR)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.1.5</div>
+                <div class="story-title">Classificacao DORA (Elite/High/Medium/Low) por metrica + overall</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FS 2.2 Cycle Time & Throughput -->
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 2.2</div>
+              <div class="fs-title">Cycle Time &amp; Throughput</div>
+            </div>
+            <span class="fs-story-count">5 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.2.1</div>
+                <div class="story-title">Cycle Time Breakdown por fase (Coding/Pickup/Review/Merge/Deploy)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.2.2</div>
+                <div class="story-title">Cycle Time Trend ao longo de semanas</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.3.1</div>
+                <div class="story-title">Throughput (PRs merged/semana) com trend line</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.3.2</div>
+                <div class="story-title">PR Analytics (tamanho medio, first review time, turnaround)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-2.3.3</div>
+                <div class="story-title">Lista de PRs abertas com idade, tamanho e status de review</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════ EPIC 3 ═══════════════════ -->
+      <div class="epic-separator">
+        <span class="epic-tag epic-3">EPICO 3 &mdash; Lean + Platform Shell</span>
+        <span class="epic-line"></span>
+        <span class="epic-count">12 stories &bull; Calcular + Exibir + Navegar</span>
+      </div>
+
+      <!-- FS 3.1 Lean -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Lean &amp; Flow</h3>
+          <p>Diferencial competitivo</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 3.1</div>
+              <div class="fs-title">Lean Flow Metrics</div>
+            </div>
+            <span class="fs-story-count">5 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.1.1</div>
+                <div class="story-title">Cumulative Flow Diagram (CFD) por time</div>
+                <div class="story-persona">Priya (Agile Coach)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.1.2</div>
+                <div class="story-title">WIP atual com alerta de threshold</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.1.3</div>
+                <div class="story-title">Lead Time Distribution com percentis P50/85/95</div>
+                <div class="story-persona">Priya (Agile Coach)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.1.4</div>
+                <div class="story-title">Throughput Run Chart com moving average</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.1.5</div>
+                <div class="story-title">Scatterplot de Lead Time com outliers</div>
+                <div class="story-persona">Priya (Agile Coach)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FS 3.2 Sprint -->
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 3.2</div>
+              <div class="fs-title">Sprint Basics</div>
+            </div>
+            <span class="fs-story-count">2 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.2.1</div>
+                <div class="story-title">Sprint Overview (committed, added, completed, carryover + burndown)</div>
+                <div class="story-persona">Scrum Master</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.2.2</div>
+                <div class="story-title">Comparar sprints ao longo do tempo</div>
+                <div class="story-persona">Scrum Master</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FS 3.3 Dashboard Shell -->
+      <div class="row-label">
+        <div class="row-label-content">
+          <h3>Navegar</h3>
+          <p>Dashboard Shell</p>
+        </div>
+      </div>
+      <div class="fs-row">
+        <div class="fs-card">
+          <div class="fs-header">
+            <div>
+              <div class="fs-id">FS 3.3</div>
+              <div class="fs-title">Dashboard Shell</div>
+            </div>
+            <span class="fs-story-count">5 stories</span>
+          </div>
+          <div class="stories-list">
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.3.1</div>
+                <div class="story-title">Sidebar com navegacao para todas as secoes de metricas</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.3.2</div>
+                <div class="story-title">Filtrar metricas por time e periodo (global filter TopBar)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot media"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.3.3</div>
+                <div class="story-title">Home page com overview de metricas-chave (6 MetricCards)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span><span class="story-tag api">API</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.3.4</div>
+                <div class="story-title">Status das integracoes (read-only, sem config UI)</div>
+                <div class="story-persona">Carlos (EM)</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+            <div class="story-card">
+              <span class="complexity-dot baixa"></span>
+              <div class="story-info">
+                <div class="story-id">MVP-3.3.5</div>
+                <div class="story-title">Skeleton loading em todos os componentes async</div>
+                <div class="story-persona">Sistema</div>
+                <div class="story-tags"><span class="story-tag frontend">Frontend</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /backbone -->
+
+    <!-- ════════════════════════════════════════ -->
+    <!--  SUMMARY STATS                          -->
+    <!-- ════════════════════════════════════════ -->
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">45</div>
+        <div class="stat-label">Total Stories</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">3</div>
+        <div class="stat-label">Epicos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--danger);">7</div>
+        <div class="stat-label">Stories Alta Complexidade</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: var(--success);">12-16</div>
+        <div class="stat-label">Semanas Estimadas</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════ -->
+    <!--  SUMMARY CARDS                          -->
+    <!-- ════════════════════════════════════════ -->
+
+    <div class="summary-section">
+
+      <!-- Complexity Breakdown -->
+      <div class="summary-card">
+        <div class="summary-card-header">
+          <span style="font-size: 16px;">📊</span> Distribuicao de Complexidade
+        </div>
+        <div class="summary-card-body">
+          <div class="complexity-bar">
+            <div class="segment" style="width: 15.5%; background: var(--danger); border-radius: 4px 0 0 4px;" title="7 Alta"></div>
+            <div class="segment" style="width: 57.8%; background: var(--warning);" title="26 Media"></div>
+            <div class="segment" style="width: 26.7%; background: var(--success); border-radius: 0 4px 4px 0;" title="12 Baixa"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+            <span><span style="color: var(--danger); font-weight: 700;">7</span> Alta (15%)</span>
+            <span><span style="color: var(--warning); font-weight: 700;">26</span> Media (58%)</span>
+            <span><span style="color: var(--success); font-weight: 700;">12</span> Baixa (27%)</span>
+          </div>
+
+          <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">Por Epico</div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+                <span style="width: 80px; color: var(--text-secondary);">Epico 1</span>
+                <div style="flex: 1; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden;">
+                  <div style="width: 51%; height: 100%; background: #3B82F6; border-radius: 3px;"></div>
+                </div>
+                <span style="font-weight: 600; width: 40px; text-align: right;">23</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+                <span style="width: 80px; color: var(--text-secondary);">Epico 2</span>
+                <div style="flex: 1; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden;">
+                  <div style="width: 22.2%; height: 100%; background: #EC4899; border-radius: 3px;"></div>
+                </div>
+                <span style="font-weight: 600; width: 40px; text-align: right;">10</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+                <span style="width: 80px; color: var(--text-secondary);">Epico 3</span>
+                <div style="flex: 1; height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden;">
+                  <div style="width: 26.6%; height: 100%; background: #10B981; border-radius: 3px;"></div>
+                </div>
+                <span style="font-weight: 600; width: 40px; text-align: right;">12</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dependency Flow -->
+      <div class="summary-card">
+        <div class="summary-card-header">
+          <span style="font-size: 16px;">🔗</span> Dependencias entre Feature Sets
+        </div>
+        <div class="summary-card-body">
+          <div class="dep-flow">
+            <div class="dep-row">
+              <span class="dep-node" style="background: #DBEAFE; color: #1E40AF;">FS 1.1 Bootstrap</span>
+              <span class="dep-arrow">→</span>
+              <span class="dep-node" style="background: #DBEAFE; color: #1E40AF;">FS 1.2-1.5 Connectors</span>
+            </div>
+            <div class="dep-row" style="padding-left: 20px;">
+              <span class="dep-arrow">↳</span>
+              <span class="dep-node" style="background: #DBEAFE; color: #1E40AF;">FS 1.6 Pipeline Core</span>
+              <span class="dep-arrow">→</span>
+              <span style="font-size: 11px; color: var(--text-secondary);">habilita todos os dashboards</span>
+            </div>
+            <div class="dep-row" style="padding-left: 48px;">
+              <span class="dep-arrow">↳</span>
+              <span class="dep-node" style="background: #FCE7F3; color: #9D174D;">FS 2.1 DORA</span>
+            </div>
+            <div class="dep-row" style="padding-left: 48px;">
+              <span class="dep-arrow">↳</span>
+              <span class="dep-node" style="background: #FCE7F3; color: #9D174D;">FS 2.2 Cycle Time</span>
+            </div>
+            <div class="dep-row" style="padding-left: 48px;">
+              <span class="dep-arrow">↳</span>
+              <span class="dep-node" style="background: #D1FAE5; color: #065F46;">FS 3.1 Lean</span>
+              <span class="dep-arrow">&</span>
+              <span class="dep-node" style="background: #D1FAE5; color: #065F46;">FS 3.2 Sprint</span>
+            </div>
+            <div class="dep-row" style="padding-left: 48px;">
+              <span class="dep-arrow">↳</span>
+              <span class="dep-node" style="background: var(--brand-light); color: var(--brand-dark); border: 2px solid var(--brand);">FS 1.7 Pipeline Monitor</span>
+              <span style="font-size: 10px; font-weight: 700; color: var(--brand); background: var(--brand-light); padding: 2px 6px; border-radius: 4px;">NEW</span>
+            </div>
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+              <div class="dep-row">
+                <span class="dep-node" style="background: #D1FAE5; color: #065F46;">FS 3.3 Shell</span>
+                <span class="dep-arrow">→</span>
+                <span style="font-size: 11px; color: var(--text-secondary);">necessario para navegar todos os dashboards</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personas -->
+      <div class="summary-card">
+        <div class="summary-card-header">
+          <span style="font-size: 16px;">👥</span> Personas Atendidas no MVP
+        </div>
+        <div class="summary-card-body">
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #6366F1, #8B5CF6); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 700;">C</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600;">Carlos (Engineering Manager)</div>
+                  <div style="font-size: 11px; color: var(--text-tertiary);">Persona primaria</div>
+                </div>
+              </div>
+              <div style="font-size: 11px; color: var(--text-secondary); padding-left: 40px;">DORA, Cycle Time, Throughput, Home, Pipeline Monitor, WIP</div>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #10B981, #34D399); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 700;">P</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600;">Priya (Agile Coach)</div>
+                  <div style="font-size: 11px; color: var(--text-tertiary);">Lean & Flow specialist</div>
+                </div>
+              </div>
+              <div style="font-size: 11px; color: var(--text-secondary); padding-left: 40px;">CFD, Lead Time Distribution, Scatterplot</div>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #F59E0B, #FBBF24); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 700;">S</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600;">Scrum Master</div>
+                  <div style="font-size: 11px; color: var(--text-tertiary);">Sprint ceremonies</div>
+                </div>
+              </div>
+              <div style="font-size: 11px; color: var(--text-secondary); padding-left: 40px;">Sprint Overview, Sprint Compare</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /summary-section -->
+
+    <!-- ════════════════════════════════════════ -->
+    <!--  RELEASE TIMELINE                       -->
+    <!-- ════════════════════════════════════════ -->
+
+    <div class="release-timeline">
+      <div class="timeline-header">Roadmap de Releases</div>
+      <div class="timeline-track">
+        <div class="timeline-segment mvp">
+          <h4>MVP</h4>
+          <p>Pipeline &amp; Dashboards</p>
+          <div class="timeline-stories">45 stories</div>
+          <p>12-16 semanas</p>
+        </div>
+        <div class="timeline-segment r1">
+          <h4>R1</h4>
+          <p>Onboard &amp; Self-Service</p>
+          <div class="timeline-stories">~20 stories</div>
+          <p>Login, OAuth, Team Mgmt UI</p>
+        </div>
+        <div class="timeline-segment r2">
+          <h4>R2+</h4>
+          <p>Management &amp; Intelligence</p>
+          <div class="timeline-stories">Forecasting, AI, DevFinOps</div>
+          <p>Investment, Exec Views, Alerts</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding: 48px 0 24px; font-size: 12px; color: var(--text-tertiary);">
+      PULSE Story Map v3.0 &mdash; Gerado em Abril 2026 &mdash; Modelo Jeff Patton User Story Mapping + FDD
+    </div>
+
+  </div><!-- /container -->
+
+</body>
+</html>

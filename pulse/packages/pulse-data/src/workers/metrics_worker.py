@@ -44,6 +44,7 @@ from src.contexts.metrics.domain.lean import (
     IssueFlowData,
     calculate_cfd,
     calculate_lead_time_distribution,
+    calculate_lead_time_scatterplot,
     calculate_throughput,
     calculate_wip,
 )
@@ -242,7 +243,7 @@ class MetricsWorker(BaseWorker):
                     created_at=issue.created_at,
                     started_at=issue.started_at,
                     completed_at=issue.completed_at,
-                    lead_time_hours=None,  # Computed from timestamps
+                    lead_time_hours=getattr(issue, "lead_time_hours", None),
                 )
                 for issue in issues
             ]
@@ -293,6 +294,25 @@ class MetricsWorker(BaseWorker):
                 metric_type="lean",
                 metric_name="throughput",
                 value={"points": [asdict(p) for p in throughput]},
+                period_start=period_start,
+                period_end=period_end,
+            )
+
+            # Lead Time Scatterplot
+            scatter_points, scatter_p50, scatter_p85, scatter_p95 = (
+                calculate_lead_time_scatterplot(flow_data)
+            )
+            await write_snapshot(
+                tenant_id=tenant_id,
+                team_id=None,
+                metric_type="lean",
+                metric_name="scatterplot",
+                value={
+                    "points": [asdict(p) for p in scatter_points],
+                    "p50_hours": scatter_p50,
+                    "p85_hours": scatter_p85,
+                    "p95_hours": scatter_p95,
+                },
                 period_start=period_start,
                 period_end=period_end,
             )
@@ -380,7 +400,7 @@ class MetricsWorker(BaseWorker):
             period_end=now,
         )
 
-        # Individual sprint overviews
+        # Individual sprint overviews (enriched with sprint metadata)
         for sd in sprint_data_list:
             overview = calculate_sprint_overview(sd)
             # Use a synthetic period based on sprint data
@@ -390,12 +410,18 @@ class MetricsWorker(BaseWorker):
             p_start = sprint_obj.started_at if sprint_obj and sprint_obj.started_at else now - timedelta(days=14)
             p_end = sprint_obj.completed_at if sprint_obj and sprint_obj.completed_at else now
 
+            # Enrich with sprint metadata for the frontend
+            overview_dict = asdict(overview)
+            overview_dict["sprint_name"] = sd.name
+            overview_dict["started_at"] = p_start.isoformat()
+            overview_dict["completed_at"] = p_end.isoformat()
+
             await write_snapshot(
                 tenant_id=tenant_id,
                 team_id=None,
                 metric_type="sprint",
                 metric_name=f"overview_{sd.sprint_id}",
-                value=asdict(overview),
+                value=overview_dict,
                 period_start=p_start,
                 period_end=p_end,
             )

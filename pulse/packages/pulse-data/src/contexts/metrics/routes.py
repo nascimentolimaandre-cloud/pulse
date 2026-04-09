@@ -230,19 +230,21 @@ async def get_lean_metrics(
     team_id: UUID | None = Query(None, description="Filter by team"),
     period: str = Query("30d", description="Time period (7d|14d|30d|90d)"),
 ) -> LeanResponse:
-    """Get Lean metrics (CFD, WIP, Lead Time Distribution, Throughput)."""
+    """Get Lean metrics (CFD, WIP, Lead Time Distribution, Throughput).
+
+    The worker writes separate snapshots per sub-metric (cfd, wip,
+    lead_time_distribution, throughput, scatterplot). This endpoint
+    combines them into a single response.
+    """
     period_start, period_end = _parse_period(period)
 
-    snapshot = await _get_snapshot_by_period(
+    all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
         metric_type="lean",
-        metric_name="all",
-        period_start=period_start,
-        period_end=period_end,
         team_id=team_id,
     )
 
-    if not snapshot:
+    if not all_snaps:
         return LeanResponse(
             period=period,
             period_start=period_start,
@@ -252,20 +254,38 @@ async def get_lean_metrics(
             data=LeanMetricsData(),
         )
 
-    value = snapshot.value or {}
+    # Extract from individual snapshots
+    cfd_raw = all_snaps.get("cfd", {}).get("value", {})
+    cfd_points = cfd_raw.get("points") if isinstance(cfd_raw, dict) else None
+
+    wip_raw = all_snaps.get("wip", {}).get("value", {})
+    wip_count = wip_raw.get("wip_count") if isinstance(wip_raw, dict) else None
+
+    lt_raw = all_snaps.get("lead_time_distribution", {}).get("value")
+
+    tp_raw = all_snaps.get("throughput", {}).get("value", {})
+    tp_points = tp_raw.get("points") if isinstance(tp_raw, dict) else None
+
+    scatter_raw = all_snaps.get("scatterplot", {}).get("value")
+
+    # Pick the most recent calculated_at across sub-snapshots
+    calc_times = [
+        s["calculated_at"] for s in all_snaps.values() if s.get("calculated_at")
+    ]
+    latest_calc = max(calc_times) if calc_times else None
 
     return LeanResponse(
         period=period,
         period_start=period_start,
         period_end=period_end,
         team_id=team_id,
-        calculated_at=snapshot.calculated_at,
+        calculated_at=latest_calc,
         data=LeanMetricsData(
-            cfd=value.get("cfd"),
-            wip=value.get("wip"),
-            lead_time_distribution=value.get("lead_time_distribution"),
-            throughput=value.get("throughput"),
-            scatterplot=value.get("scatterplot"),
+            cfd=cfd_points,
+            wip=wip_count,
+            lead_time_distribution=lt_raw,
+            throughput=tp_points,
+            scatterplot=scatter_raw,
         ),
     )
 
@@ -410,36 +430,53 @@ async def get_sprint_metrics(
     team_id: UUID | None = Query(None, description="Filter by team"),
     sprint_id: UUID | None = Query(None, description="Specific sprint"),
 ) -> SprintResponse:
-    """Get sprint overview and comparison metrics."""
-    # Sprint metrics use the latest snapshot (not period-based)
-    overview_snapshot = await _get_latest_snapshot(
+    """Get sprint overview and comparison metrics.
+
+    The worker writes overview snapshots as "overview_{sprint_id}" and
+    a single "comparison" snapshot. This endpoint finds the most recent
+    overview and combines it with the comparison data.
+    """
+    all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
         metric_type="sprint",
-        metric_name="overview",
         team_id=team_id,
     )
 
-    comparison_snapshot = await _get_latest_snapshot(
-        tenant_id=tenant_id,
-        metric_type="sprint",
-        metric_name="comparison",
-        team_id=team_id,
-    )
+    if not all_snaps:
+        return SprintResponse(
+            team_id=team_id,
+            calculated_at=None,
+            data=SprintMetricsData(),
+        )
 
+    # Find the latest overview_* snapshot (most recent period_end)
     overview = None
+    latest_overview_time = None
+    for key, snap in all_snaps.items():
+        if not key.startswith("overview_"):
+            continue
+        snap_time = snap.get("calculated_at")
+        if latest_overview_time is None or (snap_time and snap_time > latest_overview_time):
+            latest_overview_time = snap_time
+            ov = snap.get("value", {})
+            if ov:
+                overview = SprintOverviewData(**{
+                    k: v for k, v in ov.items()
+                    if k in SprintOverviewData.model_fields
+                })
+
+    # Comparison snapshot
     comparison = None
-    calculated_at = None
+    comparison_snap = all_snaps.get("comparison", {})
+    cv = comparison_snap.get("value", {})
+    if cv:
+        comparison = SprintComparisonData(**cv)
 
-    if overview_snapshot:
-        ov = overview_snapshot.value or {}
-        overview = SprintOverviewData(**ov) if ov else None
-        calculated_at = overview_snapshot.calculated_at
-
-    if comparison_snapshot:
-        cv = comparison_snapshot.value or {}
-        comparison = SprintComparisonData(**cv) if cv else None
-        if not calculated_at:
-            calculated_at = comparison_snapshot.calculated_at
+    # Pick the most recent calculated_at
+    calc_times = [
+        s["calculated_at"] for s in all_snaps.values() if s.get("calculated_at")
+    ]
+    calculated_at = max(calc_times) if calc_times else None
 
     return SprintResponse(
         team_id=team_id,
@@ -568,8 +605,9 @@ async def get_home_metrics(
     ct_p50 = ct_breakdown_val.get("total_p50") if isinstance(ct_breakdown_val, dict) else None
     tp_analytics_val = tp_snaps.get("pr_analytics", {}).get("value", {}) if tp_snaps.get("pr_analytics") else {}
     tp_total = tp_analytics_val.get("total_merged") if isinstance(tp_analytics_val, dict) else None
-    lean_all = lean_snaps.get("all", {}).get("value", {}) if lean_snaps.get("all") else {}
-    lean_wip = lean_all.get("wip")
+    # Lean worker writes individual snapshots (wip, cfd, etc.) not a single "all"
+    lean_wip_snap = lean_snaps.get("wip", {}).get("value", {}) if lean_snaps.get("wip") else {}
+    lean_wip = lean_wip_snap.get("wip_count") if isinstance(lean_wip_snap, dict) else None
 
     # ── Extract PREVIOUS values ──
     prev_dora_all = prev_dora.get("all", {}).get("value", {}) if prev_dora.get("all") else {}
@@ -577,8 +615,8 @@ async def get_home_metrics(
     prev_ct_p50 = prev_ct_val.get("total_p50") if isinstance(prev_ct_val, dict) else None
     prev_tp_val = prev_tp.get("pr_analytics", {}).get("value", {}) if prev_tp.get("pr_analytics") else {}
     prev_tp_total = prev_tp_val.get("total_merged") if isinstance(prev_tp_val, dict) else None
-    prev_lean_all = prev_lean.get("all", {}).get("value", {}) if prev_lean.get("all") else {}
-    prev_lean_wip = prev_lean_all.get("wip")
+    prev_lean_wip_snap = prev_lean.get("wip", {}).get("value", {}) if prev_lean.get("wip") else {}
+    prev_lean_wip = prev_lean_wip_snap.get("wip_count") if isinstance(prev_lean_wip_snap, dict) else None
 
     # ── Compute trends (current vs previous) ──
     df_val = dora_all.get("deployment_frequency_per_day")

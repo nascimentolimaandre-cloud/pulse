@@ -7,15 +7,21 @@ Pipeline: DevLake DB -> DevLakeReader -> Normalizer -> PULSE DB (upsert) -> Kafk
 
 Runs on a schedule (every 15 min via EventBridge in prod, loop in dev).
 Uses watermark-based incremental sync to avoid full table scans.
+Watermarks are persisted in pipeline_watermarks table (survives restarts).
+Sync cycles are recorded in pipeline_sync_log for observability.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import signal
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import settings
@@ -33,6 +39,7 @@ from src.contexts.engineering_data.normalizer import (
     normalize_pull_request,
     normalize_sprint,
 )
+from src.contexts.pipeline.models import PipelineSyncLog, PipelineWatermark
 from src.database import get_session
 from src.shared.kafka import (
     TOPIC_DEPLOYMENT_NORMALIZED,
@@ -45,19 +52,45 @@ from src.shared.kafka import (
 
 logger = logging.getLogger(__name__)
 
-# Watermark storage key prefix (stored in DB or in-memory for MVP)
-_WATERMARKS: dict[str, datetime] = {}
+
+# ---------------------------------------------------------------------------
+# Watermark helpers — persistent DB storage via pipeline_watermarks
+# ---------------------------------------------------------------------------
+
+async def _get_watermark(session, tenant_id: UUID, entity: str) -> datetime | None:
+    """Get the last sync timestamp for an entity type from the DB."""
+    result = await session.execute(
+        select(PipelineWatermark.last_synced_at)
+        .where(PipelineWatermark.entity_type == entity)
+    )
+    row = result.scalar_one_or_none()
+    return row
 
 
-def _get_watermark(entity: str) -> datetime | None:
-    """Get the last sync timestamp for an entity type."""
-    return _WATERMARKS.get(entity)
-
-
-def _set_watermark(entity: str, ts: datetime) -> None:
-    """Update the watermark for an entity type."""
-    _WATERMARKS[entity] = ts
-    logger.debug("Updated watermark for %s to %s", entity, ts)
+async def _set_watermark(
+    session, tenant_id: UUID, entity: str, ts: datetime, count: int,
+) -> None:
+    """Upsert the watermark for an entity type using ON CONFLICT."""
+    stmt = (
+        pg_insert(PipelineWatermark)
+        .values(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            entity_type=entity,
+            last_synced_at=ts,
+            records_synced=count,
+        )
+        .on_conflict_do_update(
+            constraint="uq_watermark_entity",
+            set_={
+                "last_synced_at": ts,
+                "records_synced": count,
+                "updated_at": func.now(),
+            },
+        )
+    )
+    await session.execute(stmt)
+    logger.debug("Updated watermark for %s to %s (count=%d)", entity, ts, count)
 
 
 class DevLakeSyncWorker:
@@ -66,6 +99,9 @@ class DevLakeSyncWorker:
     Reads from DevLake's normalized tables (pull_requests, issues,
     cicd_deployment_commits, sprints), transforms via normalizer,
     upserts into PULSE DB, and publishes domain events to Kafka.
+
+    Each sync cycle is recorded in pipeline_sync_log for observability.
+    Watermarks are persisted in pipeline_watermarks for crash recovery.
     """
 
     def __init__(
@@ -98,6 +134,7 @@ class DevLakeSyncWorker:
 
         Syncs all entity types (PRs, issues, deployments, sprints),
         links issues to PRs, and publishes events to Kafka.
+        Records the cycle in pipeline_sync_log with status tracking.
 
         Returns:
             Dict with counts of synced entities.
@@ -105,28 +142,89 @@ class DevLakeSyncWorker:
         await self._ensure_producer()
         logger.info("Starting sync cycle for tenant %s", self._tenant_id)
 
+        started_at = datetime.now(timezone.utc)
         results: dict[str, int] = {}
-        try:
-            results["pull_requests"] = await self._sync_pull_requests()
-            results["issues"] = await self._sync_issues()
-            results["deployments"] = await self._sync_deployments()
-            results["sprints"] = await self._sync_sprints()
+        errors: list[dict[str, str]] = []
 
-            total = sum(results.values())
-            logger.info(
-                "Sync cycle complete: %d total entities synced — %s",
-                total,
-                results,
+        # Create sync log entry with status="running"
+        async with get_session(self._tenant_id) as session:
+            log_entry = PipelineSyncLog(
+                tenant_id=self._tenant_id,
+                started_at=started_at,
+                status="running",
+                trigger="scheduled",
+                records_processed={},
+                errors=[],
+                error_count=0,
             )
-        except Exception:
-            logger.exception("Error during sync cycle")
-            raise
+            session.add(log_entry)
+            await session.flush()
+            log_id = log_entry.id
+
+        # Run each entity sync, collecting results and errors
+        for entity, sync_fn in [
+            ("pull_requests", self._sync_pull_requests),
+            ("issues", self._sync_issues),
+            ("deployments", self._sync_deployments),
+            ("sprints", self._sync_sprints),
+        ]:
+            try:
+                results[entity] = await sync_fn()
+            except Exception as exc:
+                logger.exception("Error syncing %s", entity)
+                results[entity] = 0
+                errors.append({
+                    "stage": entity,
+                    "message": str(exc),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+
+        # Determine final status
+        finished_at = datetime.now(timezone.utc)
+        duration = (finished_at - started_at).total_seconds()
+
+        if errors and all(results[e] == 0 for e in results):
+            status = "failed"
+        elif errors:
+            status = "partial"
+        else:
+            status = "completed"
+
+        total = sum(results.values())
+
+        # Update the sync log entry
+        async with get_session(self._tenant_id) as session:
+            log_entry = await session.get(PipelineSyncLog, log_id)
+            if log_entry:
+                log_entry.finished_at = finished_at
+                log_entry.status = status
+                log_entry.duration_seconds = duration
+                log_entry.records_processed = results
+                log_entry.errors = errors
+                log_entry.error_count = len(errors)
+
+        logger.info(
+            "Sync cycle %s: %d total entities synced in %.1fs — %s",
+            status,
+            total,
+            duration,
+            results,
+        )
+
+        # Re-raise if all entities failed (preserves existing error behavior)
+        if status == "failed" and errors:
+            raise RuntimeError(
+                f"Sync cycle failed: {len(errors)} entity types errored — "
+                f"{[e['stage'] for e in errors]}"
+            )
 
         return results
 
     async def _sync_pull_requests(self) -> int:
         """Read PRs from DevLake, upsert to PULSE DB, publish to Kafka."""
-        since = _get_watermark("pull_requests")
+        async with get_session(self._tenant_id) as session:
+            since = await _get_watermark(session, self._tenant_id, "pull_requests")
+
         raw_prs = await self._reader.fetch_pull_requests(since=since)
         if not raw_prs:
             logger.info("No new pull requests to sync")
@@ -155,23 +253,40 @@ class DevLakeSyncWorker:
             events.append((str(pr["external_id"]), event))
         await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
 
-        # Update watermark
-        _set_watermark("pull_requests", datetime.now(timezone.utc))
+        # Update watermark in DB
+        async with get_session(self._tenant_id) as session:
+            await _set_watermark(
+                session, self._tenant_id, "pull_requests",
+                datetime.now(timezone.utc), count,
+            )
         return count
 
     async def _sync_issues(self) -> int:
         """Read issues from DevLake, upsert to PULSE DB, publish to Kafka."""
-        since = _get_watermark("issues")
+        async with get_session(self._tenant_id) as session:
+            since = await _get_watermark(session, self._tenant_id, "issues")
+
         raw_issues = await self._reader.fetch_issues(since=since)
         if not raw_issues:
             logger.info("No new issues to sync")
             return 0
 
+        # Fetch status changelogs for all issues in this batch (Jira only)
+        issue_ids = [str(raw["id"]) for raw in raw_issues]
+        changelogs_by_issue = await self._reader.fetch_issue_changelogs(issue_ids)
+
         # Normalize
         normalized = []
         for raw in raw_issues:
             try:
-                issue_data = normalize_issue(raw, self._tenant_id, self._status_mapping)
+                issue_id = str(raw["id"])
+                issue_changelogs = changelogs_by_issue.get(issue_id, [])
+                issue_data = normalize_issue(
+                    raw,
+                    self._tenant_id,
+                    self._status_mapping,
+                    changelogs=issue_changelogs,
+                )
                 normalized.append(issue_data)
             except Exception:
                 logger.exception("Error normalizing issue: %s", raw.get("id"))
@@ -185,13 +300,19 @@ class DevLakeSyncWorker:
             events.append((str(issue["external_id"]), issue))
         await publish_batch(self._producer, TOPIC_ISSUE_NORMALIZED, events)
 
-        # Update watermark
-        _set_watermark("issues", datetime.now(timezone.utc))
+        # Update watermark in DB
+        async with get_session(self._tenant_id) as session:
+            await _set_watermark(
+                session, self._tenant_id, "issues",
+                datetime.now(timezone.utc), count,
+            )
         return count
 
     async def _sync_deployments(self) -> int:
         """Read deployments from DevLake, upsert to PULSE DB, publish to Kafka."""
-        since = _get_watermark("deployments")
+        async with get_session(self._tenant_id) as session:
+            since = await _get_watermark(session, self._tenant_id, "deployments")
+
         raw_deployments = await self._reader.fetch_deployments(since=since)
         if not raw_deployments:
             logger.info("No new deployments to sync")
@@ -215,13 +336,19 @@ class DevLakeSyncWorker:
             events.append((str(deploy["external_id"]), deploy))
         await publish_batch(self._producer, TOPIC_DEPLOYMENT_NORMALIZED, events)
 
-        # Update watermark
-        _set_watermark("deployments", datetime.now(timezone.utc))
+        # Update watermark in DB
+        async with get_session(self._tenant_id) as session:
+            await _set_watermark(
+                session, self._tenant_id, "deployments",
+                datetime.now(timezone.utc), count,
+            )
         return count
 
     async def _sync_sprints(self) -> int:
         """Read sprints from DevLake, upsert to PULSE DB, publish to Kafka."""
-        since = _get_watermark("sprints")
+        async with get_session(self._tenant_id) as session:
+            since = await _get_watermark(session, self._tenant_id, "sprints")
+
         raw_sprints = await self._reader.fetch_sprints(since=since)
         if not raw_sprints:
             logger.info("No new sprints to sync")
@@ -246,8 +373,12 @@ class DevLakeSyncWorker:
             events.append((str(sprint["external_id"]), sprint))
         await publish_batch(self._producer, TOPIC_SPRINT_NORMALIZED, events)
 
-        # Update watermark
-        _set_watermark("sprints", datetime.now(timezone.utc))
+        # Update watermark in DB
+        async with get_session(self._tenant_id) as session:
+            await _set_watermark(
+                session, self._tenant_id, "sprints",
+                datetime.now(timezone.utc), count,
+            )
         return count
 
     # ---------------------------------------------------------------
@@ -300,10 +431,13 @@ class DevLakeSyncWorker:
                     .on_conflict_do_update(
                         index_elements=["tenant_id", "external_id"],
                         set_={
+                            "issue_type": issue_data["issue_type"],
                             "status": issue_data["status"],
                             "normalized_status": issue_data["normalized_status"],
                             "assignee": issue_data["assignee"],
                             "story_points": issue_data["story_points"],
+                            "sprint_id": issue_data["sprint_id"],
+                            "status_transitions": issue_data["status_transitions"],
                             "started_at": issue_data["started_at"],
                             "completed_at": issue_data["completed_at"],
                             "updated_at": datetime.now(timezone.utc),

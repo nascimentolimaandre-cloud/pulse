@@ -57,6 +57,40 @@ DEFAULT_STATUS_MAPPING: dict[str, str] = {
     "wont do": "done",
     "duplicate": "done",
     "rejected": "done",
+    # Portuguese statuses (Webmotors Jira — defensive fallback)
+    "refinado": "todo",
+    "quebra de histórias": "todo",
+    "em design": "in_progress",
+    "em imersão": "in_progress",
+    "em desenvolvimento": "in_progress",
+    "aguardando code review": "in_review",
+    "em code review": "in_review",
+    "planejando testes": "in_review",
+    "em teste azul": "in_review",
+    "aguardando teste azul": "in_review",
+    "em teste hml": "in_review",
+    "aguardando deploy produção": "done",
+    "concluído": "done",
+    "cancelado": "done",
+    "em andamento": "in_progress",
+    "testando": "in_review",
+    "fechado": "done",
+    "product review": "in_review",
+    # Kanban upstream / waiting stages
+    "priorizado": "todo",
+    "aguardando histórias": "todo",
+    "aguardando desenvolvimento": "todo",
+    "priorizado gp": "todo",
+    "pronto para o gp": "todo",
+    # Active work / pre-dev analysis
+    "construção de hipótese": "in_progress",
+    "desenvolvimento": "in_progress",
+    "design": "in_progress",
+    "analise": "in_progress",
+    "discovery": "in_progress",
+    "entendimento": "in_progress",
+    # Post-deploy
+    "pós-implantação": "done",
 }
 
 # Regex to find issue keys in branch names (e.g., "feature/BACK-123-add-login")
@@ -152,6 +186,44 @@ def normalize_status(raw_status: str, status_mapping: dict[str, str] | None = No
     return "todo"
 
 
+def build_status_transitions(
+    changelogs: list[dict[str, Any]],
+    status_mapping: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Convert DevLake issue_changelogs into PULSE status_transitions JSONB.
+
+    Args:
+        changelogs: Sorted list of changelog dicts with keys:
+            from_status, to_status, created_date
+        status_mapping: Optional custom mapping for normalization.
+
+    Returns:
+        List of transition dicts:
+        [{"status": "in_progress", "entered_at": "...", "exited_at": "..."}, ...]
+    """
+    if not changelogs:
+        return []
+
+    transitions: list[dict[str, Any]] = []
+    for i, cl in enumerate(changelogs):
+        entered_at = _parse_datetime(cl["created_date"])
+        to_status_raw = cl.get("to_status", "")
+        normalized = normalize_status(to_status_raw, status_mapping)
+
+        # exited_at is the entered_at of the next transition, or None if current
+        exited_at = None
+        if i + 1 < len(changelogs):
+            exited_at = _parse_datetime(changelogs[i + 1]["created_date"])
+
+        transitions.append({
+            "status": normalized,
+            "entered_at": entered_at.isoformat() if entered_at else None,
+            "exited_at": exited_at.isoformat() if exited_at else None,
+        })
+
+    return transitions
+
+
 def normalize_pull_request(
     devlake_pr: dict[str, Any],
     tenant_id: UUID,
@@ -211,6 +283,7 @@ def normalize_issue(
     devlake_issue: dict[str, Any],
     tenant_id: UUID,
     status_mapping: dict[str, str] | None = None,
+    changelogs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize a DevLake issue row into PULSE EngIssue fields.
 
@@ -218,6 +291,7 @@ def normalize_issue(
         devlake_issue: Raw dict from DevLake issues table.
         tenant_id: The PULSE tenant UUID.
         status_mapping: Optional custom status mapping.
+        changelogs: Optional status transition changelogs from DevLake.
 
     Returns:
         Dict matching EngIssue model columns.
@@ -231,10 +305,18 @@ def normalize_issue(
     created_date = _parse_datetime(devlake_issue.get("created_date"))
     resolution_date = _parse_datetime(devlake_issue.get("resolution_date"))
 
-    # Determine started_at: if in_progress or done, use created_date as fallback
+    # Build status transitions from changelog data (populated by Jira plugin)
+    transitions = build_status_transitions(changelogs or [], status_mapping)
+
+    # Derive started_at from first transition to an active state
     started_at = None
-    if normalized in ("in_progress", "done"):
-        started_at = created_date  # Best approximation without transition history
+    for t in transitions:
+        if t["status"] in ("in_progress", "in_review"):
+            started_at = _parse_datetime(t["entered_at"])
+            break
+    # Fallback: if in_progress/done but no transition found, use created_date
+    if started_at is None and normalized in ("in_progress", "done"):
+        started_at = created_date
 
     completed_at = resolution_date if normalized == "done" else None
 
@@ -251,20 +333,23 @@ def normalize_issue(
     else:
         issue_type = "task"
 
+    # sprint_id from DevLake join (sprint_issues table)
+    sprint_id_raw = devlake_issue.get("sprint_id")
+    sprint_id = str(sprint_id_raw) if sprint_id_raw else None
+
     return {
         "external_id": str(devlake_issue["id"]),
         "tenant_id": tenant_id,
         "source": _detect_source(devlake_issue),
         "project_key": project_key,
         "title": devlake_issue.get("title", ""),
-        "type": issue_type,
+        "issue_type": issue_type,
         "status": raw_status,
         "normalized_status": normalized,
         "assignee": devlake_issue.get("assignee_name"),
-        "labels": [],
         "story_points": devlake_issue.get("story_point"),
-        "sprint_id": None,  # Linked separately via sprint_issues
-        "status_transitions": [],  # DevLake domain table doesn't have transitions
+        "sprint_id": sprint_id,
+        "status_transitions": transitions,
         "started_at": started_at,
         "completed_at": completed_at,
         "created_at": created_date or datetime.now(timezone.utc),
