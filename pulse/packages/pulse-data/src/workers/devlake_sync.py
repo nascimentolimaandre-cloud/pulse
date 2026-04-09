@@ -1,14 +1,17 @@
-"""DevLake Sync Worker.
+"""Data Sync Worker.
 
-Reads normalized data from the DevLake PostgreSQL database,
+Reads data from source connectors (GitHub, Jira, Jenkins),
 transforms it into PULSE domain events, and publishes to Kafka.
 
-Pipeline: DevLake DB -> DevLakeReader -> Normalizer -> PULSE DB (upsert) -> Kafka
+Pipeline: Source APIs -> Connectors -> Normalizer -> PULSE DB (upsert) -> Kafka
 
 Runs on a schedule (every 15 min via EventBridge in prod, loop in dev).
 Uses watermark-based incremental sync to avoid full table scans.
 Watermarks are persisted in pipeline_watermarks table (survives restarts).
 Sync cycles are recorded in pipeline_sync_log for observability.
+
+History: Originally read from DevLake domain tables (DevLakeReader).
+         Migrated to direct API access via ConnectorAggregator (ADR-005).
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import settings
-from src.contexts.engineering_data.devlake_reader import DevLakeReader
+from src.connectors import ConnectorAggregator
+from src.connectors.github_connector import GitHubConnector
+from src.connectors.jira_connector import JiraConnector
+from src.connectors.jenkins_connector import JenkinsConnector
 from src.contexts.engineering_data.models import (
     EngDeployment,
     EngIssue,
@@ -93,12 +99,12 @@ async def _set_watermark(
     logger.debug("Updated watermark for %s to %s (count=%d)", entity, ts, count)
 
 
-class DevLakeSyncWorker:
-    """Syncs data from DevLake DB to PULSE DB and Kafka topics.
+class DataSyncWorker:
+    """Syncs data from source APIs to PULSE DB and Kafka topics.
 
-    Reads from DevLake's normalized tables (pull_requests, issues,
-    cicd_deployment_commits, sprints), transforms via normalizer,
-    upserts into PULSE DB, and publishes domain events to Kafka.
+    Reads from source connectors (GitHub, Jira, Jenkins) via
+    ConnectorAggregator, transforms via normalizer, upserts into
+    PULSE DB, and publishes domain events to Kafka.
 
     Each sync cycle is recorded in pipeline_sync_log for observability.
     Watermarks are persisted in pipeline_watermarks for crash recovery.
@@ -108,12 +114,54 @@ class DevLakeSyncWorker:
         self,
         tenant_id: UUID | None = None,
         status_mapping: dict[str, str] | None = None,
+        reader: ConnectorAggregator | None = None,
     ) -> None:
         self._tenant_id = tenant_id or UUID(settings.default_tenant_id)
         self._status_mapping = status_mapping
-        self._reader = DevLakeReader()
+        self._reader = reader or self._create_default_aggregator()
         self._producer = None
         self._running = False
+
+    @staticmethod
+    def _create_default_aggregator() -> ConnectorAggregator:
+        """Create the default ConnectorAggregator from settings.
+
+        Only initializes connectors whose credentials are configured.
+        Connectors without credentials are silently skipped.
+        """
+        connectors = []
+
+        # GitHub
+        if settings.github_token:
+            try:
+                connectors.append(GitHubConnector())
+                logger.info("GitHub connector initialized (org: %s)", settings.github_org)
+            except Exception:
+                logger.warning("Failed to initialize GitHub connector", exc_info=True)
+
+        # Jira
+        if settings.jira_api_token and settings.jira_base_url:
+            try:
+                connectors.append(JiraConnector())
+                logger.info("Jira connector initialized (projects: %s)", settings.jira_projects)
+            except Exception:
+                logger.warning("Failed to initialize Jira connector", exc_info=True)
+
+        # Jenkins
+        if settings.jenkins_api_token and settings.jenkins_base_url:
+            try:
+                connectors.append(JenkinsConnector())
+                logger.info("Jenkins connector initialized (url: %s)", settings.jenkins_base_url)
+            except Exception:
+                logger.warning("Failed to initialize Jenkins connector", exc_info=True)
+
+        if not connectors:
+            logger.warning(
+                "No source connectors configured! Set GITHUB_TOKEN, "
+                "JIRA_API_TOKEN, or JENKINS_API_TOKEN in environment."
+            )
+
+        return ConnectorAggregator(connectors)
 
     async def _ensure_producer(self):
         """Lazily create the Kafka producer."""
@@ -127,7 +175,7 @@ class DevLakeSyncWorker:
             await self._producer.stop()
             self._producer = None
         await self._reader.close()
-        logger.info("DevLakeSyncWorker resources cleaned up")
+        logger.info("DataSyncWorker resources cleaned up")
 
     async def sync(self) -> dict[str, int]:
         """Run a full sync cycle.
@@ -221,7 +269,7 @@ class DevLakeSyncWorker:
         return results
 
     async def _sync_pull_requests(self) -> int:
-        """Read PRs from DevLake, upsert to PULSE DB, publish to Kafka."""
+        """Read PRs from source connectors, upsert to PULSE DB, publish to Kafka."""
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "pull_requests")
 
@@ -507,12 +555,18 @@ class DevLakeSyncWorker:
             return count
 
 
+
+
+# Backward-compatible alias (referenced in some scripts/tests)
+DevLakeSyncWorker = DataSyncWorker
+
+
 async def run_sync_loop() -> None:
     """Run sync in a loop for local development (every 15 minutes).
 
     Handles SIGTERM/SIGINT for graceful shutdown.
     """
-    worker = DevLakeSyncWorker()
+    worker = DataSyncWorker()
     running = True
 
     def _handle_signal():
@@ -524,7 +578,7 @@ async def run_sync_loop() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _handle_signal)
 
-    logger.info("DevLake sync loop started (interval=900s)")
+    logger.info("Data sync loop started (interval=900s)")
 
     try:
         while running:
@@ -541,7 +595,7 @@ async def run_sync_loop() -> None:
                 await asyncio.sleep(1)
     finally:
         await worker.close()
-        logger.info("DevLake sync loop stopped")
+        logger.info("Data sync loop stopped")
 
 
 if __name__ == "__main__":

@@ -22,11 +22,29 @@ class Settings(BaseSettings):
     # Kafka
     kafka_brokers: str = "localhost:9092"
 
-    # DevLake PostgreSQL (read-only, used by sync worker)
-    devlake_db_url: str = "postgresql://devlake:devlake@localhost:5432/lake"
+    # DevLake PostgreSQL (DEPRECATED — kept for migration period only)
+    devlake_db_url: str = ""
 
-    # DevLake REST API (read-only, used by pipeline monitor)
-    devlake_api_url: str = "http://localhost:4000"
+    # DevLake REST API (DEPRECATED — kept for migration period only)
+    devlake_api_url: str = ""
+
+    # ---- Source API Connectors (replaces DevLake) ----
+
+    # GitHub
+    github_token: str = ""
+    github_org: str = "webmotors-private"
+    github_api_url: str = "https://api.github.com"
+
+    # Jira Cloud
+    jira_base_url: str = ""
+    jira_email: str = ""
+    jira_api_token: str = ""
+    jira_projects: str = ""  # Comma-separated project keys (e.g., "DESC,ENO,ANCR")
+
+    # Jenkins
+    jenkins_base_url: str = ""
+    jenkins_username: str = ""
+    jenkins_api_token: str = ""
 
     # Redis
     redis_url: str = "redis://localhost:6379"
@@ -51,6 +69,13 @@ class Settings(BaseSettings):
     @property
     def kafka_broker_list(self) -> list[str]:
         return [b.strip() for b in self.kafka_brokers.split(",")]
+
+    @property
+    def jira_project_list(self) -> list[str]:
+        """Parse comma-separated Jira project keys."""
+        if not self.jira_projects:
+            return []
+        return [p.strip() for p in self.jira_projects.split(",") if p.strip()]
 
 
 # Singleton — imported across the app
