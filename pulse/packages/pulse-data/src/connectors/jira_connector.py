@@ -5,7 +5,7 @@ Replaces DevLake's Jira plugin with direct API access, solving:
 - 99.3% data loss in DevLake domain normalization
 - Missing sprint data
 
-Uses Jira REST API v3 (search via /rest/api/3/search) and Agile API
+Uses Jira REST API v3 (search via /rest/api/3/search/jql) and Agile API
 (/rest/agile/1.0/) for boards and sprints.
 
 Authentication: Basic auth with email + API token (Jira Cloud standard).
@@ -109,15 +109,18 @@ class JiraConnector(BaseConnector):
     ) -> list[dict[str, Any]]:
         """Fetch issues from Jira using JQL search with expand=changelog.
 
-        Uses API v3 search endpoint. Includes changelogs inline to avoid
-        separate API calls per issue (major efficiency gain over DevLake).
+        Uses the new POST /rest/api/3/search/jql endpoint (Atlassian deprecated
+        GET /rest/api/3/search with HTTP 410 Gone in 2025).
+
+        Includes changelogs inline to avoid separate API calls per issue.
         """
         if not self._projects:
             logger.warning("No Jira projects configured — skipping issue fetch")
             return []
 
-        project_list = ", ".join(self._projects)
-        jql = f"project IN ({project_list})"
+        # Quote each project key in JQL — some keys like "DESC" are reserved words
+        quoted_projects = ", ".join(f'"{p}"' for p in self._projects)
+        jql = f"project IN ({quoted_projects})"
         if since:
             since_str = since.strftime("%Y-%m-%d %H:%M")
             jql += f' AND updated >= "{since_str}"'
@@ -126,30 +129,34 @@ class JiraConnector(BaseConnector):
         logger.info("Fetching Jira issues with JQL: %s", jql)
 
         all_issues: list[dict[str, Any]] = []
-        start_at = 0
+        next_page_token: str | None = None
+        page = 0
 
         while True:
-            params = {
+            body: dict[str, Any] = {
                 "jql": jql,
-                "startAt": start_at,
                 "maxResults": SEARCH_PAGE_SIZE,
-                "fields": ",".join(SEARCH_FIELDS),
-                "expand": "changelog",
+                "fields": SEARCH_FIELDS,
+                "expand": "changelog",  # Must be string, not array
             }
-            data = await self._client.get(f"{REST_API}/search", params=params)
+            if next_page_token:
+                body["nextPageToken"] = next_page_token
+
+            data = await self._client.post(f"{REST_API}/search/jql", json_body=body)
 
             issues = data.get("issues", [])
             for issue in issues:
                 mapped = self._map_issue(issue)
                 all_issues.append(mapped)
 
-            total = data.get("total", 0)
-            start_at += len(issues)
+            page += 1
 
-            if start_at >= total or not issues:
+            # New API uses nextPageToken for cursor-based pagination
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token or not issues:
                 break
 
-        logger.info("Fetched %d issues from Jira (%d projects)", len(all_issues), len(self._projects))
+        logger.info("Fetched %d issues from Jira (%d projects, %d pages)", len(all_issues), len(self._projects), page)
         return all_issues
 
     async def fetch_issue_changelogs(
@@ -201,11 +208,8 @@ class JiraConnector(BaseConnector):
 
         all_sprints: list[dict[str, Any]] = []
         for board_id, board_info in self._boards.items():
-            try:
-                sprints = await self._fetch_board_sprints(board_id, since)
-                all_sprints.extend(sprints)
-            except Exception:
-                logger.exception("Failed to fetch sprints for board %d", board_id)
+            sprints = await self._fetch_board_sprints(board_id, since)
+            all_sprints.extend(sprints)
 
         logger.info("Fetched %d sprints from %d boards", len(all_sprints), len(self._boards))
         return all_sprints
@@ -380,7 +384,11 @@ class JiraConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def _discover_boards(self) -> None:
-        """Discover all Scrum/Kanban boards for configured projects."""
+        """Discover Scrum boards for configured projects.
+
+        Only Scrum boards support sprints. Kanban boards return 400 on the
+        sprint endpoint, so we filter them out during discovery.
+        """
         if self._boards:
             return  # Already discovered
 
@@ -388,7 +396,7 @@ class JiraConnector(BaseConnector):
             try:
                 data = await self._client.get(
                     f"{AGILE_API}/board",
-                    params={"projectKeyOrId": project_key, "maxResults": 50},
+                    params={"projectKeyOrId": project_key, "type": "scrum", "maxResults": 50},
                 )
                 for board in data.get("values", []):
                     board_id = board["id"]
@@ -399,7 +407,7 @@ class JiraConnector(BaseConnector):
                         "project_key": project_key,
                     }
                     logger.info(
-                        "Discovered board: %s (%s) for project %s",
+                        "Discovered scrum board: %s (%s) for project %s",
                         board.get("name"), board_id, project_key,
                     )
             except Exception:
@@ -408,7 +416,11 @@ class JiraConnector(BaseConnector):
     async def _fetch_board_sprints(
         self, board_id: int, since: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch all sprints for a board via the Agile API."""
+        """Fetch all sprints for a board via the Agile API.
+
+        Returns empty list if the board doesn't support sprints (e.g., Kanban
+        boards that slipped through discovery, or boards with sprints disabled).
+        """
         all_sprints: list[dict[str, Any]] = []
         start_at = 0
 
@@ -417,9 +429,24 @@ class JiraConnector(BaseConnector):
                 "startAt": start_at,
                 "maxResults": AGILE_PAGE_SIZE,
             }
-            data = await self._client.get(
-                f"{AGILE_API}/board/{board_id}/sprint", params=params,
-            )
+            try:
+                data = await self._client.get(
+                    f"{AGILE_API}/board/{board_id}/sprint", params=params,
+                )
+            except Exception as exc:
+                # 400 = board doesn't support sprints (Kanban, simple, etc.)
+                exc_str = str(exc)
+                if "400" in exc_str or "Bad Request" in exc_str:
+                    board_info = self._boards.get(board_id, {})
+                    logger.debug(
+                        "Board %d (%s) doesn't support sprints — skipping",
+                        board_id, board_info.get("name", "unknown"),
+                    )
+                else:
+                    logger.warning(
+                        "Error fetching sprints for board %d: %s", board_id, exc_str,
+                    )
+                return []
 
             sprints = data.get("values", [])
             for sprint in sprints:

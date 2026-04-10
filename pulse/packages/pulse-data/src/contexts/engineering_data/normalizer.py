@@ -264,7 +264,11 @@ def normalize_pull_request(
     first_review_at = _parse_datetime(devlake_pr.get("_first_review_at"))
     approved_at = _parse_datetime(devlake_pr.get("_approved_at"))
     files_changed = devlake_pr.get("_files_changed", 0) or 0
+    commits_count = devlake_pr.get("_commits_count", 0) or 0
     reviewers = devlake_pr.get("_reviewers", []) or []
+
+    # is_merged: true when PR has a merged_date
+    is_merged = merged_date is not None
 
     return {
         "external_id": str(devlake_pr["id"]),
@@ -274,6 +278,7 @@ def normalize_pull_request(
         "title": devlake_pr.get("title", ""),
         "author": devlake_pr.get("author_name", "unknown"),
         "state": state,
+        "is_merged": is_merged,
         "first_commit_at": created_date,  # Use created_date as proxy for first commit
         "first_review_at": first_review_at,
         "approved_at": approved_at,
@@ -282,6 +287,7 @@ def normalize_pull_request(
         "additions": devlake_pr.get("additions", 0) or 0,
         "deletions": devlake_pr.get("deletions", 0) or 0,
         "files_changed": files_changed,
+        "commits_count": commits_count,
         "reviewers": reviewers,
         "linked_issue_ids": [],
         "created_at": created_date or datetime.now(timezone.utc),
