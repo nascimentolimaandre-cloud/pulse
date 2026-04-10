@@ -57,20 +57,3 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
-
-  devlake-pg:
-    image: postgres:16-alpine
-    container_name: pulse-test-devlake-pg
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: lake
-      POSTGRES_USER: devlake
-      POSTGRES_PASSWORD: devlake_test
-    tmpfs:
-      - /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devlake -d lake"]
-      interval: 3s
-      timeout: 3s
-      retries: 10

@@ -22,6 +22,7 @@ export interface PipelineKpis {
 
 export interface RecordCount {
   entity: string;
+  /** @deprecated Renamed from devlake_count — now mirrors pulse_count (no intermediate DB). */
   devlake_count: number;
   pulse_count: number;
   difference: number;
@@ -47,6 +48,7 @@ export interface PipelineError {
   context: Record<string, unknown>;
 }
 
+/** @deprecated Kept for API response backward compatibility. Always returns defaults. */
 export interface DevLakeStatus {
   is_running: boolean;
   last_status: string | null;

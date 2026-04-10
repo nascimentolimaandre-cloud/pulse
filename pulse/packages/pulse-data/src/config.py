@@ -22,13 +22,7 @@ class Settings(BaseSettings):
     # Kafka
     kafka_brokers: str = "localhost:9092"
 
-    # DevLake PostgreSQL (DEPRECATED — kept for migration period only)
-    devlake_db_url: str = ""
-
-    # DevLake REST API (DEPRECATED — kept for migration period only)
-    devlake_api_url: str = ""
-
-    # ---- Source API Connectors (replaces DevLake) ----
+    # ---- Source API Connectors ----
 
     # GitHub
     github_token: str = ""
