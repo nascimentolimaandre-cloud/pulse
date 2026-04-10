@@ -25,7 +25,6 @@ up: ## Start all backend services (APIs + infra)
 	@echo "Services started. Run 'make dev' in another terminal for frontend."
 	@echo "  API:     http://localhost:3000"
 	@echo "  Data:    http://localhost:8000"
-	@echo "  DevLake: http://localhost:8080"
 
 down: ## Stop all services
 	$(COMPOSE) down

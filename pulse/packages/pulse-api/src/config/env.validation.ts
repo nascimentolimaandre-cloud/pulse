@@ -17,11 +17,6 @@ export const envSchema = z.object({
     .string()
     .describe('Comma-separated list of Kafka broker addresses'),
 
-  DEVLAKE_API_URL: z
-    .string()
-    .url()
-    .describe('DevLake REST API base URL'),
-
   REDIS_URL: z
     .string()
     .url()

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class PipelineStageStatus(BaseModel):
     """Status of a single pipeline stage."""
 
-    name: str  # "sources" | "devlake" | "sync_worker" | "pulse_db" | "metrics_worker"
+    name: str  # "sources" | "sync_worker" | "pulse_db" | "metrics_worker"
     status: str  # "healthy" | "syncing" | "idle" | "error" | "standby"
     label: str  # Human-readable label
     detail: str | None = None  # e.g. "12 active" or "1.4 GB/s"
@@ -52,7 +52,7 @@ class RecordCount(BaseModel):
     """Record count for a single entity type."""
 
     entity: str  # "pull_requests" | "issues" | "deployments" | "sprints"
-    devlake_count: int = 0
+    devlake_count: int = 0  # Legacy field name; now mirrors pulse_count (no intermediate DB)
     pulse_count: int = 0
     difference: int = 0
     is_synced: bool = True
@@ -94,12 +94,12 @@ class PipelineError(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# DevLake pipeline info
+# Legacy pipeline info (kept for API backward compatibility)
 # ---------------------------------------------------------------------------
 
 
 class DevLakePipelineInfo(BaseModel):
-    """DevLake pipeline run info."""
+    """Legacy pipeline info stub. Always returns defaults since DevLake was removed (ADR-005)."""
 
     is_running: bool = False
     last_status: str | None = None
