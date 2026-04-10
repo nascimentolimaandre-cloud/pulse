@@ -610,3 +610,306 @@ class TestJenkinsDeploymentNormalization:
         }
         result = normalize_deployment(deploy, TENANT_ID)
         assert result["environment"] == "staging"
+
+
+# ---------------------------------------------------------------------------
+# Enrichment-field tests — connector-format fixtures (post-ADR-005 migration)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizePrEnrichmentFields:
+    """Verify normalizer maps underscore-prefixed enrichment fields correctly."""
+
+    def test_first_review_at_parsed_as_datetime(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert isinstance(result["first_review_at"], datetime)
+        assert result["first_review_at"].tzinfo is not None
+
+    def test_approved_at_parsed_as_datetime(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert isinstance(result["approved_at"], datetime)
+        assert result["approved_at"].tzinfo is not None
+
+    def test_files_changed_mapped_as_integer(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["files_changed"] == 12
+        assert isinstance(result["files_changed"], int)
+
+    def test_commits_count_mapped_as_integer(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["commits_count"] == 7
+        assert isinstance(result["commits_count"], int)
+
+    def test_reviewers_is_list_of_dicts(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert isinstance(result["reviewers"], list)
+        assert len(result["reviewers"]) == 2
+        assert result["reviewers"][0]["login"] == "dave"
+        assert result["reviewers"][1]["login"] == "eve"
+
+    def test_is_merged_true_when_merged_date_present(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["is_merged"] is True
+
+    def test_enrichment_values_match_fixture(self, sample_github_pr_raw: dict) -> None:
+        """Spot-check that parsed datetime values match the raw ISO strings."""
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        expected_first_review = datetime(2024, 3, 1, 16, 45, 0, tzinfo=timezone.utc)
+        expected_approved = datetime(2024, 3, 2, 9, 10, 0, tzinfo=timezone.utc)
+        assert result["first_review_at"] == expected_first_review
+        assert result["approved_at"] == expected_approved
+
+
+class TestNormalizePrEnrichmentNulls:
+    """Verify enrichment fields default to safe zero-values when absent."""
+
+    def test_first_review_at_none_when_not_provided(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:200", "status": "MERGED", "title": "fix typo"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["first_review_at"] is None
+
+    def test_approved_at_none_when_not_provided(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:201", "status": "MERGED", "title": "fix typo"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["approved_at"] is None
+
+    def test_files_changed_zero_when_not_provided(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:202", "status": "MERGED", "title": "fix typo"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["files_changed"] == 0
+
+    def test_commits_count_zero_when_not_provided(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:203", "status": "MERGED", "title": "fix typo"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["commits_count"] == 0
+
+    def test_reviewers_empty_list_when_not_provided(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:204", "status": "MERGED", "title": "fix typo"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["reviewers"] == []
+
+    def test_explicit_none_enrichment_fields_safe(self) -> None:
+        """Explicit None values should not raise and should return safe defaults."""
+        pr = {
+            "id": "github:GithubPullRequest:1:205",
+            "status": "OPEN",
+            "title": "WIP: new feature",
+            "_first_review_at": None,
+            "_approved_at": None,
+            "_files_changed": None,
+            "_commits_count": None,
+            "_reviewers": None,
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["first_review_at"] is None
+        assert result["approved_at"] is None
+        assert result["files_changed"] == 0
+        assert result["commits_count"] == 0
+        assert result["reviewers"] == []
+
+
+class TestNormalizePrIsMergedFalse:
+    """Verify is_merged is False when merged_date is absent or None."""
+
+    def test_is_merged_false_when_no_merged_date(self) -> None:
+        pr = {"id": "github:GithubPullRequest:1:300", "status": "OPEN", "title": "WIP"}
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["is_merged"] is False
+
+    def test_is_merged_false_when_merged_date_is_none(self) -> None:
+        pr = {
+            "id": "github:GithubPullRequest:1:301",
+            "status": "CLOSED",
+            "title": "closed without merge",
+            "merged_date": None,
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["is_merged"] is False
+
+    def test_is_merged_true_when_merged_date_is_string(self) -> None:
+        pr = {
+            "id": "github:GithubPullRequest:1:302",
+            "status": "MERGED",
+            "title": "merged pr",
+            "merged_date": "2024-04-01T12:00:00Z",
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["is_merged"] is True
+
+
+class TestNormalizePrFromGithubConnector:
+    """End-to-end normalization using the connector-format fixture."""
+
+    def test_source_is_github(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["source"] == "github"
+
+    def test_repo_extracted_correctly(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["repo"] == "org/backend"
+
+    def test_state_is_merged(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["state"] == "merged"
+
+    def test_tenant_id_stored(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["tenant_id"] == TENANT_ID
+
+    def test_additions_and_deletions(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["additions"] == 210
+        assert result["deletions"] == 55
+
+    def test_all_enrichment_fields_present(self, sample_github_pr_raw: dict) -> None:
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        enrichment_keys = {"first_review_at", "approved_at", "files_changed", "commits_count", "reviewers"}
+        assert enrichment_keys.issubset(result.keys())
+
+    def test_linked_issue_ids_starts_empty(self, sample_github_pr_raw: dict) -> None:
+        """linked_issue_ids is populated by link_issues_to_prs(), not by the normalizer."""
+        result = normalize_pull_request(sample_github_pr_raw, TENANT_ID)
+        assert result["linked_issue_ids"] == []
+
+
+class TestNormalizeIssueFromJiraConnector:
+    """Normalization of JiraConnector._map_issue() output."""
+
+    def test_source_is_jira(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["source"] == "jira"
+
+    def test_project_key_extracted(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["project_key"] == "DESC"
+
+    def test_normalized_status_is_done(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["normalized_status"] == "done"
+
+    def test_completed_at_is_datetime(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert isinstance(result["completed_at"], datetime)
+
+    def test_issue_type_is_story(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["issue_type"] == "story"
+
+    def test_story_points_preserved(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["story_points"] == 8
+
+    def test_sprint_id_preserved(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["sprint_id"] == "jira:JiraSprint:1:55"
+
+    def test_external_id_matches_connector_id(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["external_id"] == "jira:JiraIssue:1:98765"
+
+    def test_tenant_id_stored(self, sample_jira_issue_raw: dict) -> None:
+        result = normalize_issue(sample_jira_issue_raw, TENANT_ID)
+        assert result["tenant_id"] == TENANT_ID
+
+
+class TestNormalizeSprintFromJiraConnector:
+    """Normalization of JiraConnector._map_sprint() output."""
+
+    def test_source_is_jira(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert result["source"] == "jira"
+
+    def test_external_id_matches_connector_id(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert result["external_id"] == "jira:JiraSprint:1:55"
+
+    def test_name_preserved(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert result["name"] == "DESC Sprint 7"
+
+    def test_board_id_mapped_from_original_board_id(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert result["board_id"] == "10"
+
+    def test_started_at_is_datetime(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert isinstance(result["started_at"], datetime)
+
+    def test_completed_at_is_datetime(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert isinstance(result["completed_at"], datetime)
+
+    def test_tenant_id_stored(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID)
+        assert result["tenant_id"] == TENANT_ID
+
+    def test_zero_counts_without_issues(self, sample_jira_sprint_raw: dict) -> None:
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID, sprint_issues=None)
+        assert result["committed_items"] == 0
+        assert result["completed_items"] == 0
+        assert result["committed_points"] == 0.0
+
+    def test_counts_calculated_from_sprint_issues(self, sample_jira_sprint_raw: dict) -> None:
+        sprint_issues = [
+            {"id": "DESC-10", "story_point": 5, "status": "done", "resolution_date": "2024-02-18T10:00:00Z"},
+            {"id": "DESC-11", "story_point": 3, "status": "in progress", "resolution_date": None},
+            {"id": "DESC-12", "story_point": 8, "status": "closed", "resolution_date": "2024-02-19T12:00:00Z"},
+        ]
+        result = normalize_sprint(sample_jira_sprint_raw, TENANT_ID, sprint_issues=sprint_issues)
+        assert result["committed_items"] == 3
+        assert result["committed_points"] == 16.0  # 5 + 3 + 8
+        assert result["completed_items"] == 2       # done + closed
+        assert result["completed_points"] == 13.0  # 5 + 8
+
+
+class TestNormalizeDeploymentFromJenkins:
+    """End-to-end normalization using the Jenkins connector-format fixture."""
+
+    def test_source_is_jenkins(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["source"] == "jenkins"
+
+    def test_is_not_failure_for_success(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["is_failure"] is False
+
+    def test_deployed_at_uses_finished_date(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        expected = datetime(2024, 3, 5, 22, 8, 45, tzinfo=timezone.utc)
+        assert result["deployed_at"] == expected
+
+    def test_environment_is_production(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["environment"] == "production"
+
+    def test_repo_uses_job_name(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["repo"] == "webmotors-next-ui/deploy-prod"
+
+    def test_external_id_matches_connector_id(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["external_id"] == "jenkins:JenkinsBuild:1:webmotors-next-ui/deploy-prod:312"
+
+    def test_tenant_id_stored(self, sample_jenkins_deployment_raw: dict) -> None:
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["tenant_id"] == TENANT_ID
+
+    def test_recovery_time_hours_is_none(self, sample_jenkins_deployment_raw: dict) -> None:
+        """Recovery time is computed by the metrics worker, not the normalizer."""
+        result = normalize_deployment(sample_jenkins_deployment_raw, TENANT_ID)
+        assert result["recovery_time_hours"] is None
+
+    def test_failure_build_is_failure(self, sample_jenkins_deployment_raw: dict) -> None:
+        failed = {**sample_jenkins_deployment_raw, "result": "FAILURE"}
+        result = normalize_deployment(failed, TENANT_ID)
+        assert result["is_failure"] is True
+
+    def test_unstable_build_is_failure(self, sample_jenkins_deployment_raw: dict) -> None:
+        unstable = {**sample_jenkins_deployment_raw, "result": "UNSTABLE"}
+        result = normalize_deployment(unstable, TENANT_ID)
+        assert result["is_failure"] is True
+
+    def test_aborted_build_is_not_failure(self, sample_jenkins_deployment_raw: dict) -> None:
+        aborted = {**sample_jenkins_deployment_raw, "result": "ABORTED"}
+        result = normalize_deployment(aborted, TENANT_ID)
+        assert result["is_failure"] is False
