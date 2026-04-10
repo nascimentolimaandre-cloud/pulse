@@ -88,12 +88,36 @@ class ConnectorAggregator:
     ) -> dict[str, list[dict[str, Any]]]:
         """Fetch changelogs from all work-tracking connectors.
 
-        Groups issue_ids by source and routes to the correct connector.
+        Optimization: if the Jira connector has cached changelogs from
+        a previous fetch_issues() call (expand=changelog), use those first
+        and only fetch individually for any missing issues.
         """
         all_changelogs: dict[str, list[dict[str, Any]]] = {}
-        # Route issue_ids by their source prefix
+
+        # First, drain any cached changelogs from connectors that support it
+        for source_type, connector in self._connectors.items():
+            if hasattr(connector, "get_cached_changelogs"):
+                cached = connector.get_cached_changelogs()
+                if cached:
+                    all_changelogs.update(cached)
+                    logger.info(
+                        "Used %d cached changelogs from %s",
+                        len(cached), source_type,
+                    )
+
+        # Find which issues still need changelogs fetched individually
+        missing_ids = [iid for iid in issue_ids if iid not in all_changelogs]
+        if not missing_ids:
+            return all_changelogs
+
+        logger.info(
+            "Fetching changelogs individually for %d/%d issues",
+            len(missing_ids), len(issue_ids),
+        )
+
+        # Route remaining issue_ids by their source prefix
         source_groups: dict[str, list[str]] = {}
-        for issue_id in issue_ids:
+        for issue_id in missing_ids:
             source = self._detect_source_from_id(issue_id)
             source_groups.setdefault(source, []).append(issue_id)
 

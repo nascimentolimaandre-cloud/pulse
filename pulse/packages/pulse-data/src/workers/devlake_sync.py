@@ -310,7 +310,7 @@ class DataSyncWorker:
         return count
 
     async def _sync_issues(self) -> int:
-        """Read issues from DevLake, upsert to PULSE DB, publish to Kafka."""
+        """Read issues from source connectors, upsert to PULSE DB, publish to Kafka."""
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "issues")
 
@@ -357,7 +357,7 @@ class DataSyncWorker:
         return count
 
     async def _sync_deployments(self) -> int:
-        """Read deployments from DevLake, upsert to PULSE DB, publish to Kafka."""
+        """Read deployments from source connectors, upsert to PULSE DB, publish to Kafka."""
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "deployments")
 
@@ -393,7 +393,7 @@ class DataSyncWorker:
         return count
 
     async def _sync_sprints(self) -> int:
-        """Read sprints from DevLake, upsert to PULSE DB, publish to Kafka."""
+        """Read sprints from source connectors, upsert to PULSE DB, publish to Kafka."""
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "sprints")
 
@@ -452,9 +452,15 @@ class DataSyncWorker:
                             "state": data["state"],
                             "title": data["title"],
                             "author": data["author"],
+                            "is_merged": data.get("is_merged", False),
                             "merged_at": data["merged_at"],
+                            "first_review_at": data.get("first_review_at"),
+                            "approved_at": data.get("approved_at"),
                             "additions": data["additions"],
                             "deletions": data["deletions"],
+                            "files_changed": data.get("files_changed", 0),
+                            "commits_count": data.get("commits_count", 0),
+                            "reviewers": data.get("reviewers", []),
                             "linked_issue_ids": data["linked_issue_ids"],
                             "updated_at": datetime.now(timezone.utc),
                         },

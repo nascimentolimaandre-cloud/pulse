@@ -110,6 +110,10 @@ class GitHubConnector(BaseConnector):
 
         Uses GET /repos/{owner}/{repo}/pulls with state=all for each repo.
         Supports incremental sync via `since` parameter (filters by updated_at).
+
+        Each PR is enriched with:
+        - Detail call: additions, deletions, changed_files (not in list endpoint)
+        - Reviews call: first_review_at, approved_at, reviewers
         """
         repos = await self._get_repos()
         all_prs: list[dict[str, Any]] = []
@@ -130,7 +134,7 @@ class GitHubConnector(BaseConnector):
     async def _fetch_repo_prs(
         self, repo_full_name: str, since: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch all PRs for a specific repo."""
+        """Fetch all PRs for a specific repo, with enrichment."""
         params: dict[str, Any] = {
             "state": "all",
             "sort": "updated",
@@ -160,7 +164,15 @@ class GitHubConnector(BaseConnector):
                     except ValueError:
                         pass
 
-                mapped = self._map_pr(repo_full_name, pr)
+                pr_number = pr.get("number", 0)
+
+                # Enrich: fetch PR detail (additions, deletions, changed_files)
+                detail = await self._fetch_pr_detail(repo_full_name, pr_number)
+
+                # Enrich: fetch reviews (first_review_at, approved_at, reviewers)
+                reviews = await self._fetch_pr_reviews(repo_full_name, pr_number)
+
+                mapped = self._map_pr(repo_full_name, pr, detail=detail, reviews=reviews)
                 all_prs.append(mapped)
 
             if len(prs) < PER_PAGE:
@@ -170,13 +182,35 @@ class GitHubConnector(BaseConnector):
         return all_prs
 
     # ------------------------------------------------------------------
-    # PR Detail — enrichment with reviews (optional, called per-PR)
+    # PR Enrichment — detail + reviews (2 API calls per PR)
     # ------------------------------------------------------------------
+
+    async def _fetch_pr_detail(
+        self, repo_full_name: str, pr_number: int,
+    ) -> dict[str, Any]:
+        """Fetch PR detail for fields not available in the list endpoint.
+
+        The list endpoint (GET /repos/{owner}/{repo}/pulls) returns 0 for
+        additions/deletions/changed_files. The detail endpoint returns real values.
+        """
+        try:
+            data = await self._client.get(
+                f"/repos/{repo_full_name}/pulls/{pr_number}",
+            )
+            return {
+                "additions": data.get("additions", 0),
+                "deletions": data.get("deletions", 0),
+                "changed_files": data.get("changed_files", 0),
+                "commits": data.get("commits", 0),
+            }
+        except Exception:
+            logger.debug("Failed to fetch detail for %s#%d", repo_full_name, pr_number)
+            return {"additions": 0, "deletions": 0, "changed_files": 0, "commits": 0}
 
     async def _fetch_pr_reviews(
         self, repo_full_name: str, pr_number: int,
     ) -> dict[str, Any]:
-        """Fetch review data for a specific PR (for enrichment).
+        """Fetch review data for a specific PR.
 
         Returns dict with _first_review_at, _approved_at, _reviewers.
         """
@@ -192,7 +226,8 @@ class GitHubConnector(BaseConnector):
         approved_at: str | None = None
 
         for review in reviews:
-            reviewer = review.get("user", {}).get("login", "unknown")
+            user = review.get("user") or {}
+            reviewer = user.get("login", "unknown")
             state = review.get("state", "")
             submitted_at = review.get("submitted_at")
 
@@ -329,15 +364,28 @@ class GitHubConnector(BaseConnector):
     # Internal: Mapping GitHub API → Normalizer format
     # ------------------------------------------------------------------
 
-    def _map_pr(self, repo_full_name: str, pr: dict[str, Any]) -> dict[str, Any]:
+    def _map_pr(
+        self,
+        repo_full_name: str,
+        pr: dict[str, Any],
+        detail: dict[str, Any] | None = None,
+        reviews: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Map a GitHub PR API response to the normalizer-expected format.
 
         Preserves the same dict keys that DevLake's pull_requests domain table
         had, so the normalizer works unchanged. Also adds enrichment fields
         prefixed with underscore.
+
+        Args:
+            pr: Raw PR from the list endpoint
+            detail: Enrichment from GET /pulls/{number} (additions, deletions, etc.)
+            reviews: Enrichment from GET /pulls/{number}/reviews
         """
         pr_number = pr.get("number", 0)
         state = str(pr.get("state", "open")).upper()
+        detail = detail or {}
+        reviews = reviews or {}
 
         # GitHub merged_at is only set when PR is merged
         merged_at = pr.get("merged_at")
@@ -359,10 +407,15 @@ class GitHubConnector(BaseConnector):
             "merge_commit_sha": pr.get("merge_commit_sha"),
             "base_ref": (pr.get("base") or {}).get("ref", ""),
             "head_ref": (pr.get("head") or {}).get("ref", ""),
-            "additions": pr.get("additions", 0),
-            "deletions": pr.get("deletions", 0),
-            # Enrichment fields (not in DevLake, consumed by updated normalizer)
-            "_files_changed": pr.get("changed_files", 0),
+            # From detail enrichment (list endpoint returns 0 for these)
+            "additions": detail.get("additions", 0),
+            "deletions": detail.get("deletions", 0),
+            # Enrichment fields (consumed by normalizer)
+            "_files_changed": detail.get("changed_files", 0),
+            "_commits_count": detail.get("commits", 0),
+            "_first_review_at": reviews.get("_first_review_at"),
+            "_approved_at": reviews.get("_approved_at"),
+            "_reviewers": reviews.get("_reviewers", []),
             "_pr_number": pr_number,
             "_repo_full_name": repo_full_name,
         }

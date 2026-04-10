@@ -223,6 +223,15 @@ class ResilientHTTPClient:
                 await asyncio.sleep(retry_after)
                 continue
 
+            if response.status_code >= 500:
+                wait = self._backoff_base * (2 ** min(page_num - 1, 3))
+                logger.warning(
+                    "Server error %d during pagination of %s — retrying in %.1fs",
+                    response.status_code, path, wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+
             response.raise_for_status()
             data = response.json()
 
