@@ -408,3 +408,116 @@ def sample_devlake_sprint() -> dict:
 @pytest.fixture
 def default_tenant_id() -> uuid.UUID:
     return uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+# ---------------------------------------------------------------------------
+# Raw connector-format dict fixtures (for normalizer enrichment-field tests)
+# These differ from the DevLake fixtures above: they use the output format
+# produced by the custom connector _map_*() methods (post-ADR-005 migration).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sample_github_pr_raw() -> dict:
+    """A realistic dict as returned by GitHubConnector._map_pr().
+
+    Includes all enrichment fields prefixed with underscore:
+      _first_review_at, _approved_at, _reviewers, _files_changed,
+      _commits_count, _pr_number, _repo_full_name
+    """
+    return {
+        # Standard fields (same keys as DevLake pull_requests table)
+        "id": "github:GithubPullRequest:1:101",
+        "base_repo_id": "github:GithubRepo:1:org/backend",
+        "head_repo_id": "github:GithubRepo:1:org/backend",
+        "status": "MERGED",
+        "title": "feat(BACK-101): add cycle-time breakdown endpoint",
+        "url": "https://github.com/org/backend/pull/101",
+        "author_name": "carol",
+        "created_date": "2024-03-01T08:00:00Z",
+        "merged_date": "2024-03-02T14:30:00Z",
+        "closed_date": "2024-03-02T14:30:00Z",
+        "merge_commit_sha": "deadbeef1234567890abcdef",
+        "base_ref": "main",
+        "head_ref": "feature/BACK-101-cycle-time",
+        "additions": 210,
+        "deletions": 55,
+        # Enrichment fields (from detail + reviews API calls)
+        "_files_changed": 12,
+        "_commits_count": 7,
+        "_first_review_at": "2024-03-01T16:45:00Z",
+        "_approved_at": "2024-03-02T09:10:00Z",
+        "_reviewers": [
+            {"login": "dave", "state": "APPROVED"},
+            {"login": "eve", "state": "COMMENTED"},
+        ],
+        "_pr_number": 101,
+        "_repo_full_name": "org/backend",
+    }
+
+
+@pytest.fixture
+def sample_jira_issue_raw() -> dict:
+    """A realistic dict as returned by JiraConnector._map_issue().
+
+    Uses the internal ID format 'jira:JiraIssue:<connection_id>:<jira_id>'
+    and mirrors the field names from the DevLake issues domain table.
+    """
+    return {
+        "id": "jira:JiraIssue:1:98765",
+        "url": "https://webmotors.atlassian.net/browse/DESC-42",
+        "issue_key": "DESC-42",
+        "title": "Implement lead-time distribution chart",
+        "status": "Done",
+        "original_status": "Done",
+        "story_point": 8,
+        "priority": "High",
+        "created_date": "2024-02-12T10:00:00Z",
+        "updated_date": "2024-02-20T15:00:00Z",
+        "resolution_date": "2024-02-20T15:00:00Z",
+        "lead_time_minutes": None,  # Calculated by PULSE, not Jira API
+        "assignee_name": "frank",
+        "type": "Story",
+        "sprint_id": "jira:JiraSprint:1:55",
+    }
+
+
+@pytest.fixture
+def sample_jira_sprint_raw() -> dict:
+    """A realistic dict as returned by JiraConnector._map_sprint().
+
+    Mirrors the DevLake sprints domain table structure, with the addition of
+    'original_board_id' (required by normalize_sprint's board_id mapping).
+    """
+    return {
+        "id": "jira:JiraSprint:1:55",
+        "original_board_id": "10",
+        "name": "DESC Sprint 7",
+        "url": "https://webmotors.atlassian.net",
+        "status": "CLOSED",
+        "started_date": "2024-02-05T09:00:00Z",
+        "ended_date": "2024-02-19T18:00:00Z",
+        "completed_date": "2024-02-19T18:00:00Z",
+        "total_issues": 0,
+    }
+
+
+@pytest.fixture
+def sample_jenkins_deployment_raw() -> dict:
+    """A realistic dict as returned by JenkinsConnector._map_build().
+
+    Mirrors the DevLake cicd_deployment_commits domain table structure.
+    The 'name' field carries the Jenkins job path (used as repo proxy).
+    """
+    return {
+        "id": "jenkins:JenkinsBuild:1:webmotors-next-ui/deploy-prod:312",
+        "cicd_deployment_id": "jenkins:JenkinsJob:1:webmotors-next-ui/deploy-prod",
+        "repo_id": None,
+        "name": "webmotors-next-ui/deploy-prod",
+        "result": "SUCCESS",
+        "status": "DONE",
+        "environment": "production",
+        "created_date": "2024-03-05T22:00:00Z",
+        "started_date": "2024-03-05T22:00:00Z",
+        "finished_date": "2024-03-05T22:08:45Z",
+    }
