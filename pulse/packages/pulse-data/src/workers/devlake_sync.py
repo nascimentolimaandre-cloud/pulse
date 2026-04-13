@@ -45,7 +45,7 @@ from src.contexts.engineering_data.normalizer import (
     normalize_pull_request,
     normalize_sprint,
 )
-from src.contexts.pipeline.models import PipelineSyncLog, PipelineWatermark
+from src.contexts.pipeline.models import PipelineIngestionProgress, PipelineSyncLog, PipelineWatermark
 from src.database import get_session
 from src.shared.kafka import (
     TOPIC_DEPLOYMENT_NORMALIZED,
@@ -97,6 +97,77 @@ async def _set_watermark(
     )
     await session.execute(stmt)
     logger.debug("Updated watermark for %s to %s (count=%d)", entity, ts, count)
+
+
+# ---------------------------------------------------------------------------
+# Ingestion progress helpers — real-time tracking per batch
+# ---------------------------------------------------------------------------
+
+
+async def _update_ingestion_progress(
+    tenant_id: UUID,
+    entity_type: str,
+    *,
+    status: str = "running",
+    total_sources: int | None = None,
+    sources_done: int | None = None,
+    records_ingested: int | None = None,
+    current_source: str | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+    error_message: str | None = None,
+) -> None:
+    """Upsert ingestion progress for an entity type."""
+    values: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "tenant_id": tenant_id,
+        "entity_type": entity_type,
+        "status": status,
+        "updated_at": func.now(),
+    }
+    update_set: dict[str, Any] = {
+        "status": status,
+        "updated_at": func.now(),
+    }
+
+    if total_sources is not None:
+        values["total_sources"] = total_sources
+        update_set["total_sources"] = total_sources
+    if sources_done is not None:
+        values["sources_done"] = sources_done
+        update_set["sources_done"] = sources_done
+    if records_ingested is not None:
+        values["records_ingested"] = records_ingested
+        update_set["records_ingested"] = records_ingested
+    if current_source is not None:
+        values["current_source"] = current_source
+        update_set["current_source"] = current_source
+    if started_at is not None:
+        values["started_at"] = started_at
+        update_set["started_at"] = started_at
+    if finished_at is not None:
+        values["finished_at"] = finished_at
+        update_set["finished_at"] = finished_at
+    if error_message is not None:
+        values["error_message"] = error_message
+        update_set["error_message"] = error_message
+
+    # Always update last_batch_at when running
+    if status == "running":
+        now = datetime.now(timezone.utc)
+        values["last_batch_at"] = now
+        update_set["last_batch_at"] = now
+
+    async with get_session(tenant_id) as session:
+        stmt = (
+            pg_insert(PipelineIngestionProgress)
+            .values(**values)
+            .on_conflict_do_update(
+                constraint="uq_ingestion_progress_entity",
+                set_=update_set,
+            )
+        )
+        await session.execute(stmt)
 
 
 class DataSyncWorker:
@@ -274,44 +345,99 @@ class DataSyncWorker:
         Uses batch persistence: each repo's PRs are normalized, upserted, and
         published to Kafka immediately — no accumulation in memory. If the
         process crashes mid-sync, all previously persisted repos are safe.
+
+        Progress is tracked in pipeline_ingestion_progress for real-time
+        visibility in the Pipeline Monitor dashboard.
         """
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "pull_requests")
 
+        # Discover total sources (repos) for progress tracking
+        total_sources = 0
+        try:
+            total_sources = await self._reader.get_pull_request_source_count()
+        except Exception:
+            logger.warning("Could not get source count for progress tracking")
+
+        started_at = datetime.now(timezone.utc)
+
+        # Mark ingestion as running
+        await _update_ingestion_progress(
+            self._tenant_id, "pull_requests",
+            status="running",
+            total_sources=total_sources,
+            sources_done=0,
+            records_ingested=0,
+            current_source="discovering repos...",
+            started_at=started_at,
+        )
+
         total_count = 0
         repos_done = 0
 
-        async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
-            # Normalize this repo's batch
-            normalized = []
-            for raw in raw_prs:
-                try:
-                    pr_data = normalize_pull_request(raw, self._tenant_id)
-                    pr_data["_head_ref"] = raw.get("head_ref", "")
-                    pr_data["_base_ref"] = raw.get("base_ref", "")
-                    normalized.append(pr_data)
-                except Exception:
-                    logger.exception("Error normalizing PR: %s", raw.get("id"))
+        try:
+            async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
+                # Normalize this repo's batch
+                normalized = []
+                for raw in raw_prs:
+                    try:
+                        pr_data = normalize_pull_request(raw, self._tenant_id)
+                        pr_data["_head_ref"] = raw.get("head_ref", "")
+                        pr_data["_base_ref"] = raw.get("base_ref", "")
+                        normalized.append(pr_data)
+                    except Exception:
+                        logger.exception("Error normalizing PR: %s", raw.get("id"))
 
-            if not normalized:
-                continue
+                if not normalized:
+                    repos_done += 1
+                    continue
 
-            # Upsert this batch to DB immediately
-            batch_count = await self._upsert_pull_requests(normalized)
-            total_count += batch_count
-            repos_done += 1
+                # Upsert this batch to DB immediately
+                batch_count = await self._upsert_pull_requests(normalized)
+                total_count += batch_count
+                repos_done += 1
 
-            # Publish this batch to Kafka
-            events = []
-            for pr in normalized:
-                event = {k: v for k, v in pr.items() if not k.startswith("_")}
-                events.append((str(pr["external_id"]), event))
-            await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
+                # Publish this batch to Kafka
+                events = []
+                for pr in normalized:
+                    event = {k: v for k, v in pr.items() if not k.startswith("_")}
+                    events.append((str(pr["external_id"]), event))
+                await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
 
-            logger.info(
-                "Batch persisted: %d PRs from %s (total: %d PRs, %d repos)",
-                batch_count, repo_name, total_count, repos_done,
+                # Update progress in DB (queryable by API)
+                await _update_ingestion_progress(
+                    self._tenant_id, "pull_requests",
+                    status="running",
+                    sources_done=repos_done,
+                    records_ingested=total_count,
+                    current_source=repo_name,
+                )
+
+                logger.info(
+                    "Batch persisted: %d PRs from %s (total: %d PRs, %d/%d repos)",
+                    batch_count, repo_name, total_count, repos_done, total_sources,
+                )
+
+        except Exception as exc:
+            await _update_ingestion_progress(
+                self._tenant_id, "pull_requests",
+                status="failed",
+                sources_done=repos_done,
+                records_ingested=total_count,
+                error_message=str(exc),
+                finished_at=datetime.now(timezone.utc),
             )
+            raise
+
+        # Mark ingestion as completed
+        await _update_ingestion_progress(
+            self._tenant_id, "pull_requests",
+            status="completed" if total_count > 0 else "idle",
+            sources_done=repos_done,
+            records_ingested=total_count,
+            current_source=None,
+            finished_at=datetime.now(timezone.utc),
+        )
 
         if total_count == 0:
             logger.info("No new pull requests to sync")

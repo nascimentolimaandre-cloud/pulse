@@ -132,6 +132,11 @@ class GitHubConnector(BaseConnector):
         )
         return all_prs
 
+    async def get_source_count(self) -> int:
+        """Return the number of repos that will be scanned for PRs."""
+        repos = await self._get_repos()
+        return len(repos)
+
     async def fetch_pull_requests_batched(
         self, since: datetime | None = None,
     ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:

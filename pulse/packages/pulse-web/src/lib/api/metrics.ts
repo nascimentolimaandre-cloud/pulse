@@ -20,6 +20,7 @@ import type {
   PipelineStatusData,
   SourceFilteredStatus,
   MetricsWorkerStatus,
+  IngestionProgressResponse,
 } from '@/types/pipeline';
 
 export interface MetricsQueryParams {
@@ -120,6 +121,13 @@ export async function fetchSourceFilteredStatus(
 export async function fetchMetricsWorkerStatus(): Promise<MetricsWorkerStatus> {
   const response = await dataClient.get<MetricsWorkerStatus>(
     '/pipeline/metrics-worker/status',
+  );
+  return response.data;
+}
+
+export async function fetchIngestionProgress(): Promise<IngestionProgressResponse> {
+  const response = await dataClient.get<IngestionProgressResponse>(
+    '/pipeline/ingestion/progress',
   );
   return response.data;
 }
