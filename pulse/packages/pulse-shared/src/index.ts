@@ -32,3 +32,26 @@ export type {
   MetricTrend,
   WipStatus,
 } from './types/metrics';
+
+// BC2 Integration — Jira Admin (Dynamic Discovery, ADR-014)
+export type {
+  JiraDiscoveryMode,
+  JiraProjectStatus,
+  JiraActivationSource,
+  JiraDiscoveryRunStatus,
+  JiraProjectSyncStatus,
+  JiraAuditEventType,
+  TenantJiraConfig,
+  UpdateTenantJiraConfigInput,
+  JiraProjectCatalogEntry,
+  JiraProjectCatalogListResponse,
+  JiraProjectCatalogQuery,
+  JiraProjectActionInput,
+  JiraDiscoveryResult,
+  JiraDiscoveryStatusResponse,
+  JiraDiscoveryAuditEntry,
+  JiraAuditQuery,
+  JiraAuditListResponse,
+  JiraSmartSuggestion,
+  JiraSmartSuggestionsResponse,
+} from './types/jira-admin';
