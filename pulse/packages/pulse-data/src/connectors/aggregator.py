@@ -79,11 +79,12 @@ class ConnectorAggregator:
 
     async def fetch_pull_requests_batched(
         self, since: datetime | None = None,
-    ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+    ) -> AsyncIterator[tuple[str, list[dict[str, Any]] | None]]:
         """Yield PRs in batches (per repo) from all code-hosting connectors.
 
-        Each yield is (repo_name, prs_list). Allows the sync worker to
-        persist each batch immediately instead of holding everything in memory.
+        Each yield is (repo_name, prs_or_none):
+          - prs is None → "starting" signal for this repo (UI progress hint)
+          - prs is list → completed batch ready to persist
         """
         for source in ("github", "gitlab", "azure"):
             connector = self._connectors.get(source)

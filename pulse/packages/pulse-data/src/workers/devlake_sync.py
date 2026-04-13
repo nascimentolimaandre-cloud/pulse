@@ -377,6 +377,18 @@ class DataSyncWorker:
 
         try:
             async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
+                # "Starting" signal: connector emits (repo_name, None) before
+                # any API calls so the UI can show progress immediately.
+                if raw_prs is None:
+                    await _update_ingestion_progress(
+                        self._tenant_id, "pull_requests",
+                        status="running",
+                        sources_done=repos_done,
+                        records_ingested=total_count,
+                        current_source=repo_name,
+                    )
+                    continue
+
                 # Normalize this repo's batch
                 normalized = []
                 for raw in raw_prs:
