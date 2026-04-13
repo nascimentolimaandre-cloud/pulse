@@ -1,6 +1,7 @@
 """SQLAlchemy models for BC5 — Pipeline Monitor.
 
-Tables: pipeline_watermarks, pipeline_sync_log, pipeline_events.
+Tables: pipeline_watermarks, pipeline_sync_log, pipeline_events,
+        pipeline_ingestion_progress.
 All tables enforce tenant_id (NOT NULL) for RLS.
 """
 
@@ -10,7 +11,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -96,4 +97,43 @@ class PipelineEvent(TenantModel):
     )
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
+    )
+
+
+class PipelineIngestionProgress(TenantModel):
+    """Tracks real-time progress of data ingestion per entity type.
+
+    Updated by the sync worker after each batch (e.g., each repo's PRs).
+    Queried by the Pipeline Monitor API to show ingestion progress to users.
+    """
+
+    __tablename__ = "pipeline_ingestion_progress"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "entity_type", name="uq_ingestion_progress_entity"),
+    )
+
+    entity_type: Mapped[str] = mapped_column(
+        String(64), nullable=False,
+    )  # pull_requests | issues | deployments | sprints
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="idle",
+    )  # idle | running | completed | failed
+    total_sources: Mapped[int] = mapped_column(Integer, default=0)
+    sources_done: Mapped[int] = mapped_column(Integer, default=0)
+    records_ingested: Mapped[int] = mapped_column(Integer, default=0)
+    current_source: Mapped[str | None] = mapped_column(
+        String(512), nullable=True,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    last_batch_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_details: Mapped[dict] = mapped_column(
+        JSONB, server_default=sa.text("'{}'::jsonb"), nullable=False,
     )

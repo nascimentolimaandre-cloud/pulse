@@ -23,9 +23,16 @@ from src.contexts.engineering_data.models import (
     EngSprint,
 )
 from src.contexts.metrics.infrastructure.models import MetricsSnapshot
-from src.contexts.pipeline.models import PipelineEvent, PipelineSyncLog, PipelineWatermark
+from src.contexts.pipeline.models import (
+    PipelineEvent,
+    PipelineIngestionProgress,
+    PipelineSyncLog,
+    PipelineWatermark,
+)
 from src.contexts.pipeline.schemas import (
     DevLakePipelineInfo,
+    IngestionEntityProgress,
+    IngestionProgressResponse,
     MetricsWorkerSnapshot,
     MetricsWorkerStatus,
     PipelineError,
@@ -82,8 +89,8 @@ async def _get_connector_health() -> dict[str, dict]:
 async def get_pipeline_status() -> PipelineStatusResponse:
     """Get consolidated pipeline health status.
 
-    Aggregates data from: PULSE DB tables, DevLake reader counts,
-    DevLake API status, sync logs, and watermarks.
+    Aggregates data from: PULSE DB tables, connector counts,
+    sync logs, and watermarks.
     """
     tenant_id = uuid.UUID(settings.default_tenant_id)
     now = datetime.now(timezone.utc)
@@ -180,7 +187,7 @@ async def get_pipeline_status() -> PipelineStatusResponse:
 
     # --- 8. Connector health ---
     connector_health = await _get_connector_health()
-    devlake_info = DevLakePipelineInfo()  # Kept for schema compat; always empty
+    devlake_info = DevLakePipelineInfo()  # Deprecated: kept for frontend schema compat
 
     # --- 9. Build stage statuses ---
     total_records = sum(pulse_counts.values())
@@ -510,4 +517,87 @@ async def get_metrics_worker_status() -> MetricsWorkerStatus:
         stages=stages,
         snapshots=snapshots,
         cluster_logs=cluster_logs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ingestion Progress (real-time tracking)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ingestion/progress", response_model=IngestionProgressResponse)
+async def get_ingestion_progress() -> IngestionProgressResponse:
+    """Get real-time ingestion progress for all entity types.
+
+    Returns progress per entity (pull_requests, issues, etc.) including:
+    - Sources processed vs total
+    - Records ingested so far
+    - Current source being processed
+    - Rate (records/minute) and ETA
+    """
+    tenant_id = uuid.UUID(settings.default_tenant_id)
+    now = datetime.now(timezone.utc)
+
+    entities: list[IngestionEntityProgress] = []
+    any_running = False
+
+    try:
+        async with get_session(tenant_id) as session:
+            result = await session.execute(
+                select(PipelineIngestionProgress)
+                .order_by(PipelineIngestionProgress.entity_type)
+            )
+            rows = list(result.scalars().all())
+    except Exception:
+        logger.warning("Could not fetch ingestion progress (table may not exist)")
+        rows = []
+
+    for row in rows:
+        # Calculate computed fields
+        progress_pct = 0.0
+        if row.total_sources > 0:
+            progress_pct = round((row.sources_done / row.total_sources) * 100, 1)
+
+        elapsed_minutes = 0.0
+        rate_per_minute = 0.0
+        eta_minutes = None
+
+        if row.started_at:
+            elapsed = (now - row.started_at).total_seconds() / 60.0
+            elapsed_minutes = round(elapsed, 1)
+
+            if elapsed > 0 and row.records_ingested > 0:
+                rate_per_minute = round(row.records_ingested / elapsed, 1)
+
+            # ETA based on sources remaining at current rate
+            if row.sources_done > 0 and row.total_sources > row.sources_done:
+                minutes_per_source = elapsed / row.sources_done
+                remaining_sources = row.total_sources - row.sources_done
+                eta_minutes = round(minutes_per_source * remaining_sources, 1)
+
+        is_running = row.status == "running"
+        if is_running:
+            any_running = True
+
+        entities.append(IngestionEntityProgress(
+            entity_type=row.entity_type,
+            status=row.status,
+            total_sources=row.total_sources,
+            sources_done=row.sources_done,
+            records_ingested=row.records_ingested,
+            current_source=row.current_source,
+            started_at=row.started_at,
+            last_batch_at=row.last_batch_at,
+            finished_at=row.finished_at,
+            error_message=row.error_message,
+            progress_pct=progress_pct,
+            rate_per_minute=rate_per_minute,
+            eta_minutes=eta_minutes,
+            elapsed_minutes=elapsed_minutes,
+        ))
+
+    return IngestionProgressResponse(
+        entities=entities,
+        any_running=any_running,
+        last_updated=now,
     )

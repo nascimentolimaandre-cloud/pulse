@@ -12,6 +12,7 @@ import {
   fetchPipelineStatus,
   fetchSourceFilteredStatus,
   fetchMetricsWorkerStatus,
+  fetchIngestionProgress,
 } from '@/lib/api/metrics';
 import type {
   DoraMetrics,
@@ -27,6 +28,7 @@ import type {
   PipelineStatusData,
   SourceFilteredStatus,
   MetricsWorkerStatus,
+  IngestionProgressResponse,
 } from '@/types/pipeline';
 
 function useFilterParams() {
@@ -125,5 +127,14 @@ export function useMetricsWorkerStatus() {
     queryFn: fetchMetricsWorkerStatus,
     refetchInterval: 30_000,
     staleTime: 10_000,
+  });
+}
+
+export function useIngestionProgress() {
+  return useQuery<IngestionProgressResponse>({
+    queryKey: ['ingestion-progress'],
+    queryFn: fetchIngestionProgress,
+    refetchInterval: 10_000,  // Refresh every 10s for real-time feel
+    staleTime: 5_000,
   });
 }

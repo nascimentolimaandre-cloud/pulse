@@ -169,6 +169,41 @@ class MetricsWorkerStatus(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Ingestion progress (real-time tracking)
+# ---------------------------------------------------------------------------
+
+
+class IngestionEntityProgress(BaseModel):
+    """Progress of ingestion for a single entity type (e.g., pull_requests)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_type: str
+    status: str  # idle | running | completed | failed
+    total_sources: int = 0
+    sources_done: int = 0
+    records_ingested: int = 0
+    current_source: str | None = None
+    started_at: datetime | None = None
+    last_batch_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    # Computed fields
+    progress_pct: float = 0.0
+    rate_per_minute: float = 0.0
+    eta_minutes: float | None = None
+    elapsed_minutes: float = 0.0
+
+
+class IngestionProgressResponse(BaseModel):
+    """Full ingestion progress response — all entity types."""
+
+    entities: list[IngestionEntityProgress]
+    any_running: bool = False
+    last_updated: datetime
+
+
+# ---------------------------------------------------------------------------
 # Consolidated response
 # ---------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ import {
   usePipelineStatus,
   useSourceFilteredStatus,
   useMetricsWorkerStatus,
+  useIngestionProgress,
 } from '@/hooks/useMetrics';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -16,7 +17,6 @@ import {
   Clock,
   Cloud,
   Database,
-  GitBranch,
   GitPullRequest,
   Bug,
   Rocket,
@@ -31,24 +31,18 @@ import {
   Activity,
   Timer,
   Cpu,
-  Server,
   Send,
-  Terminal,
-  Gauge,
   Heart,
 } from 'lucide-react';
 import type {
   PipelineOverallStatus,
-  PipelineStageStatus,
   PipelineStage,
   PipelineKpis,
   RecordCount,
   PipelineError,
   PipelineEvent,
   SourceConnection,
-  SourceFilteredStatus,
-  MetricsWorkerStatus,
-  MetricsWorkerSnapshot,
+  IngestionEntityProgress,
 } from '@/types/pipeline';
 
 export const pipelineMonitorRoute = createRoute({
@@ -126,16 +120,6 @@ const STAGE_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
   sync_worker: RefreshCw,
   pulse_db: Database,
   metrics_worker: BarChart3,
-};
-
-const ENTITY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  pull_requests: GitPullRequest,
-  issues: Bug,
-  deployments: Rocket,
-  sprints: Zap,
-  commits: GitBranch,
-  users: Activity,
-  comments: Terminal,
 };
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -532,7 +516,6 @@ function DevLakeSyncTable({ syncs }: { syncs: Array<{ id: string; status: string
       </thead>
       <tbody className="text-sm font-mono">
         {syncs.slice(0, 5).map((sync) => {
-          const total = Object.values(sync.records_processed).reduce((a, b) => a + b, 0);
           const statusColors: Record<string, string> = {
             completed: 'bg-emerald-50 text-emerald-600',
             running: 'bg-indigo-50 text-indigo-600',
@@ -613,7 +596,7 @@ function RecentActivityTimeline({ events }: { events: PipelineEvent[] }) {
           <p className="text-sm text-content-tertiary pl-8">No recent activity.</p>
         ) : (
           timelineEvents.map((ev, i) => {
-            const sev = SEVERITY_COLORS[ev.severity] || SEVERITY_COLORS.info;
+            const sev = SEVERITY_COLORS[ev.severity] ?? { dot: 'bg-indigo-400', text: 'text-indigo-700' };
             const borderColor =
               ev.severity === 'success' ? 'border-emerald-500'
               : ev.severity === 'error' ? 'border-red-500'
@@ -783,6 +766,176 @@ function ErrorPanel({ errors }: { errors: PipelineError[] }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   INGESTION PROGRESS PANEL — real-time tracking of data ingestion
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const INGESTION_ENTITY_LABELS: Record<string, string> = {
+  pull_requests: 'Pull Requests',
+  issues: 'Issues',
+  deployments: 'Deployments',
+  sprints: 'Sprints',
+};
+
+const INGESTION_ENTITY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  pull_requests: GitPullRequest,
+  issues: Bug,
+  deployments: Rocket,
+  sprints: Zap,
+};
+
+const INGESTION_STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  running: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500 animate-pulse' },
+  completed: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  failed: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' },
+  idle: { bg: 'bg-gray-50', text: 'text-gray-500', dot: 'bg-gray-400' },
+};
+
+function formatEta(minutes: number | null): string {
+  if (minutes === null || minutes <= 0) return '--';
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${Math.ceil(minutes)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.ceil(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function IngestionEntityCard({ entity }: { entity: IngestionEntityProgress }) {
+  const Icon = INGESTION_ENTITY_ICONS[entity.entity_type] || Database;
+  const label = INGESTION_ENTITY_LABELS[entity.entity_type] || entity.entity_type;
+  const style = INGESTION_STATUS_STYLES[entity.status] ?? { bg: 'bg-gray-50', text: 'text-gray-500', dot: 'bg-gray-400' };
+  const isRunning = entity.status === 'running';
+
+  return (
+    <div className={`rounded-xl border p-4 ${isRunning ? 'border-blue-200 bg-blue-50/30' : 'border-border-default bg-surface-primary'}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-content-secondary" />
+          <span className="text-sm font-semibold text-content-primary">{label}</span>
+        </div>
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${style.bg} ${style.text}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+          {entity.status}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      {(isRunning || entity.status === 'completed') && (
+        <div className="mb-3">
+          <div className="flex justify-between text-xs text-content-tertiary mb-1">
+            <span>{entity.sources_done} / {entity.total_sources} sources</span>
+            <span>{entity.progress_pct.toFixed(1)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${isRunning ? 'bg-blue-500' : 'bg-emerald-500'}`}
+              style={{ width: `${Math.min(entity.progress_pct, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-content-tertiary">Records</div>
+          <div className="text-lg font-semibold text-content-primary">
+            {formatNumber(entity.records_ingested)}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-content-tertiary">Rate</div>
+          <div className="text-lg font-semibold text-content-primary">
+            {entity.rate_per_minute > 0 ? `${entity.rate_per_minute.toFixed(1)}/min` : '--'}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-content-tertiary">Elapsed</div>
+          <div className="text-sm font-medium text-content-secondary">
+            {entity.elapsed_minutes > 0 ? formatDuration(entity.elapsed_minutes) : '--'}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-content-tertiary">ETA</div>
+          <div className="text-sm font-medium text-content-secondary">
+            {isRunning ? formatEta(entity.eta_minutes) : entity.status === 'completed' ? 'Done' : '--'}
+          </div>
+        </div>
+      </div>
+
+      {/* Current source */}
+      {isRunning && entity.current_source && (
+        <div className="mt-3 pt-3 border-t border-border-default">
+          <div className="text-xs text-content-tertiary">Processing</div>
+          <div className="text-xs font-mono text-blue-600 truncate" title={entity.current_source}>
+            {entity.current_source}
+          </div>
+        </div>
+      )}
+
+      {/* Error message */}
+      {entity.status === 'failed' && entity.error_message && (
+        <div className="mt-3 pt-3 border-t border-red-200">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+            <span className="text-xs text-red-600 line-clamp-2">{entity.error_message}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IngestionProgressPanel() {
+  const { data, isLoading } = useIngestionProgress();
+
+  if (isLoading || !data) {
+    return (
+      <div className="rounded-xl border border-border-default bg-surface-primary p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Loader2 className="h-4 w-4 animate-spin text-content-tertiary" />
+          <span className="text-sm text-content-tertiary">Loading ingestion progress...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (data.entities.length === 0) {
+    return null; // No ingestion tracked yet
+  }
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-semibold text-content-primary flex items-center gap-2">
+          <Activity className="h-4 w-4" />
+          Ingestion Progress
+          {data.any_running && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              Live
+            </span>
+          )}
+        </h2>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {data.entities.map((entity) => (
+          <IngestionEntityCard key={entity.entity_type} entity={entity} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    TELA 1 — MAIN VIEW  (combines all components above)
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -820,10 +973,12 @@ function MainView({
 
       <KpiStrip kpis={data.kpis} />
 
+      <IngestionProgressPanel />
+
       {/* Two-column layout: Accordions + Timeline */}
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-8 space-y-4">
-          <AccordionSection title="DevLake Sync Progress" defaultOpen>
+          <AccordionSection title="Sync History" defaultOpen>
             <DevLakeSyncTable syncs={data.recent_syncs} />
           </AccordionSection>
 
@@ -1048,7 +1203,7 @@ function SourceFilteredView({
           </div>
           <div className="space-y-6">
             {(data.recent_logs || []).slice(0, 5).map((log, i) => {
-              const sev = SEVERITY_COLORS[log.severity] || SEVERITY_COLORS.info;
+              const sev = SEVERITY_COLORS[log.severity] ?? { dot: 'bg-indigo-400', text: 'text-indigo-700' };
               return (
                 <div key={log.id || i} className="flex gap-4">
                   <div className="mt-1">

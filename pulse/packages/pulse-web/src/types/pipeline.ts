@@ -78,6 +78,31 @@ export interface PipelineEvent {
   occurred_at: string;
 }
 
+/* ── Ingestion Progress (real-time tracking) ── */
+
+export interface IngestionEntityProgress {
+  entity_type: string;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  total_sources: number;
+  sources_done: number;
+  records_ingested: number;
+  current_source: string | null;
+  started_at: string | null;
+  last_batch_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+  progress_pct: number;
+  rate_per_minute: number;
+  eta_minutes: number | null;
+  elapsed_minutes: number;
+}
+
+export interface IngestionProgressResponse {
+  entities: IngestionEntityProgress[];
+  any_running: boolean;
+  last_updated: string;
+}
+
 /* ── Main Status Response (Tela 1) ── */
 
 export interface PipelineStatusData {

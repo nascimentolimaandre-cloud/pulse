@@ -68,6 +68,15 @@ class ConnectorAggregator:
                     logger.exception("Error fetching PRs from %s", source)
         return all_prs
 
+    async def get_pull_request_source_count(self) -> int:
+        """Return total number of sources (repos) for PR ingestion."""
+        total = 0
+        for source in ("github", "gitlab", "azure"):
+            connector = self._connectors.get(source)
+            if connector and hasattr(connector, "get_source_count"):
+                total += await connector.get_source_count()
+        return total
+
     async def fetch_pull_requests_batched(
         self, since: datetime | None = None,
     ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
