@@ -120,6 +120,14 @@ class SmartPrioritizer:
         activated = 0
         for proj in candidates:
             pr_count = proj.get("pr_reference_count") or 0
+            # Skip PII-flagged projects — they require manual admin approval
+            proj_metadata = proj.get("metadata") or {}
+            if proj_metadata.get("pii_flag"):
+                logger.debug(
+                    "Skipping PII-flagged project %s for smart auto-activate",
+                    proj["project_key"],
+                )
+                continue
             if pr_count >= threshold:
                 await self._repo.update_project_status(
                     tenant_id,

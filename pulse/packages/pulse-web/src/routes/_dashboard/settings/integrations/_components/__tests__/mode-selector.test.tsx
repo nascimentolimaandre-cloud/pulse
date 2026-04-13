@@ -38,6 +38,29 @@ describe('ModeSelector', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('shows PII warning banner when auto mode is selected', () => {
+    render(<ModeSelector value="auto" onChange={vi.fn()} />);
+    const banner = screen.getByTestId('pii-mode-warning');
+    expect(banner).toBeInTheDocument();
+    expect(banner.textContent).toContain('discovered');
+  });
+
+  it('shows PII warning banner when smart mode is selected', () => {
+    render(<ModeSelector value="smart" onChange={vi.fn()} />);
+    const banner = screen.getByTestId('pii-mode-warning');
+    expect(banner).toBeInTheDocument();
+  });
+
+  it('does not show PII warning banner for allowlist mode', () => {
+    render(<ModeSelector value="allowlist" onChange={vi.fn()} />);
+    expect(screen.queryByTestId('pii-mode-warning')).not.toBeInTheDocument();
+  });
+
+  it('does not show PII warning banner for blocklist mode', () => {
+    render(<ModeSelector value="blocklist" onChange={vi.fn()} />);
+    expect(screen.queryByTestId('pii-mode-warning')).not.toBeInTheDocument();
+  });
+
   it('renders all modes disabled when disabled prop is true', () => {
     render(<ModeSelector value="auto" onChange={vi.fn()} disabled />);
     const fieldset = screen.getByRole('group');

@@ -8,6 +8,7 @@ Robust to partial Jira failures: catches per-page errors and continues.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,15 @@ from src.contexts.integrations.jira.discovery.repository import DiscoveryReposit
 from src.contexts.integrations.jira.discovery.smart_prioritizer import SmartPrioritizer
 
 logger = logging.getLogger(__name__)
+
+# Regex for detecting PII-sensitive Jira project names (HR, legal, finance, etc.).
+# Matches in both English and Portuguese.  Used to gate auto-activation so that
+# an admin must explicitly approve these projects.
+PII_SENSITIVE_PATTERNS = re.compile(
+    r"\b(HR|RH|RRHH|legal|juridico|jur\u00eddico|financ\w*|finan\u00e7as|"
+    r"payroll|folha|confidential|confidencial|restricted|restrit\w*)\b",
+    re.IGNORECASE,
+)
 
 
 class ProjectDiscoveryService:
@@ -103,10 +113,32 @@ class ProjectDiscoveryService:
             existing = existing_by_key.get(key)
 
             if existing is None:
-                # New project
-                initial_status = "active" if mode == "auto" else "discovered"
-                activation_source = "auto_mode" if mode == "auto" else None
-                activated_at = datetime.now(timezone.utc) if mode == "auto" else None
+                # New project — check for PII-sensitive name
+                project_name = jp.get("name") or ""
+                pii_match = PII_SENSITIVE_PATTERNS.search(project_name)
+                pii_flag = pii_match is not None
+                project_metadata: dict[str, Any] = {}
+
+                if pii_flag:
+                    matched_term = pii_match.group(0)  # type: ignore[union-attr]
+                    project_metadata["pii_flag"] = True
+                    project_metadata["pii_reason"] = matched_term
+
+                # Determine initial status: PII-flagged projects are always
+                # forced to 'discovered' regardless of mode, requiring manual
+                # admin approval.
+                if pii_flag and mode in ("auto", "smart"):
+                    initial_status = "discovered"
+                    activation_source = None
+                    activated_at = None
+                elif mode == "auto":
+                    initial_status = "active"
+                    activation_source = "auto_mode"
+                    activated_at = datetime.now(timezone.utc)
+                else:
+                    initial_status = "discovered"
+                    activation_source = None
+                    activated_at = None
 
                 try:
                     await self._repo.upsert_project(
@@ -119,10 +151,41 @@ class ProjectDiscoveryService:
                         status=initial_status,
                         activation_source=activation_source,
                         activated_at=activated_at,
+                        metadata=project_metadata if project_metadata else {},
                     )
                     result["discoveredCount"] += 1
                     if initial_status == "active":
                         result["activatedCount"] += 1
+
+                    # Emit PII audit events after successful insert
+                    if pii_flag:
+                        matched_term_str = project_metadata.get("pii_reason", "")
+                        try:
+                            await self._repo.append_audit(
+                                tenant_id,
+                                event_type="project_pii_flagged",
+                                project_key=key,
+                                actor="system",
+                                after={"pii_flag": True, "pii_reason": matched_term_str},
+                                reason=f"PII-sensitive name matched: {matched_term_str}",
+                            )
+                        except Exception as exc:
+                            logger.exception("Failed to write PII flagged audit for %s: %s", key, exc)
+
+                        if mode in ("auto", "smart"):
+                            try:
+                                await self._repo.append_audit(
+                                    tenant_id,
+                                    event_type="project_pii_gated",
+                                    project_key=key,
+                                    actor="system",
+                                    before={"mode": mode},
+                                    after={"status": "discovered"},
+                                    reason=f"PII-sensitive name matched: {matched_term_str}",
+                                )
+                            except Exception as exc:
+                                logger.exception("Failed to write PII gated audit for %s: %s", key, exc)
+
                 except Exception as exc:
                     errors.append(f"Failed to insert project {key}: {exc}")
                     logger.exception("Failed to insert project %s", key)

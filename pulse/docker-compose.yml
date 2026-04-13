@@ -10,8 +10,8 @@ services:
   # --------------------------------------------------------------------------
   pulse-api:
     build:
-      context: ./packages/pulse-api
-      dockerfile: Dockerfile
+      context: ./packages
+      dockerfile: pulse-api/Dockerfile
     container_name: pulse-api
     ports:
       - "${PULSE_API_PORT:-3000}:3000"
@@ -52,7 +52,10 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://redis:6379
       ENVIRONMENT: development
+      DYNAMIC_JIRA_DISCOVERY_ENABLED: ${DYNAMIC_JIRA_DISCOVERY_ENABLED:-false}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       # Source API credentials (connectors read directly from APIs)
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_ORG: ${GITHUB_ORG:-webmotors-private}
@@ -84,7 +87,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
       KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://redis:6379
       ENVIRONMENT: development
+      DYNAMIC_JIRA_DISCOVERY_ENABLED: ${DYNAMIC_JIRA_DISCOVERY_ENABLED:-false}
       # Source API credentials
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_ORG: ${GITHUB_ORG:-webmotors-private}

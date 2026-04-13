@@ -23,7 +23,7 @@ import type {
   JiraDiscoveryStatusResponse,
   JiraAuditListResponse,
   JiraSmartSuggestionsResponse,
-} from '@pulse/shared/types/jira-admin';
+} from '@pulse/shared';
 
 @Controller('admin/integrations/jira')
 @UseGuards(AdminRoleGuard)

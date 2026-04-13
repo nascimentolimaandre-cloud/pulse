@@ -19,7 +19,7 @@ import type {
   JiraSmartSuggestionsResponse,
   JiraSmartSuggestion,
   JiraAuditEventType,
-} from '@pulse/shared/types/jira-admin';
+} from '@pulse/shared';
 import type { UpdateConfigDto } from './dto/update-config.dto';
 import type { ProjectActionDto } from './dto/project-action.dto';
 import type { ProjectCatalogQueryDto, AuditQueryDto } from './dto/list-query.dto';
@@ -258,9 +258,20 @@ export class JiraAdminService {
 
       const where = conditions.join(' AND ');
 
-      // Sort
-      const sortField = query.sortBy ?? 'project_key';
-      const sortDir = query.sortDir ?? 'asc';
+      // Sort — allowlist both field and direction to prevent SQL injection.
+      // The DTO @IsIn decorator provides validation at the HTTP layer, but
+      // this server-side guard is defence-in-depth for cases where the pipe
+      // is bypassed or misconfigured.
+      const ALLOWED_SORT_FIELDS = new Set([
+        'project_key', 'pr_reference_count', 'issue_count', 'last_sync_at',
+      ]);
+      const ALLOWED_SORT_DIRS = new Set(['asc', 'desc']);
+      const sortField = ALLOWED_SORT_FIELDS.has(query.sortBy ?? '')
+        ? query.sortBy!
+        : 'project_key';
+      const sortDir = ALLOWED_SORT_DIRS.has(query.sortDir ?? '')
+        ? query.sortDir!
+        : 'asc';
       const orderBy = `ORDER BY ${sortField} ${sortDir}`;
 
       // Pagination
@@ -304,10 +315,26 @@ export class JiraAdminService {
     });
   }
 
+  /**
+   * Validate a project key against the expected Jira format.
+   * Jira project keys: 2+ uppercase letters optionally followed by digits.
+   * Pattern: ^[A-Z][A-Z0-9]+$
+   * This prevents path-traversal style inputs and unexpected characters
+   * from reaching queries or audit logs, even though queries are parameterised.
+   */
+  private validateProjectKey(projectKey: string): void {
+    if (!/^[A-Z][A-Z0-9]+$/.test(projectKey.toUpperCase())) {
+      throw new BadRequestException(
+        `Invalid project key format: '${projectKey}'. Expected uppercase letters and digits only (e.g. PROJ, BACK2).`,
+      );
+    }
+  }
+
   async getProject(
     tenantId: string,
     projectKey: string,
   ): Promise<JiraProjectCatalogEntry> {
+    this.validateProjectKey(projectKey);
     return this.withTenant(tenantId, async (qr) => {
       const rows = await qr.query(
         `SELECT * FROM jira_project_catalog WHERE tenant_id = $1 AND project_key = $2`,
@@ -329,6 +356,8 @@ export class JiraAdminService {
     dto: ProjectActionDto,
     actorId: string,
   ): Promise<JiraProjectCatalogEntry> {
+    this.validateProjectKey(projectKey);
+
     const transition = STATUS_TRANSITIONS[action];
     if (!transition) {
       throw new BadRequestException(`Unknown action: ${action}`);
