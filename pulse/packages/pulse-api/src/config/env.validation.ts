@@ -31,6 +31,18 @@ export const envSchema = z.object({
     .string()
     .default('http://localhost:5173'),
 
+  PULSE_DATA_URL: z
+    .string()
+    .url()
+    .default('http://localhost:8001')
+    .describe('Base URL for pulse-data internal API (discovery scheduler)'),
+
+  INTERNAL_API_TOKEN: z
+    .string()
+    .optional()
+    .default('')
+    .describe('Shared secret for internal service-to-service calls'),
+
   DEFAULT_TENANT_ID: z
     .string()
     .uuid()

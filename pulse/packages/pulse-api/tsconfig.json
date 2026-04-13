@@ -21,9 +21,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@pulse/shared/*": ["../pulse-shared/src/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../pulse-shared/src/**/*"],
   "exclude": ["node_modules", "dist", "test"]
 }

@@ -11,6 +11,7 @@ import {
   Cable,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
 } from 'lucide-react';
 
 interface NavItem {
@@ -29,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Open PRs', path: '/prs', icon: GitPullRequest },
   { label: 'Integrations', path: '/integrations', icon: Cable },
   { label: 'Pipeline', path: '/pipeline-monitor', icon: Activity },
+  { label: 'Jira Settings', path: '/settings/integrations/jira', icon: Settings },
 ];
 
 export function Sidebar() {

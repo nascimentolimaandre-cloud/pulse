@@ -14,6 +14,10 @@ import { sprintsRoute } from './routes/_dashboard/metrics/sprints';
 import { prsRoute } from './routes/_dashboard/prs';
 import { integrationsRoute } from './routes/_dashboard/integrations';
 import { pipelineMonitorRoute } from './routes/_dashboard/pipeline-monitor';
+import { jiraSettingsRoute } from './routes/_dashboard/settings/integrations/jira';
+import { jiraCatalogRoute } from './routes/_dashboard/settings/integrations/jira.catalog';
+import { jiraConfigRoute } from './routes/_dashboard/settings/integrations/jira.config';
+import { jiraAuditRoute } from './routes/_dashboard/settings/integrations/jira.audit';
 
 export const routeTree = rootRoute.addChildren([
   homeRoute,
@@ -25,4 +29,9 @@ export const routeTree = rootRoute.addChildren([
   prsRoute,
   integrationsRoute,
   pipelineMonitorRoute,
+  jiraSettingsRoute.addChildren([
+    jiraCatalogRoute,
+    jiraConfigRoute,
+    jiraAuditRoute,
+  ]),
 ]);

@@ -9,6 +9,7 @@ import { TenantGuard } from './common/guards/tenant.guard';
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
 import { IdentityModule } from './modules/identity/identity.module';
 import { IntegrationModule } from './modules/integration/integration.module';
+import { JiraAdminModule } from './modules/integrations/jira-admin/jira-admin.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { IntegrationModule } from './modules/integration/integration.module';
     KafkaModule,
     IdentityModule,
     IntegrationModule,
+    JiraAdminModule,
   ],
   providers: [
     {
