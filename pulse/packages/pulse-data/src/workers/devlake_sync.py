@@ -380,9 +380,19 @@ class DataSyncWorker:
                 # "Starting" signal: connector emits (repo_name, None) before
                 # any API calls so the UI can show progress immediately.
                 if raw_prs is None:
+                    # If the initial source-count call failed (total_sources=0)
+                    # retry now — the connector's repo cache is warm after the
+                    # first yield, so this will succeed.
+                    if total_sources == 0:
+                        try:
+                            total_sources = await self._reader.get_pull_request_source_count()
+                        except Exception:
+                            logger.exception("Retry of source count failed")
+
                     await _update_ingestion_progress(
                         self._tenant_id, "pull_requests",
                         status="running",
+                        total_sources=total_sources or None,
                         sources_done=repos_done,
                         records_ingested=total_count,
                         current_source=repo_name,
