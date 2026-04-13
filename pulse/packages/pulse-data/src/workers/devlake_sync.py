@@ -39,6 +39,8 @@ from src.contexts.engineering_data.models import (
     EngSprint,
 )
 from src.contexts.engineering_data.normalizer import (
+    apply_pr_issue_links,
+    build_issue_key_map,
     link_issues_to_prs,
     normalize_deployment,
     normalize_issue,
@@ -280,10 +282,12 @@ class DataSyncWorker:
             await session.flush()
             log_id = log_entry.id
 
-        # Run each entity sync, collecting results and errors
+        # Run each entity sync, collecting results and errors.
+        # Order matters: issues run BEFORE pull_requests so that the PR
+        # linking step has a fresh issue-key index to work with.
         for entity, sync_fn in [
-            ("pull_requests", self._sync_pull_requests),
             ("issues", self._sync_issues),
+            ("pull_requests", self._sync_pull_requests),
             ("deployments", self._sync_deployments),
             ("sprints", self._sync_sprints),
         ]:
@@ -352,6 +356,20 @@ class DataSyncWorker:
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "pull_requests")
 
+        # Build issue-key lookup for PR linking. Loading all issue external_ids
+        # from the tenant is cheap (~30k strings) and lets us link each batch
+        # without re-querying per PR. Assumes _sync_issues() ran earlier in the
+        # cycle — if not, linking falls back to an empty map (no-op).
+        async with get_session(self._tenant_id) as session:
+            result = await session.execute(
+                select(EngIssue.external_id).where(EngIssue.tenant_id == self._tenant_id)
+            )
+            issue_external_ids = [row[0] for row in result.all()]
+        issue_key_map = build_issue_key_map(issue_external_ids)
+        logger.info(
+            "PR linking enabled with %d issue keys indexed", len(issue_key_map),
+        )
+
         # Discover total sources (repos) for progress tracking
         total_sources = 0
         try:
@@ -413,6 +431,10 @@ class DataSyncWorker:
                 if not normalized:
                     repos_done += 1
                     continue
+
+                # Populate linked_issue_ids by scanning title + branch refs
+                # against the tenant's issue-key index.
+                apply_pr_issue_links(normalized, issue_key_map)
 
                 # Upsert this batch to DB immediately
                 batch_count = await self._upsert_pull_requests(normalized)

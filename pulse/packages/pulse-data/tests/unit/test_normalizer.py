@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 import pytest
 
 from src.contexts.engineering_data.normalizer import (
+    apply_pr_issue_links,
+    build_issue_key_map,
     link_issues_to_prs,
     normalize_deployment,
     normalize_issue,
@@ -913,3 +915,88 @@ class TestNormalizeDeploymentFromJenkins:
         aborted = {**sample_jenkins_deployment_raw, "result": "ABORTED"}
         result = normalize_deployment(aborted, TENANT_ID)
         assert result["is_failure"] is False
+
+
+# ---------------------------------------------------------------------------
+# PR-to-issue linking helpers
+# ---------------------------------------------------------------------------
+
+
+class TestBuildIssueKeyMap:
+    def test_extracts_key_from_external_id(self) -> None:
+        result = build_issue_key_map([
+            "jira:JiraIssue:1:ANCR-1234",
+            "jira:JiraIssue:1:DESC-42",
+        ])
+        assert result["ANCR-1234"] == "jira:JiraIssue:1:ANCR-1234"
+        assert result["DESC-42"] == "jira:JiraIssue:1:DESC-42"
+
+    def test_keys_are_uppercased(self) -> None:
+        # Regex matches case-insensitive; map stores uppercase
+        result = build_issue_key_map(["jira:JiraIssue:1:ancr-7"])
+        assert "ANCR-7" in result
+
+    def test_ignores_malformed_ids(self) -> None:
+        result = build_issue_key_map(["no-key-here", "", None])  # type: ignore[list-item]
+        assert result == {}
+
+    def test_handles_empty_input(self) -> None:
+        assert build_issue_key_map([]) == {}
+
+
+class TestApplyPrIssueLinks:
+    def test_links_from_title(self) -> None:
+        prs = [{"title": "ANCR-1234 fix login bug"}]
+        key_map = {"ANCR-1234": "jira:JiraIssue:1:ANCR-1234"}
+        count = apply_pr_issue_links(prs, key_map)
+        assert count == 1
+        assert prs[0]["linked_issue_ids"] == ["jira:JiraIssue:1:ANCR-1234"]
+
+    def test_links_from_head_ref(self) -> None:
+        prs = [{"title": "fix bug", "_head_ref": "feature/DESC-42-login"}]
+        key_map = {"DESC-42": "jira:JiraIssue:1:DESC-42"}
+        apply_pr_issue_links(prs, key_map)
+        assert prs[0]["linked_issue_ids"] == ["jira:JiraIssue:1:DESC-42"]
+
+    def test_multiple_keys_in_same_pr(self) -> None:
+        prs = [{"title": "ANCR-1 and ANCR-2 together"}]
+        key_map = {
+            "ANCR-1": "jira:JiraIssue:1:ANCR-1",
+            "ANCR-2": "jira:JiraIssue:1:ANCR-2",
+        }
+        apply_pr_issue_links(prs, key_map)
+        assert set(prs[0]["linked_issue_ids"]) == {
+            "jira:JiraIssue:1:ANCR-1",
+            "jira:JiraIssue:1:ANCR-2",
+        }
+
+    def test_deduplicates_repeated_key(self) -> None:
+        prs = [{"title": "ANCR-1 ANCR-1 again", "_head_ref": "ancr-1-branch"}]
+        key_map = {"ANCR-1": "jira:JiraIssue:1:ANCR-1"}
+        apply_pr_issue_links(prs, key_map)
+        assert prs[0]["linked_issue_ids"] == ["jira:JiraIssue:1:ANCR-1"]
+
+    def test_unknown_key_not_linked(self) -> None:
+        prs = [{"title": "NOPE-999 fix"}]
+        key_map = {"ANCR-1": "jira:JiraIssue:1:ANCR-1"}
+        apply_pr_issue_links(prs, key_map)
+        # No linked ids set (or empty) — either is acceptable, but not a wrong link
+        assert prs[0].get("linked_issue_ids", []) == []
+
+    def test_empty_key_map_is_noop(self) -> None:
+        prs = [{"title": "ANCR-1 x"}]
+        count = apply_pr_issue_links(prs, {})
+        assert count == 0
+
+    def test_returns_linked_pr_count(self) -> None:
+        prs = [
+            {"title": "ANCR-1 fix"},
+            {"title": "no key here"},
+            {"title": "ANCR-2 feat"},
+        ]
+        key_map = {
+            "ANCR-1": "jira:JiraIssue:1:ANCR-1",
+            "ANCR-2": "jira:JiraIssue:1:ANCR-2",
+        }
+        count = apply_pr_issue_links(prs, key_map)
+        assert count == 2
