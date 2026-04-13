@@ -87,6 +87,10 @@ class EngIssue(TenantModel):
     external_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # jira | linear | azure
     project_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Human-readable issue key (e.g. "SECOM-1441"). Distinct from external_id,
+    # which is the internal source ID (numeric for Jira). Used by PR linker
+    # to match title/branch references back to issues.
+    issue_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     issue_type: Mapped[str] = mapped_column(String(64), nullable=False)  # bug | story | task | epic
     status: Mapped[str] = mapped_column(String(128), nullable=False)  # raw status from source

@@ -362,10 +362,11 @@ class DataSyncWorker:
         # cycle — if not, linking falls back to an empty map (no-op).
         async with get_session(self._tenant_id) as session:
             result = await session.execute(
-                select(EngIssue.external_id).where(EngIssue.tenant_id == self._tenant_id)
+                select(EngIssue.issue_key, EngIssue.external_id)
+                .where(EngIssue.tenant_id == self._tenant_id)
             )
-            issue_external_ids = [row[0] for row in result.all()]
-        issue_key_map = build_issue_key_map(issue_external_ids)
+            issue_rows = [(row[0], row[1]) for row in result.all()]
+        issue_key_map = build_issue_key_map(issue_rows)
         logger.info(
             "PR linking enabled with %d issue keys indexed", len(issue_key_map),
         )
@@ -677,6 +678,7 @@ class DataSyncWorker:
                         index_elements=["tenant_id", "external_id"],
                         set_={
                             "issue_type": issue_data["issue_type"],
+                            "issue_key": issue_data.get("issue_key"),
                             "status": issue_data["status"],
                             "normalized_status": issue_data["normalized_status"],
                             "assignee": issue_data["assignee"],

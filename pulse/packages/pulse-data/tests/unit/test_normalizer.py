@@ -923,21 +923,31 @@ class TestNormalizeDeploymentFromJenkins:
 
 
 class TestBuildIssueKeyMap:
-    def test_extracts_key_from_external_id(self) -> None:
+    def test_uses_explicit_issue_key_column(self) -> None:
+        """When issue_key is provided, it's used directly (no regex needed)."""
         result = build_issue_key_map([
-            "jira:JiraIssue:1:ANCR-1234",
-            "jira:JiraIssue:1:DESC-42",
+            ("ANCR-1234", "jira:JiraIssue:1:792543"),
+            ("DESC-42", "jira:JiraIssue:1:792544"),
         ])
-        assert result["ANCR-1234"] == "jira:JiraIssue:1:ANCR-1234"
-        assert result["DESC-42"] == "jira:JiraIssue:1:DESC-42"
+        assert result["ANCR-1234"] == "jira:JiraIssue:1:792543"
+        assert result["DESC-42"] == "jira:JiraIssue:1:792544"
 
     def test_keys_are_uppercased(self) -> None:
-        # Regex matches case-insensitive; map stores uppercase
-        result = build_issue_key_map(["jira:JiraIssue:1:ancr-7"])
+        result = build_issue_key_map([("ancr-7", "jira:JiraIssue:1:100")])
         assert "ANCR-7" in result
+        assert result["ANCR-7"] == "jira:JiraIssue:1:100"
 
-    def test_ignores_malformed_ids(self) -> None:
-        result = build_issue_key_map(["no-key-here", "", None])  # type: ignore[list-item]
+    def test_falls_back_to_external_id_regex_when_key_missing(self) -> None:
+        """Legacy rows pre-migration 005 have issue_key=NULL; extract from id."""
+        result = build_issue_key_map([(None, "github:Issue:FOO-99")])
+        assert result == {"FOO-99": "github:Issue:FOO-99"}
+
+    def test_skips_rows_with_neither_key_nor_extractable_id(self) -> None:
+        result = build_issue_key_map([(None, "jira:JiraIssue:1:792543")])
+        assert result == {}
+
+    def test_ignores_empty_external_id(self) -> None:
+        result = build_issue_key_map([("ANCR-1", "")])
         assert result == {}
 
     def test_handles_empty_input(self) -> None:

@@ -358,6 +358,7 @@ def normalize_issue(
         "tenant_id": tenant_id,
         "source": _detect_source(devlake_issue),
         "project_key": project_key,
+        "issue_key": (issue_key or None),
         "title": devlake_issue.get("title", ""),
         "issue_type": issue_type,
         "status": raw_status,
@@ -500,21 +501,32 @@ def normalize_sprint(
     }
 
 
-def build_issue_key_map(external_ids: list[str]) -> dict[str, str]:
+def build_issue_key_map(
+    issue_rows: list[tuple[str | None, str]],
+) -> dict[str, str]:
     """Build a dict mapping issue key (e.g. 'ANCR-1234') to external_id.
 
     Used by the PR linking step to avoid re-extracting keys on every batch.
 
     Args:
-        external_ids: List of issue external_id strings (from eng_issues).
+        issue_rows: List of (issue_key, external_id) tuples from eng_issues.
+            issue_key may be None for legacy rows — in that case, the function
+            falls back to regex-extracting a key from the external_id (works
+            only for sources where external_id contains the key; Jira numeric
+            IDs will be skipped).
 
     Returns:
-        Dict {"ANCR-1234": "jira:JiraIssue:1:ANCR-1234", ...} — keys uppercased.
+        Dict {"ANCR-1234": "jira:JiraIssue:1:792543", ...} — keys uppercased.
     """
     key_map: dict[str, str] = {}
-    for ext_id in external_ids:
+    for issue_key, ext_id in issue_rows:
         if not ext_id:
             continue
+        # Prefer the explicit issue_key column (populated since migration 005)
+        if issue_key:
+            key_map[issue_key.upper()] = ext_id
+            continue
+        # Fallback: extract from external_id for non-Jira sources or legacy rows
         match = ISSUE_KEY_PATTERN.search(ext_id)
         if match:
             key_map[match.group(1).upper()] = ext_id
