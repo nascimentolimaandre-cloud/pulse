@@ -32,6 +32,8 @@ from src.connectors import ConnectorAggregator
 from src.connectors.github_connector import GitHubConnector
 from src.connectors.jira_connector import JiraConnector
 from src.connectors.jenkins_connector import JenkinsConnector
+from src.contexts.integrations.jira.discovery.mode_resolver import ModeResolver
+from src.contexts.integrations.jira.discovery.guardrails import Guardrails
 from src.contexts.engineering_data.models import (
     EngDeployment,
     EngIssue,
@@ -506,7 +508,28 @@ class DataSyncWorker:
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "issues")
 
-        raw_issues = await self._reader.fetch_issues(since=since)
+        # Resolve project keys via dynamic discovery or env var fallback
+        project_keys: list[str] | None = None
+        if settings.dynamic_jira_discovery_enabled:
+            try:
+                async with get_session(self._tenant_id) as session:
+                    resolver = ModeResolver(session)
+                    project_keys = await resolver.resolve_active_projects(self._tenant_id)
+                logger.info(
+                    "Dynamic discovery resolved %d Jira projects for tenant %s",
+                    len(project_keys), self._tenant_id,
+                )
+            except Exception:
+                logger.exception(
+                    "ModeResolver failed for tenant %s, falling back to env var",
+                    self._tenant_id,
+                )
+                project_keys = None
+
+        fetch_kwargs: dict[str, Any] = {"since": since}
+        if project_keys is not None:
+            fetch_kwargs["project_keys"] = project_keys
+        raw_issues = await self._reader.fetch_issues(**fetch_kwargs)
         if not raw_issues:
             logger.info("No new issues to sync")
             return 0
@@ -546,6 +569,19 @@ class DataSyncWorker:
                 session, self._tenant_id, "issues",
                 datetime.now(timezone.utc), count,
             )
+
+        # Record sync outcome per project for guardrails (dynamic discovery only)
+        if settings.dynamic_jira_discovery_enabled and project_keys:
+            try:
+                async with get_session(self._tenant_id) as session:
+                    guardrails = Guardrails(session)
+                    for pk in project_keys:
+                        await guardrails.record_sync_outcome(
+                            self._tenant_id, pk, success=True,
+                        )
+            except Exception:
+                logger.exception("Failed to record sync outcomes for guardrails")
+
         return count
 
     async def _sync_deployments(self) -> int:

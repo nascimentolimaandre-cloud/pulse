@@ -96,15 +96,26 @@ class ConnectorAggregator:
                     logger.exception("Error fetching batched PRs from %s", source)
 
     async def fetch_issues(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        project_keys: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch issues from all work-tracking connectors (Jira, GitHub Issues)."""
+        """Fetch issues from all work-tracking connectors (Jira, GitHub Issues).
+
+        Args:
+            since: Watermark for incremental sync.
+            project_keys: If provided, passed to Jira connector to scope which
+                projects to fetch. Other connectors ignore this parameter.
+        """
         all_issues: list[dict[str, Any]] = []
         for source in ("jira", "github", "azure"):
             connector = self._connectors.get(source)
             if connector:
                 try:
-                    issues = await connector.fetch_issues(since)
+                    if source == "jira" and project_keys is not None:
+                        issues = await connector.fetch_issues(since, project_keys=project_keys)
+                    else:
+                        issues = await connector.fetch_issues(since)
                     all_issues.extend(issues)
                     logger.info("Fetched %d issues from %s", len(issues), source)
                 except Exception:
