@@ -9,7 +9,7 @@ import type {
   JiraDiscoveryStatusResponse,
   JiraAuditListResponse,
   JiraSmartSuggestionsResponse,
-} from '@pulse/shared/types/jira-admin';
+} from '@pulse/shared';
 
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
 const USER: CurrentUserPayload = {

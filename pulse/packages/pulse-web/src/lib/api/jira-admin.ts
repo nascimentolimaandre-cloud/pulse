@@ -42,8 +42,8 @@ function buildCatalogParams(query: JiraProjectCatalogQuery): Record<string, stri
   if (query.search) params.search = query.search;
   if (query.limit != null) params.limit = String(query.limit);
   if (query.offset != null) params.offset = String(query.offset);
-  if (query.sortBy) params.sort_by = query.sortBy;
-  if (query.sortDir) params.sort_dir = query.sortDir;
+  if (query.sortBy) params.sortBy = query.sortBy;
+  if (query.sortDir) params.sortDir = query.sortDir;
   return params;
 }
 

@@ -43,7 +43,9 @@ export type JiraAuditEventType =
   | 'project_blocked'
   | 'project_resumed'
   | 'project_auto_paused'     // triggered by Guardrails (N consecutive failures)
-  | 'project_cap_enforced';   // Guardrails demoted due to max_active_projects
+  | 'project_cap_enforced'    // Guardrails demoted due to max_active_projects
+  | 'project_pii_flagged'     // PII-sensitive name detected on discovery
+  | 'project_pii_gated';      // auto/smart activation blocked due to PII flag
 
 // ---------------------------------------------------------------------------
 // Configuration

@@ -22,6 +22,7 @@
     "noUnusedParameters": true,
     "paths": {
       "@/*": ["src/*"],
+      "@pulse/shared": ["../pulse-shared/src/index.ts"],
       "@pulse/shared/*": ["../pulse-shared/src/*"]
     }
   },

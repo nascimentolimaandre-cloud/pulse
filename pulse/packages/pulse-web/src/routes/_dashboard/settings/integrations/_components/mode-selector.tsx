@@ -1,4 +1,4 @@
-import { Zap, Shield, ShieldOff, Brain } from 'lucide-react';
+import { Zap, Shield, ShieldOff, Brain, AlertTriangle } from 'lucide-react';
 import type { JiraDiscoveryMode } from '@pulse/shared';
 
 interface ModeOption {
@@ -47,10 +47,13 @@ interface ModeSelectorProps {
 }
 
 export function ModeSelector({ value, onChange, disabled }: ModeSelectorProps) {
+  const showPiiBanner = value === 'auto' || value === 'smart';
+
   return (
-    <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2" disabled={disabled}>
-      <legend className="sr-only">Modo de descoberta Jira</legend>
-      {MODE_OPTIONS.map((option) => {
+    <div>
+      <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2" disabled={disabled}>
+        <legend className="sr-only">Modo de descoberta Jira</legend>
+        {MODE_OPTIONS.map((option) => {
         const isSelected = value === option.mode;
         const Icon = option.icon;
 
@@ -97,6 +100,23 @@ export function ModeSelector({ value, onChange, disabled }: ModeSelectorProps) {
           </label>
         );
       })}
-    </fieldset>
+      </fieldset>
+
+      {showPiiBanner && (
+        <div
+          className="mt-3 flex items-start gap-2 rounded-card border border-status-warning/30 bg-amber-50 p-3"
+          role="alert"
+          data-testid="pii-mode-warning"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-status-warning" aria-hidden="true" />
+          <p className="text-xs text-content-secondary">
+            No modo {value === 'auto' ? 'Auto' : 'Smart'}, projetos Jira acess&#237;veis pelo seu
+            token ser&#227;o ativados automaticamente. Se houver projetos sens&#237;veis (RH,
+            Jur&#237;dico, Finan&#231;as, Confidencial), eles ficar&#227;o marcados como
+            &ldquo;discovered&rdquo; exigindo aprova&#231;&#227;o manual.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

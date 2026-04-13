@@ -56,12 +56,20 @@ class TriggerResponse(BaseModel):
 
 
 def _check_internal_token(x_internal_token: str | None) -> None:
-    """Validate the internal API token."""
+    """Validate the internal API token using constant-time comparison.
+
+    Uses hmac.compare_digest to prevent timing-oracle attacks that could
+    allow an attacker to reconstruct the token byte-by-byte.
+    """
+    import hmac
+
     expected = getattr(settings, "internal_api_token", "")
     if not expected:
         # No token configured = allow (dev mode)
         return
-    if x_internal_token != expected:
+    if x_internal_token is None or not hmac.compare_digest(
+        x_internal_token.encode(), expected.encode()
+    ):
         raise HTTPException(status_code=403, detail="Invalid internal token")
 
 

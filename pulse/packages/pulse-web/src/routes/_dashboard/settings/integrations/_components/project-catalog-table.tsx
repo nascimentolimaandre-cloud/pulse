@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Search, ChevronLeft, ChevronRight, X, ArrowUpDown } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, ArrowUpDown, ShieldAlert } from 'lucide-react';
 import type {
   JiraProjectStatus,
   JiraProjectCatalogQuery,
@@ -563,7 +563,20 @@ function ProjectRow({
         />
       </td>
       <td className="py-2.5 px-2 font-mono text-xs font-semibold text-content-primary">
-        {project.projectKey}
+        <span className="inline-flex items-center gap-1">
+          {project.projectKey}
+          {project.metadata?.pii_flag && (
+            <span className="group/pii relative" aria-label="Nome sensivel detectado - revisao manual necessaria">
+              <ShieldAlert className="h-4 w-4 text-status-warning" aria-hidden="true" />
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs font-normal text-white opacity-0 shadow-lg transition-opacity group-hover/pii:opacity-100"
+              >
+                Nome sens&#237;vel detectado &mdash; revis&#227;o manual necess&#225;ria
+              </span>
+            </span>
+          )}
+        </span>
       </td>
       <td className="py-2.5 px-2 text-sm text-content-primary">{project.name ?? '-'}</td>
       <td className="py-2.5 px-2">
@@ -616,8 +629,14 @@ function ProjectCard({
             className="rounded"
             aria-label={`Selecionar ${project.projectKey}`}
           />
-          <span className="font-mono text-sm font-semibold text-content-primary">
+          <span className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-content-primary">
             {project.projectKey}
+            {project.metadata?.pii_flag && (
+              <ShieldAlert
+                className="h-4 w-4 text-status-warning"
+                aria-label="Nome sensivel detectado - revisao manual necessaria"
+              />
+            )}
           </span>
           <StatusChip status={project.status} />
         </div>

@@ -150,6 +150,73 @@ describe('ProjectCatalogTable', () => {
     expect(screen.getAllByText('Descoberto').length).toBeGreaterThan(0);
   });
 
+  it('renders PII warning icon for projects with pii_flag in metadata', () => {
+    const responseWithPii: JiraProjectCatalogListResponse = {
+      ...MOCK_RESPONSE,
+      items: [
+        ...MOCK_RESPONSE.items,
+        {
+          id: '3',
+          tenantId: 't1',
+          projectKey: 'HROPS',
+          projectId: '10003',
+          name: 'HR Operations',
+          projectType: 'software',
+          leadAccountId: null,
+          status: 'discovered',
+          activationSource: null,
+          issueCount: 0,
+          prReferenceCount: 0,
+          firstSeenAt: '2026-04-13T00:00:00Z',
+          activatedAt: null,
+          lastSyncAt: null,
+          lastSyncStatus: null,
+          consecutiveFailures: 0,
+          lastError: null,
+          metadata: { pii_flag: true, pii_reason: 'HR' },
+          createdAt: '2026-04-13T00:00:00Z',
+          updatedAt: '2026-04-13T00:00:00Z',
+        },
+      ],
+      total: 3,
+      counts: { discovered: 2, active: 1, paused: 0, blocked: 0, archived: 0 },
+    };
+
+    mockUseJiraProjectsQuery.mockReturnValue({
+      data: responseWithPii,
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+
+    render(<ProjectCatalogTable />, { wrapper: createWrapper() });
+
+    // The PII warning icon should have the correct aria-label
+    const warningIcons = screen.getAllByLabelText(
+      'Nome sensivel detectado - revisao manual necessaria',
+    );
+    expect(warningIcons.length).toBeGreaterThan(0);
+
+    // Non-PII projects should NOT have the warning
+    // PROJ1 and PROJ2 have empty metadata, only HROPS has pii_flag
+  });
+
+  it('does not render PII warning icon for projects without pii_flag', () => {
+    mockUseJiraProjectsQuery.mockReturnValue({
+      data: MOCK_RESPONSE,
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+
+    render(<ProjectCatalogTable />, { wrapper: createWrapper() });
+
+    const warningIcons = screen.queryAllByLabelText(
+      'Nome sensivel detectado - revisao manual necessaria',
+    );
+    expect(warningIcons).toHaveLength(0);
+  });
+
   it('renders filter chips with counts', () => {
     mockUseJiraProjectsQuery.mockReturnValue({
       data: MOCK_RESPONSE,
