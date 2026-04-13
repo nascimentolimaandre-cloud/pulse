@@ -34,11 +34,17 @@ WITH pr_keys AS (
     ) AS m
 ),
 issue_keys AS (
+    -- Prefer the explicit issue_key column (populated since migration 005).
+    -- Fallback to external_id regex for legacy rows or non-Jira sources.
     SELECT
         external_id,
-        UPPER(SUBSTRING(external_id FROM '([A-Z][A-Z0-9]+-[0-9]+)')) AS issue_key
+        UPPER(COALESCE(
+            issue_key,
+            SUBSTRING(external_id FROM '([A-Z][A-Z0-9]+-[0-9]+)')
+        )) AS issue_key
     FROM eng_issues
-    WHERE external_id ~ '[A-Z][A-Z0-9]+-[0-9]+'
+    WHERE issue_key IS NOT NULL
+       OR external_id ~ '[A-Z][A-Z0-9]+-[0-9]+'
 ),
 matches AS (
     SELECT DISTINCT pk.pr_id, ik.external_id

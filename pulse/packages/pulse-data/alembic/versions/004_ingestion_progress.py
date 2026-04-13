@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 
 revision = "004"
-down_revision = "003"
+down_revision = "003_pipeline_events"
 branch_labels = None
 depends_on = None
 
