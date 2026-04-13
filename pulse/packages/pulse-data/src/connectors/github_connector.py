@@ -14,6 +14,7 @@ Rate Limiting: 5,000 requests/hour with token. Client handles 429 automatically.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -130,6 +131,28 @@ class GitHubConnector(BaseConnector):
             len(all_prs), len(repos), self._org,
         )
         return all_prs
+
+    async def fetch_pull_requests_batched(
+        self, since: datetime | None = None,
+    ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+        """Yield PRs in batches, one batch per repo.
+
+        Each yield is a tuple of (repo_full_name, list_of_prs).
+        This allows the caller to persist each batch immediately,
+        avoiding holding all PRs in memory at once.
+        """
+        repos = await self._get_repos()
+
+        for repo_full_name in repos:
+            try:
+                prs = await self._fetch_repo_prs(repo_full_name, since)
+                if prs:
+                    logger.info(
+                        "Batch: %d PRs from %s", len(prs), repo_full_name,
+                    )
+                    yield repo_full_name, prs
+            except Exception:
+                logger.exception("Failed to fetch PRs for %s", repo_full_name)
 
     async def _fetch_repo_prs(
         self, repo_full_name: str, since: datetime | None = None,

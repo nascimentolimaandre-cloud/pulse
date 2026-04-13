@@ -12,6 +12,7 @@ The aggregator routes each fetch call to the appropriate connector:
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
@@ -66,6 +67,23 @@ class ConnectorAggregator:
                 except Exception:
                     logger.exception("Error fetching PRs from %s", source)
         return all_prs
+
+    async def fetch_pull_requests_batched(
+        self, since: datetime | None = None,
+    ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+        """Yield PRs in batches (per repo) from all code-hosting connectors.
+
+        Each yield is (repo_name, prs_list). Allows the sync worker to
+        persist each batch immediately instead of holding everything in memory.
+        """
+        for source in ("github", "gitlab", "azure"):
+            connector = self._connectors.get(source)
+            if connector and hasattr(connector, "fetch_pull_requests_batched"):
+                try:
+                    async for repo_name, prs in connector.fetch_pull_requests_batched(since):
+                        yield repo_name, prs
+                except Exception:
+                    logger.exception("Error fetching batched PRs from %s", source)
 
     async def fetch_issues(
         self, since: datetime | None = None,
