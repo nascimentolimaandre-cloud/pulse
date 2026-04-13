@@ -139,16 +139,21 @@ class GitHubConnector(BaseConnector):
 
     async def fetch_pull_requests_batched(
         self, since: datetime | None = None,
-    ) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+    ) -> AsyncIterator[tuple[str, list[dict[str, Any]] | None]]:
         """Yield PRs in batches, one batch per repo.
 
-        Each yield is a tuple of (repo_full_name, list_of_prs).
-        This allows the caller to persist each batch immediately,
-        avoiding holding all PRs in memory at once.
+        Each repo emits TWO yields:
+          1. (repo_full_name, None) — "starting" signal, before any API calls
+          2. (repo_full_name, list_of_prs) — completed batch (only if non-empty)
+
+        The "starting" signal lets callers update progress UI immediately,
+        without waiting for large repos to finish enrichment.
         """
         repos = await self._get_repos()
 
         for repo_full_name in repos:
+            # Signal: starting this repo
+            yield repo_full_name, None
             try:
                 prs = await self._fetch_repo_prs(repo_full_name, since)
                 if prs:
