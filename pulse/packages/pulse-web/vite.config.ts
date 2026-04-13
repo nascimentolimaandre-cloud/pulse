@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@pulse/shared': path.resolve(__dirname, '../pulse-shared/src/index.ts'),
     },
   },
   server: {

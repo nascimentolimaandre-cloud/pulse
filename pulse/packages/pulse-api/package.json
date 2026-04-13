@@ -84,6 +84,7 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "moduleNameMapper": {
+      "^@pulse/shared/(.*)$": "<rootDir>/../pulse-shared/src/$1",
       "^@/(.*)$": "<rootDir>/src/$1"
     }
   }
