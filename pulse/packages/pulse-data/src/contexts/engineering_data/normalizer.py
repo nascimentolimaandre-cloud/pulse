@@ -500,6 +500,66 @@ def normalize_sprint(
     }
 
 
+def build_issue_key_map(external_ids: list[str]) -> dict[str, str]:
+    """Build a dict mapping issue key (e.g. 'ANCR-1234') to external_id.
+
+    Used by the PR linking step to avoid re-extracting keys on every batch.
+
+    Args:
+        external_ids: List of issue external_id strings (from eng_issues).
+
+    Returns:
+        Dict {"ANCR-1234": "jira:JiraIssue:1:ANCR-1234", ...} — keys uppercased.
+    """
+    key_map: dict[str, str] = {}
+    for ext_id in external_ids:
+        if not ext_id:
+            continue
+        match = ISSUE_KEY_PATTERN.search(ext_id)
+        if match:
+            key_map[match.group(1).upper()] = ext_id
+    return key_map
+
+
+def apply_pr_issue_links(
+    prs: list[dict[str, Any]],
+    issue_key_map: dict[str, str],
+) -> int:
+    """Populate `linked_issue_ids` on each PR by scanning title/branch refs.
+
+    Mutates PRs in place. Returns number of PRs that received at least one link.
+
+    Scanned text: title + _head_ref + _base_ref (the last two are enrichment
+    fields injected by the sync worker pre-normalization).
+    """
+    if not issue_key_map:
+        return 0
+
+    linked_count = 0
+    for pr in prs:
+        search_text = (
+            f"{pr.get('title', '')} "
+            f"{pr.get('_head_ref', '')} "
+            f"{pr.get('_base_ref', '')}"
+        )
+        found_keys = ISSUE_KEY_PATTERN.findall(search_text)
+        linked_ids: list[str] = []
+        seen: set[str] = set()
+        for key in found_keys:
+            k = key.upper()
+            if k in seen:
+                continue
+            seen.add(k)
+            ext_id = issue_key_map.get(k)
+            if ext_id:
+                linked_ids.append(ext_id)
+
+        if linked_ids:
+            pr["linked_issue_ids"] = linked_ids
+            linked_count += 1
+    return linked_count
+
+
 def link_issues_to_prs(
     prs: list[dict[str, Any]],
     issues: list[dict[str, Any]],

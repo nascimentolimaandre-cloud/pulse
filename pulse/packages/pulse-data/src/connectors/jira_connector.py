@@ -31,13 +31,20 @@ REST_API = "/rest/api/3"
 SEARCH_PAGE_SIZE = 100
 AGILE_PAGE_SIZE = 50
 
-# Fields to fetch in search queries (minimize payload)
+# Base fields to fetch in search queries (minimize payload).
+# Sprint + story_points custom-field IDs are discovered dynamically per Jira
+# tenant (they vary) and appended to this list at fetch time — see
+# JiraConnector._discover_custom_fields().
 SEARCH_FIELDS = [
     "summary", "status", "issuetype", "priority", "assignee",
     "created", "updated", "resolutiondate", "resolution",
-    "sprint", "story_points", "customfield_10028",  # story points field
     "parent", "labels", "components",
 ]
+
+# Fallback custom-field IDs tried if discovery fails — these are the most
+# common defaults on Jira Cloud instances.
+FALLBACK_STORY_POINTS_FIELDS = ("customfield_10016", "customfield_10028")
+FALLBACK_SPRINT_FIELDS = ("customfield_10020", "customfield_10010")
 
 
 class JiraConnector(BaseConnector):
@@ -80,6 +87,12 @@ class JiraConnector(BaseConnector):
         # Cache: board_id -> board info (discovered lazily)
         self._boards: dict[int, dict] = {}
 
+        # Discovered custom field IDs (vary per Jira tenant). Populated by
+        # _discover_custom_fields() on first fetch_issues() call.
+        self._sprint_field_id: str | None = None
+        self._story_points_field_id: str | None = None
+        self._custom_fields_discovered: bool = False
+
     @property
     def source_type(self) -> str:
         return "jira"
@@ -118,6 +131,9 @@ class JiraConnector(BaseConnector):
             logger.warning("No Jira projects configured — skipping issue fetch")
             return []
 
+        # Discover tenant-specific custom field IDs (sprint, story points)
+        await self._discover_custom_fields()
+
         # Quote each project key in JQL — some keys like "DESC" are reserved words
         quoted_projects = ", ".join(f'"{p}"' for p in self._projects)
         jql = f"project IN ({quoted_projects})"
@@ -128,6 +144,17 @@ class JiraConnector(BaseConnector):
 
         logger.info("Fetching Jira issues with JQL: %s", jql)
 
+        # Build fields list: base + discovered custom fields + fallbacks
+        fields_to_fetch = list(SEARCH_FIELDS)
+        if self._sprint_field_id:
+            fields_to_fetch.append(self._sprint_field_id)
+        if self._story_points_field_id:
+            fields_to_fetch.append(self._story_points_field_id)
+        # Always include fallbacks to survive mis-discovery
+        for f in FALLBACK_SPRINT_FIELDS + FALLBACK_STORY_POINTS_FIELDS:
+            if f not in fields_to_fetch:
+                fields_to_fetch.append(f)
+
         all_issues: list[dict[str, Any]] = []
         next_page_token: str | None = None
         page = 0
@@ -136,7 +163,7 @@ class JiraConnector(BaseConnector):
             body: dict[str, Any] = {
                 "jql": jql,
                 "maxResults": SEARCH_PAGE_SIZE,
-                "fields": SEARCH_FIELDS,
+                "fields": fields_to_fetch,
                 "expand": "changelog",  # Must be string, not array
             }
             if next_page_token:
@@ -285,21 +312,12 @@ class JiraConnector(BaseConnector):
         # Build our internal ID (same prefix format as DevLake for compatibility)
         internal_id = f"jira:JiraIssue:{self._connection_id}:{jira_id}"
 
-        # Story points — try standard field first, then common custom fields
-        story_points = (
-            fields.get("story_points")
-            or fields.get("customfield_10028")  # common SP field
-            or fields.get("customfield_10016")  # another common SP field
-            or None
-        )
+        # Story points — prefer dynamically-discovered field, with fallbacks
+        story_points = self._extract_story_points(fields)
 
-        # Sprint info from the sprint field (Jira includes active sprint)
-        sprint_field = fields.get("sprint")
-        sprint_id = None
-        if sprint_field and isinstance(sprint_field, dict):
-            raw_sprint_id = sprint_field.get("id")
-            if raw_sprint_id:
-                sprint_id = f"jira:JiraSprint:{self._connection_id}:{raw_sprint_id}"
+        # Sprint — Jira Cloud returns the sprint custom field as an ARRAY of
+        # sprints (issue history). We pick the active one, or the most recent.
+        sprint_id = self._extract_sprint_id(fields)
 
         status_name = (fields.get("status") or {}).get("name", "")
 
@@ -336,12 +354,7 @@ class JiraConnector(BaseConnector):
         jira_id = jira_issue.get("id", "")
 
         status_name = (fields.get("status") or {}).get("name", "")
-        story_points = (
-            fields.get("story_points")
-            or fields.get("customfield_10028")
-            or fields.get("customfield_10016")
-            or None
-        )
+        story_points = self._extract_story_points(fields)
 
         return {
             "id": f"jira:JiraIssue:{self._connection_id}:{jira_id}",
@@ -378,6 +391,109 @@ class JiraConnector(BaseConnector):
         # Sort chronologically
         transitions.sort(key=lambda t: t.get("created_date") or "")
         return transitions
+
+    # ------------------------------------------------------------------
+    # Internal: Custom field discovery + extraction helpers
+    # ------------------------------------------------------------------
+
+    async def _discover_custom_fields(self) -> None:
+        """Discover tenant-specific custom field IDs for sprint + story points.
+
+        Jira Cloud stores these as custom fields whose IDs vary per instance
+        (commonly customfield_10016/10020 but not guaranteed). We call
+        GET /rest/api/3/field once and match by field *name*, which is stable.
+
+        Results are cached on the instance — subsequent calls are no-ops.
+        """
+        if self._custom_fields_discovered:
+            return
+
+        try:
+            data = await self._client.get(f"{REST_API}/field")
+        except Exception:
+            logger.exception("Failed to discover Jira custom fields — falling back to defaults")
+            self._custom_fields_discovered = True
+            return
+
+        fields_list = data if isinstance(data, list) else data.get("values", [])
+        for f in fields_list:
+            fid = f.get("id", "")
+            if not fid.startswith("customfield_"):
+                continue
+            name = (f.get("name") or "").strip().lower()
+            if name == "sprint" and not self._sprint_field_id:
+                self._sprint_field_id = fid
+            elif name in ("story points", "story point estimate") and not self._story_points_field_id:
+                self._story_points_field_id = fid
+
+        self._custom_fields_discovered = True
+        logger.info(
+            "Discovered Jira custom fields — sprint=%s, story_points=%s",
+            self._sprint_field_id or "(none — using fallback)",
+            self._story_points_field_id or "(none — using fallback)",
+        )
+
+    def _extract_sprint_id(self, fields: dict[str, Any]) -> str | None:
+        """Extract the sprint external_id from a Jira issue fields dict.
+
+        The sprint custom field is an ARRAY of sprint objects reflecting the
+        issue's sprint history. Priority:
+          1. Active sprint (state='active')
+          2. Most recent sprint by startDate (falls back to last element)
+
+        Also handles the legacy dict-shaped response for robustness.
+        """
+        candidates: list[str] = []
+        if self._sprint_field_id:
+            candidates.append(self._sprint_field_id)
+        candidates.extend(FALLBACK_SPRINT_FIELDS)
+        candidates.append("sprint")
+
+        raw = None
+        for c in candidates:
+            value = fields.get(c)
+            if value:
+                raw = value
+                break
+
+        if not raw:
+            return None
+
+        chosen: dict[str, Any] | None = None
+        if isinstance(raw, list):
+            if not raw:
+                return None
+            # Prefer active; else take last (most recent) — Jira returns
+            # chronologically ordered.
+            active = [s for s in raw if isinstance(s, dict) and s.get("state") == "active"]
+            chosen = active[0] if active else (raw[-1] if isinstance(raw[-1], dict) else None)
+        elif isinstance(raw, dict):
+            chosen = raw
+
+        if not chosen:
+            return None
+
+        raw_id = chosen.get("id")
+        if not raw_id:
+            return None
+        return f"jira:JiraSprint:{self._connection_id}:{raw_id}"
+
+    def _extract_story_points(self, fields: dict[str, Any]) -> float | None:
+        """Extract story points, preferring the discovered custom field."""
+        candidates: list[str] = []
+        if self._story_points_field_id:
+            candidates.append(self._story_points_field_id)
+        candidates.extend(FALLBACK_STORY_POINTS_FIELDS)
+        candidates.append("story_points")
+
+        for c in candidates:
+            value = fields.get(c)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return None
 
     # ------------------------------------------------------------------
     # Internal: Board and Sprint discovery

@@ -44,14 +44,21 @@ CONN_ID = 1
 
 
 def _make_connector(projects: list[str] | None = None) -> JiraConnector:
-    """Instantiate JiraConnector with test credentials, bypassing settings."""
-    return JiraConnector(
+    """Instantiate JiraConnector with test credentials, bypassing settings.
+
+    Custom-field discovery is pre-marked as complete so tests that call
+    fetch_issues() don't hit the /rest/api/3/field endpoint — individual
+    tests targeting discovery can flip _custom_fields_discovered back.
+    """
+    conn = JiraConnector(
         base_url=BASE_URL,
         email=EMAIL,
         api_token=TOKEN,
         projects=projects if projects is not None else PROJECTS,
         connection_id=CONN_ID,
     )
+    conn._custom_fields_discovered = True
+    return conn
 
 
 def _jira_issue(
@@ -356,13 +363,17 @@ class TestJiraConnector:
 
         body = connector._client.post.call_args[1]["json_body"]
         assert isinstance(body["fields"], list)
-        # Spot-check expected fields from SEARCH_FIELDS constant
+        # Spot-check expected base fields + custom-field fallbacks
         assert "summary" in body["fields"]
         assert "status" in body["fields"]
+        # Fallback story points / sprint custom field IDs must always be present
         assert "customfield_10028" in body["fields"]
+        assert "customfield_10016" in body["fields"]
+        assert "customfield_10020" in body["fields"]
 
     @pytest.mark.asyncio
-    async def test_fetch_issues_fields_equal_search_fields_constant(self) -> None:
+    async def test_fetch_issues_fields_include_search_fields_constant(self) -> None:
+        """Base SEARCH_FIELDS are always present (custom fields appended)."""
         connector = _make_connector(projects=["BACK"])
         connector._client = AsyncMock()
         connector._client.post.return_value = {"issues": []}
@@ -370,7 +381,8 @@ class TestJiraConnector:
         await connector.fetch_issues()
 
         body = connector._client.post.call_args[1]["json_body"]
-        assert body["fields"] == SEARCH_FIELDS
+        for base_field in SEARCH_FIELDS:
+            assert base_field in body["fields"]
 
     @pytest.mark.asyncio
     async def test_fetch_issues_first_page_has_no_next_page_token(self) -> None:
@@ -567,13 +579,21 @@ class TestJiraConnector:
         result = connector._map_issue(issue)
         assert result["story_point"] is None
 
-    def test_map_issue_story_points_prefers_story_points_over_customfield(self) -> None:
-        """Primary field wins over fallbacks."""
+    def test_map_issue_story_points_prefers_discovered_field(self) -> None:
+        """Discovered custom field ID wins over all fallbacks.
+
+        Note: the `fields.story_points` alias is a legacy last-resort — Jira
+        Cloud always exposes story points as a custom field. Whichever custom
+        field the tenant uses is what we must read, which is why discovery
+        takes precedence.
+        """
         connector = _make_connector()
+        connector._story_points_field_id = "customfield_10016"
         issue = _jira_issue(story_points=5.0)
+        issue["fields"]["customfield_10016"] = 13.0
         issue["fields"]["customfield_10028"] = 99.0
         result = connector._map_issue(issue)
-        assert result["story_point"] == 5.0
+        assert result["story_point"] == 13.0
 
     # -----------------------------------------------------------------------
     # _map_issue — sprint ID extraction
@@ -1405,3 +1425,115 @@ class TestJiraConnector:
             "productivity_score", "individual_rank",
         }
         assert not prohibited_keys.intersection(result.keys())
+
+    # -----------------------------------------------------------------------
+    # Custom-field discovery + extraction
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_discover_custom_fields_matches_by_name(self) -> None:
+        """Finds the sprint + story points fields by their Jira field name."""
+        connector = _make_connector()
+        connector._custom_fields_discovered = False  # force discovery
+        connector._client = AsyncMock()
+        connector._client.get.return_value = [
+            {"id": "customfield_10020", "name": "Sprint"},
+            {"id": "customfield_10016", "name": "Story Points"},
+            {"id": "customfield_10099", "name": "Epic Link"},
+        ]
+
+        await connector._discover_custom_fields()
+
+        assert connector._sprint_field_id == "customfield_10020"
+        assert connector._story_points_field_id == "customfield_10016"
+        assert connector._custom_fields_discovered is True
+
+    @pytest.mark.asyncio
+    async def test_discover_custom_fields_handles_api_error(self) -> None:
+        connector = _make_connector()
+        connector._custom_fields_discovered = False
+        connector._client = AsyncMock()
+        connector._client.get.side_effect = RuntimeError("boom")
+
+        await connector._discover_custom_fields()
+
+        # Falls back silently — fallbacks handle extraction
+        assert connector._custom_fields_discovered is True
+        assert connector._sprint_field_id is None
+
+    @pytest.mark.asyncio
+    async def test_discover_custom_fields_runs_only_once(self) -> None:
+        connector = _make_connector()
+        connector._custom_fields_discovered = False
+        connector._client = AsyncMock()
+        connector._client.get.return_value = []
+
+        await connector._discover_custom_fields()
+        await connector._discover_custom_fields()
+
+        assert connector._client.get.call_count == 1
+
+    def test_extract_sprint_id_prefers_active_sprint(self) -> None:
+        connector = _make_connector()
+        connector._sprint_field_id = "customfield_10020"
+        fields = {
+            "customfield_10020": [
+                {"id": 1, "state": "closed"},
+                {"id": 2, "state": "active"},
+                {"id": 3, "state": "future"},
+            ]
+        }
+        assert connector._extract_sprint_id(fields) == "jira:JiraSprint:1:2"
+
+    def test_extract_sprint_id_falls_back_to_last_when_none_active(self) -> None:
+        connector = _make_connector()
+        connector._sprint_field_id = "customfield_10020"
+        fields = {
+            "customfield_10020": [
+                {"id": 10, "state": "closed"},
+                {"id": 20, "state": "closed"},
+            ]
+        }
+        assert connector._extract_sprint_id(fields) == "jira:JiraSprint:1:20"
+
+    def test_extract_sprint_id_uses_fallback_customfield(self) -> None:
+        """When discovery failed, tries fallback IDs (customfield_10020, 10010)."""
+        connector = _make_connector()
+        connector._sprint_field_id = None
+        fields = {"customfield_10020": [{"id": 77, "state": "active"}]}
+        assert connector._extract_sprint_id(fields) == "jira:JiraSprint:1:77"
+
+    def test_extract_sprint_id_returns_none_when_missing(self) -> None:
+        connector = _make_connector()
+        assert connector._extract_sprint_id({}) is None
+        assert connector._extract_sprint_id({"customfield_10020": []}) is None
+        assert connector._extract_sprint_id({"customfield_10020": None}) is None
+
+    def test_extract_sprint_id_handles_legacy_dict_shape(self) -> None:
+        connector = _make_connector()
+        connector._sprint_field_id = "customfield_10020"
+        fields = {"customfield_10020": {"id": 99}}
+        assert connector._extract_sprint_id(fields) == "jira:JiraSprint:1:99"
+
+    def test_extract_story_points_prefers_discovered_field(self) -> None:
+        connector = _make_connector()
+        connector._story_points_field_id = "customfield_10016"
+        fields = {"customfield_10016": 8, "customfield_10028": 3}
+        assert connector._extract_story_points(fields) == 8.0
+
+    def test_extract_story_points_falls_back_to_known_ids(self) -> None:
+        connector = _make_connector()
+        connector._story_points_field_id = None
+        fields = {"customfield_10028": 5}
+        assert connector._extract_story_points(fields) == 5.0
+
+    def test_extract_story_points_returns_none_when_missing(self) -> None:
+        connector = _make_connector()
+        assert connector._extract_story_points({}) is None
+
+    def test_extract_story_points_ignores_non_numeric(self) -> None:
+        connector = _make_connector()
+        connector._story_points_field_id = "customfield_10016"
+        fields = {"customfield_10016": "not a number", "customfield_10028": 2}
+        # Falls through to next candidate after failing to parse
+        assert connector._extract_story_points(fields) == 2.0
