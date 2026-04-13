@@ -1,18 +1,20 @@
-"""GitHub connector — fetches PRs, commits, and deployments via REST API v3.
+"""GitHub connector — fetches PRs via GraphQL (primary) and REST (fallback).
 
-Replaces DevLake's GitHub plugin with direct API access, providing:
-- First review timestamps (not available in DevLake domain model)
-- Approval timestamps
-- File change counts
-- Reviewer list with states
-- Full PR timeline events via GraphQL (optional, future enhancement)
+GraphQL path: single query returns PR + reviews + commits + file stats per page
+of 50 PRs. Uses the separate GraphQL rate limit quota (5,000 pts/h), independent
+from REST (also 5,000/h). Cuts API calls by ~5x vs REST+enrichment.
+
+REST path (fallback): GET /repos/{owner}/{repo}/pulls plus 2 enrichment calls
+per PR (detail + reviews). Kept for resilience when GraphQL fails.
 
 Authentication: Personal Access Token (PAT) or GitHub App token.
-Rate Limiting: 5,000 requests/hour with token. Client handles 429 automatically.
+Parallelism: fetch_pull_requests_batched processes multiple repos concurrently
+with an asyncio.Semaphore to respect rate limits.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -27,6 +29,55 @@ logger = logging.getLogger(__name__)
 # GitHub REST API constants
 PER_PAGE = 100  # Max items per page
 MAX_PAGES = 200  # Safety limit for pagination
+
+# GraphQL constants
+GRAPHQL_PAGE_SIZE = 50  # PRs per page (GitHub max 100, 50 keeps complexity low)
+GRAPHQL_MAX_PAGES = 200  # Safety limit
+GRAPHQL_REVIEWS_PER_PR = 50  # Reviews fetched per PR in the same query
+
+# Parallelism
+REPO_CONCURRENCY = 5  # Number of repos to process in parallel
+
+# GraphQL query — fetches PRs with reviews, commits, and file stats in ONE call
+PR_GRAPHQL_QUERY = """
+query($owner: String!, $name: String!, $cursor: String, $pageSize: Int!, $reviewsPerPR: Int!) {
+  rateLimit { remaining, resetAt, cost }
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: $pageSize,
+      after: $cursor,
+      orderBy: {field: UPDATED_AT, direction: DESC}
+    ) {
+      pageInfo { hasNextPage, endCursor }
+      nodes {
+        number
+        title
+        url
+        state
+        createdAt
+        updatedAt
+        closedAt
+        mergedAt
+        additions
+        deletions
+        changedFiles
+        baseRefName
+        headRefName
+        author { login }
+        mergeCommit { oid }
+        commits { totalCount }
+        reviews(first: $reviewsPerPR) {
+          nodes {
+            state
+            submittedAt
+            author { login }
+          }
+        }
+      }
+    }
+  }
+}
+"""
 
 
 class GitHubConnector(BaseConnector):
@@ -140,29 +191,75 @@ class GitHubConnector(BaseConnector):
     async def fetch_pull_requests_batched(
         self, since: datetime | None = None,
     ) -> AsyncIterator[tuple[str, list[dict[str, Any]] | None]]:
-        """Yield PRs in batches, one batch per repo.
+        """Yield PRs in batches, one batch per repo — parallelized via GraphQL.
 
-        Each repo emits TWO yields:
-          1. (repo_full_name, None) — "starting" signal, before any API calls
+        Processes REPO_CONCURRENCY repos at a time. Each repo uses a single
+        GraphQL query per page (50 PRs) instead of 1+2N REST calls.
+
+        For each repo, emits:
+          1. (repo_full_name, None) — "starting" signal for UI progress
           2. (repo_full_name, list_of_prs) — completed batch (only if non-empty)
-
-        The "starting" signal lets callers update progress UI immediately,
-        without waiting for large repos to finish enrichment.
         """
         repos = await self._get_repos()
+        total_repos = len(repos)
+        logger.info(
+            "Starting parallel PR fetch: %d repos, concurrency=%d, page_size=%d",
+            total_repos, REPO_CONCURRENCY, GRAPHQL_PAGE_SIZE,
+        )
 
-        for repo_full_name in repos:
-            # Signal: starting this repo
-            yield repo_full_name, None
-            try:
-                prs = await self._fetch_repo_prs(repo_full_name, since)
-                if prs:
-                    logger.info(
-                        "Batch: %d PRs from %s", len(prs), repo_full_name,
+        semaphore = asyncio.Semaphore(REPO_CONCURRENCY)
+        # Queue holds outputs from worker coroutines so we can yield them
+        # from the outer async generator. Workers push (kind, repo, prs).
+        queue: asyncio.Queue[tuple[str, str, list[dict[str, Any]] | None]] = asyncio.Queue()
+
+        async def worker(repo_full_name: str) -> None:
+            async with semaphore:
+                # Emit "starting" as soon as we acquire the slot
+                await queue.put(("start", repo_full_name, None))
+                try:
+                    prs = await self._fetch_repo_prs_graphql(repo_full_name, since)
+                    if prs:
+                        logger.info(
+                            "Batch: %d PRs from %s (GraphQL)",
+                            len(prs), repo_full_name,
+                        )
+                        await queue.put(("batch", repo_full_name, prs))
+                    else:
+                        await queue.put(("batch", repo_full_name, []))
+                except Exception:
+                    logger.exception(
+                        "GraphQL failed for %s — retrying with REST",
+                        repo_full_name,
                     )
-                    yield repo_full_name, prs
-            except Exception:
-                logger.exception("Failed to fetch PRs for %s", repo_full_name)
+                    try:
+                        prs = await self._fetch_repo_prs(repo_full_name, since)
+                        await queue.put(("batch", repo_full_name, prs or []))
+                    except Exception:
+                        logger.exception("REST fallback also failed for %s", repo_full_name)
+                        await queue.put(("batch", repo_full_name, []))
+
+        # Schedule all repo workers — semaphore bounds concurrency
+        tasks = [asyncio.create_task(worker(r)) for r in repos]
+
+        # Track when all workers are done
+        async def wait_all() -> None:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await queue.put(("done", "", None))
+
+        waiter = asyncio.create_task(wait_all())
+
+        while True:
+            kind, repo_full_name, payload = await queue.get()
+            if kind == "done":
+                break
+            if kind == "start":
+                yield repo_full_name, None
+            elif kind == "batch":
+                # Always yield — empty list signals "repo done, no PRs" so the
+                # caller can increment its counter and continue.
+                yield repo_full_name, payload or []
+
+        await waiter  # propagate any uncaught error
 
     async def _fetch_repo_prs(
         self, repo_full_name: str, since: datetime | None = None,
@@ -213,6 +310,143 @@ class GitHubConnector(BaseConnector):
             page += 1
 
         return all_prs
+
+    # ------------------------------------------------------------------
+    # GraphQL: fetch PRs with reviews and commits in a single query
+    # ------------------------------------------------------------------
+
+    async def _fetch_repo_prs_graphql(
+        self, repo_full_name: str, since: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch all PRs for a repo via GraphQL.
+
+        One query per page (50 PRs) returns PR + reviews + commits + file stats.
+        ~5-10x fewer calls than REST for repos with many PRs.
+
+        Stops paginating when it finds PRs older than `since` (incremental sync).
+        """
+        owner, name = repo_full_name.split("/", 1)
+        all_prs: list[dict[str, Any]] = []
+        cursor: str | None = None
+        page = 0
+        stop = False
+
+        while page < GRAPHQL_MAX_PAGES and not stop:
+            page += 1
+            variables = {
+                "owner": owner,
+                "name": name,
+                "cursor": cursor,
+                "pageSize": GRAPHQL_PAGE_SIZE,
+                "reviewsPerPR": GRAPHQL_REVIEWS_PER_PR,
+            }
+
+            response = await self._client.post(
+                "/graphql",
+                json_body={"query": PR_GRAPHQL_QUERY, "variables": variables},
+            )
+
+            if "errors" in response:
+                errors = response.get("errors", [])
+                # Non-fatal errors (e.g., partial data); log and try to continue
+                first_msg = errors[0].get("message", "") if errors else ""
+                if "NOT_FOUND" in str(errors).upper() or "not found" in first_msg.lower():
+                    logger.warning("Repo %s not accessible via GraphQL: %s", repo_full_name, first_msg)
+                    return []
+                if response.get("data") is None:
+                    logger.warning("GraphQL errors for %s: %s", repo_full_name, errors)
+                    raise RuntimeError(f"GraphQL error for {repo_full_name}: {first_msg}")
+
+            data = (response.get("data") or {}).get("repository")
+            if not data:
+                return all_prs
+
+            prs_block = data.get("pullRequests") or {}
+            nodes = prs_block.get("nodes") or []
+
+            for pr_node in nodes:
+                updated_at = pr_node.get("updatedAt")
+                if since and updated_at:
+                    try:
+                        dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                        if dt < since:
+                            stop = True
+                            break
+                    except ValueError:
+                        pass
+
+                mapped = self._map_pr_graphql(repo_full_name, pr_node)
+                all_prs.append(mapped)
+
+            page_info = prs_block.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                break
+
+        return all_prs
+
+    def _map_pr_graphql(
+        self, repo_full_name: str, node: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Map a GraphQL PR node to the normalizer-expected dict format."""
+        pr_number = node.get("number", 0)
+        # GraphQL state: OPEN | CLOSED | MERGED (no inference needed)
+        state = str(node.get("state", "OPEN")).upper()
+
+        author = (node.get("author") or {}).get("login") or "unknown"
+        merge_commit = (node.get("mergeCommit") or {}).get("oid")
+        commits_count = (node.get("commits") or {}).get("totalCount", 0)
+
+        # Reviews — compute first_review_at and approved_at
+        review_nodes = ((node.get("reviews") or {}).get("nodes")) or []
+        reviewers: list[dict[str, str]] = []
+        first_review_at: str | None = None
+        approved_at: str | None = None
+        for review in review_nodes:
+            submitted_at = review.get("submittedAt")
+            review_state = review.get("state", "")
+            reviewer_login = ((review.get("author") or {}).get("login")) or "unknown"
+
+            if reviewer_login not in [r.get("login") for r in reviewers]:
+                reviewers.append({"login": reviewer_login, "state": review_state})
+
+            if submitted_at:
+                if first_review_at is None or submitted_at < first_review_at:
+                    first_review_at = submitted_at
+                if review_state == "APPROVED" and (
+                    approved_at is None or submitted_at < approved_at
+                ):
+                    approved_at = submitted_at
+
+        return {
+            # Standard fields (normalizer contract)
+            # IMPORTANT: include repo in ID to avoid cross-repo PR number collisions
+            "id": f"github:GithubPullRequest:{self._connection_id}:{repo_full_name}:{pr_number}",
+            "base_repo_id": f"github:GithubRepo:{self._connection_id}:{repo_full_name}",
+            "head_repo_id": f"github:GithubRepo:{self._connection_id}:{repo_full_name}",
+            "status": state,
+            "title": node.get("title", ""),
+            "url": node.get("url", ""),
+            "author_name": author,
+            "created_date": node.get("createdAt"),
+            "merged_date": node.get("mergedAt"),
+            "closed_date": node.get("closedAt"),
+            "merge_commit_sha": merge_commit,
+            "base_ref": node.get("baseRefName", ""),
+            "head_ref": node.get("headRefName", ""),
+            "additions": node.get("additions", 0),
+            "deletions": node.get("deletions", 0),
+            # Enrichment fields (consumed by normalizer)
+            "_files_changed": node.get("changedFiles", 0),
+            "_commits_count": commits_count,
+            "_first_review_at": first_review_at,
+            "_approved_at": approved_at,
+            "_reviewers": reviewers,
+            "_pr_number": pr_number,
+            "_repo_full_name": repo_full_name,
+        }
 
     # ------------------------------------------------------------------
     # PR Enrichment — detail + reviews (2 API calls per PR)
@@ -427,7 +661,8 @@ class GitHubConnector(BaseConnector):
 
         return {
             # Standard fields (normalizer contract — same as DevLake)
-            "id": f"github:GithubPullRequest:{self._connection_id}:{pr_number}",
+            # IMPORTANT: include repo in ID to avoid cross-repo PR number collisions
+            "id": f"github:GithubPullRequest:{self._connection_id}:{repo_full_name}:{pr_number}",
             "base_repo_id": f"github:GithubRepo:{self._connection_id}:{repo_full_name}",
             "head_repo_id": f"github:GithubRepo:{self._connection_id}:{repo_full_name}",
             "status": state,
