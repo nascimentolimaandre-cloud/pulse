@@ -14,6 +14,7 @@ Authentication: Basic auth with email + API token (Jira Cloud standard).
 from __future__ import annotations
 
 import logging
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 
@@ -114,11 +115,56 @@ class JiraConnector(BaseConnector):
             return {"status": "error", "message": str(e)}
 
     # ------------------------------------------------------------------
+    # Project Discovery (ADR-014)
+    # ------------------------------------------------------------------
+
+    async def fetch_all_accessible_projects(self) -> list[dict[str, Any]]:
+        """Fetch all Jira projects accessible to the service account.
+
+        Uses GET /rest/api/3/project/search with pagination (startAt/maxResults).
+        Returns list of dicts with keys: project_key, project_id, name,
+        project_type, lead_account_id.
+        """
+        all_projects: list[dict[str, Any]] = []
+        start_at = 0
+        page_size = 50
+
+        while True:
+            params = {
+                "startAt": start_at,
+                "maxResults": page_size,
+                "expand": "lead,description",
+            }
+            data = await self._client.get(f"{REST_API}/project/search", params=params)
+
+            values = data.get("values", [])
+            for proj in values:
+                lead = proj.get("lead") or {}
+                all_projects.append({
+                    "project_key": proj.get("key", ""),
+                    "project_id": str(proj.get("id", "")),
+                    "name": proj.get("name", ""),
+                    "project_type": proj.get("projectTypeKey", ""),
+                    "lead_account_id": lead.get("accountId"),
+                })
+
+            total = data.get("total", 0)
+            start_at += len(values)
+
+            if start_at >= total or not values:
+                break
+
+        logger.info("Discovered %d accessible Jira projects", len(all_projects))
+        return all_projects
+
+    # ------------------------------------------------------------------
     # Issues
     # ------------------------------------------------------------------
 
     async def fetch_issues(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        project_keys: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch issues from Jira using JQL search with expand=changelog.
 
@@ -126,8 +172,25 @@ class JiraConnector(BaseConnector):
         GET /rest/api/3/search with HTTP 410 Gone in 2025).
 
         Includes changelogs inline to avoid separate API calls per issue.
+
+        Args:
+            since: Watermark — only issues updated after this timestamp.
+            project_keys: Explicit list of project keys to fetch. If None,
+                falls back to self._projects (from env var) with a deprecation
+                warning. Pass explicitly when using dynamic discovery.
         """
-        if not self._projects:
+        if project_keys is not None:
+            effective_projects = project_keys
+        else:
+            warnings.warn(
+                "Calling fetch_issues() without explicit project_keys is deprecated. "
+                "Pass project_keys explicitly or use ModeResolver.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            effective_projects = self._projects
+
+        if not effective_projects:
             logger.warning("No Jira projects configured — skipping issue fetch")
             return []
 
@@ -135,7 +198,7 @@ class JiraConnector(BaseConnector):
         await self._discover_custom_fields()
 
         # Quote each project key in JQL — some keys like "DESC" are reserved words
-        quoted_projects = ", ".join(f'"{p}"' for p in self._projects)
+        quoted_projects = ", ".join(f'"{p}"' for p in effective_projects)
         jql = f"project IN ({quoted_projects})"
         if since:
             since_str = since.strftime("%Y-%m-%d %H:%M")
@@ -183,7 +246,7 @@ class JiraConnector(BaseConnector):
             if not next_page_token or not issues:
                 break
 
-        logger.info("Fetched %d issues from Jira (%d projects, %d pages)", len(all_issues), len(self._projects), page)
+        logger.info("Fetched %d issues from Jira (%d projects, %d pages)", len(all_issues), len(effective_projects), page)
         return all_issues
 
     async def fetch_issue_changelogs(

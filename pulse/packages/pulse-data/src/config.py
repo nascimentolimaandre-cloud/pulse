@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # Multi-tenancy — single default tenant in MVP
     default_tenant_id: str = "00000000-0000-0000-0000-000000000001"
 
+    # Dynamic Jira Discovery (ADR-014)
+    dynamic_jira_discovery_enabled: bool = False
+    internal_api_token: str = ""
+
     # Application
     app_name: str = "pulse-data"
     app_version: str = "0.1.0"

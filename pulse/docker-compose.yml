@@ -135,6 +135,32 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  discovery-worker:
+    build:
+      context: ./packages/pulse-data
+      dockerfile: Dockerfile
+    container_name: pulse-discovery-worker
+    command: python -m src.workers.discovery_scheduler
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+      DYNAMIC_JIRA_DISCOVERY_ENABLED: ${DYNAMIC_JIRA_DISCOVERY_ENABLED:-false}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECTS: ${JIRA_PROJECTS:-DESC,ENO,ANCR,PUSO,APPF,FID,CTURBO,PTURB}
+    volumes:
+      - ./packages/pulse-data/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # --------------------------------------------------------------------------
   # Infrastructure
   # --------------------------------------------------------------------------
