@@ -40,6 +40,8 @@ class EngPullRequest(TenantModel):
     additions: Mapped[int] = mapped_column(Integer, default=0)
     deletions: Mapped[int] = mapped_column(Integer, default=0)
     files_changed: Mapped[int] = mapped_column(Integer, default=0)
+    commits_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_merged: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships (stored as JSONB for flexibility)
     reviewers: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)

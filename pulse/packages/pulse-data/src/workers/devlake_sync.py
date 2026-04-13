@@ -269,45 +269,66 @@ class DataSyncWorker:
         return results
 
     async def _sync_pull_requests(self) -> int:
-        """Read PRs from source connectors, upsert to PULSE DB, publish to Kafka."""
+        """Read PRs from source connectors, upsert to PULSE DB, publish to Kafka.
+
+        Uses batch persistence: each repo's PRs are normalized, upserted, and
+        published to Kafka immediately — no accumulation in memory. If the
+        process crashes mid-sync, all previously persisted repos are safe.
+        """
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "pull_requests")
 
-        raw_prs = await self._reader.fetch_pull_requests(since=since)
-        if not raw_prs:
+        total_count = 0
+        repos_done = 0
+
+        async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
+            # Normalize this repo's batch
+            normalized = []
+            for raw in raw_prs:
+                try:
+                    pr_data = normalize_pull_request(raw, self._tenant_id)
+                    pr_data["_head_ref"] = raw.get("head_ref", "")
+                    pr_data["_base_ref"] = raw.get("base_ref", "")
+                    normalized.append(pr_data)
+                except Exception:
+                    logger.exception("Error normalizing PR: %s", raw.get("id"))
+
+            if not normalized:
+                continue
+
+            # Upsert this batch to DB immediately
+            batch_count = await self._upsert_pull_requests(normalized)
+            total_count += batch_count
+            repos_done += 1
+
+            # Publish this batch to Kafka
+            events = []
+            for pr in normalized:
+                event = {k: v for k, v in pr.items() if not k.startswith("_")}
+                events.append((str(pr["external_id"]), event))
+            await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
+
+            logger.info(
+                "Batch persisted: %d PRs from %s (total: %d PRs, %d repos)",
+                batch_count, repo_name, total_count, repos_done,
+            )
+
+        if total_count == 0:
             logger.info("No new pull requests to sync")
             return 0
 
-        # Normalize
-        normalized = []
-        for raw in raw_prs:
-            try:
-                pr_data = normalize_pull_request(raw, self._tenant_id)
-                # Stash branch refs for issue linking (not persisted)
-                pr_data["_head_ref"] = raw.get("head_ref", "")
-                pr_data["_base_ref"] = raw.get("base_ref", "")
-                normalized.append(pr_data)
-            except Exception:
-                logger.exception("Error normalizing PR: %s", raw.get("id"))
-
-        # Upsert to PULSE DB
-        count = await self._upsert_pull_requests(normalized)
-
-        # Publish to Kafka
-        events = []
-        for pr in normalized:
-            # Strip internal fields before publishing
-            event = {k: v for k, v in pr.items() if not k.startswith("_")}
-            events.append((str(pr["external_id"]), event))
-        await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
-
-        # Update watermark in DB
+        # Update watermark after all batches complete
         async with get_session(self._tenant_id) as session:
             await _set_watermark(
                 session, self._tenant_id, "pull_requests",
-                datetime.now(timezone.utc), count,
+                datetime.now(timezone.utc), total_count,
             )
-        return count
+
+        logger.info(
+            "PR sync complete: %d PRs from %d repos persisted",
+            total_count, repos_done,
+        )
+        return total_count
 
     async def _sync_issues(self) -> int:
         """Read issues from source connectors, upsert to PULSE DB, publish to Kafka."""
