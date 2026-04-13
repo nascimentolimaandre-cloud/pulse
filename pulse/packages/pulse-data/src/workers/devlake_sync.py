@@ -357,7 +357,7 @@ class DataSyncWorker:
         try:
             total_sources = await self._reader.get_pull_request_source_count()
         except Exception:
-            logger.warning("Could not get source count for progress tracking")
+            logger.exception("Could not get source count for progress tracking")
 
         started_at = datetime.now(timezone.utc)
 
