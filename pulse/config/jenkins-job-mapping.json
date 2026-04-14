@@ -1,43 +1,2861 @@
 {
-  "_meta": {
-    "generated": "2026-03-27",
-    "method": "READ-ONLY scan of 1404 Jenkins jobs via lastBuild API",
-    "note": "Maps GitHub repos to Jenkins jobs by reading Git remoteUrls from build metadata"
+  "webmotors-private/AgendaFacil": {
+    "prd_jobs": [
+      "flychat-ecs-prd"
+    ],
+    "all_jobs": [
+      "flychat-ecs-prd"
+    ]
   },
-  "webmotors-private/webmotors.pf": {
-    "prd_jobs": ["android-pf-prd-firebase", "android-pf-prd-playstore", "ios-pf-prd-firebase", "ios-pf-prd-testflight", "web-cms-pf-prd", "webservicos-web-prd"],
-    "all_jobs": ["android-pf-hk-firebase", "android-pf-prd-firebase", "android-pf-prd-playstore", "android-pf-prd-promotion", "build-webservicos-all-platforms", "ios-pf-hk-firebase", "ios-pf-prd-firebase", "ios-pf-prd-promotion", "ios-pf-prd-testflight", "pf-check-sonar-coverage", "web-cms-pf-hml", "web-cms-pf-prd", "webservicos-check-sonar-coverage", "webservicos-web-azl", "webservicos-web-dev", "webservicos-web-hml", "webservicos-web-prd"]
+  "webmotors-private/WebMotors.Android.PF": {
+    "prd_jobs": [
+      "ANDROID-PROD-PF"
+    ],
+    "all_jobs": [
+      "ANDROID-PROD-PF"
+    ]
   },
-  "webmotors-private/webmotors.next.ui": {
-    "prd_jobs": ["prd-wm-buyer-home-frontend-ui", "prd-wm-buyer-search-frontend-ui", "prd-wm-buyer-subscriptions-frontend-ui"],
-    "all_jobs": ["azl-wm-buyer-home-frontend-ui", "azl-wm-buyer-search-frontend-ui", "hml-wm-buyer-home-frontend-ui", "hml-wm-buyer-search-frontend-ui", "hml-wm-buyer-subscriptions-frontend-ui", "prd-wm-buyer-home-frontend-ui", "prd-wm-buyer-search-frontend-ui", "prd-wm-buyer-subscriptions-frontend-ui"]
+  "webmotors-private/WebMotors.ETL.Lead.Fixo": {
+    "prd_jobs": [
+      "pi.sales-etl.leadfixo.prd"
+    ],
+    "all_jobs": [
+      "pi.sales-etl.leadfixo.prd"
+    ]
+  },
+  "webmotors-private/WebMotors.IOS.PF": {
+    "prd_jobs": [
+      "IOS-PROD-PF"
+    ],
+    "all_jobs": [
+      "IOS-PROD-PF"
+    ]
+  },
+  "webmotors-private/WebMotors.Lead.Counting": {
+    "prd_jobs": [
+      "pi.sales-etl-lead.counting-prd"
+    ],
+    "all_jobs": [
+      "pi.sales-etl-lead.counting-prd"
+    ]
+  },
+  "webmotors-private/acelera-consultor-api": {
+    "prd_jobs": [
+      "acelera-consultor-api-prd"
+    ],
+    "all_jobs": [
+      "acelera-consultor-api-prd"
+    ]
+  },
+  "webmotors-private/acelera-consultor-dashboard": {
+    "prd_jobs": [
+      "acelera-consultor-dashboard-ui-prd"
+    ],
+    "all_jobs": [
+      "acelera-consultor-dashboard-ui-prd"
+    ]
+  },
+  "webmotors-private/acelera-consultor-front": {
+    "prd_jobs": [
+      "webmotors-acelera-consultor-front-ui-prd"
+    ],
+    "all_jobs": [
+      "webmotors-acelera-consultor-front-ui-prd"
+    ]
+  },
+  "webmotors-private/agendafacil": {
+    "prd_jobs": [
+      "agendafacil-prd"
+    ],
+    "all_jobs": [
+      "agendafacil-prd"
+    ]
+  },
+  "webmotors-private/agendafacil.cockpit": {
+    "prd_jobs": [
+      "agendafacil-cockpit-ui-prd"
+    ],
+    "all_jobs": [
+      "agendafacil-cockpit-ui-prd"
+    ]
+  },
+  "webmotors-private/agendafacilwhatsappserver": {
+    "prd_jobs": [
+      "agendafacil-whatsappserver-prd"
+    ],
+    "all_jobs": [
+      "agendafacil-whatsappserver-prd"
+    ]
+  },
+  "webmotors-private/api-sites": {
+    "prd_jobs": [
+      "cockpit-integration-api-sites-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-api-sites-prd"
+    ]
+  },
+  "webmotors-private/chatbot-esquentalead": {
+    "prd_jobs": [
+      "Esquenta Leads/esquenta.lead.lambda.prd",
+      "GenIa/prd-lambda-buora2-dev-agent-handler",
+      "GenIa/prd-playground"
+    ],
+    "all_jobs": [
+      "Esquenta Leads/esquenta.lead.lambda.prd",
+      "GenIa/prd-lambda-buora2-dev-agent-handler",
+      "GenIa/prd-playground"
+    ]
+  },
+  "webmotors-private/cockpit-ai-api": {
+    "prd_jobs": [
+      "cockpit-ai-api-prd"
+    ],
+    "all_jobs": [
+      "cockpit-ai-api-prd"
+    ]
+  },
+  "webmotors-private/cockpit.components.audit": {
+    "prd_jobs": [
+      "ckp.components.audit.lambda.prd"
+    ],
+    "all_jobs": [
+      "ckp.components.audit.lambda.prd"
+    ]
+  },
+  "webmotors-private/cockpit.crm.communicator.cdn": {
+    "prd_jobs": [
+      "cockpit-crm-communicator-cdn-prd-old"
+    ],
+    "all_jobs": [
+      "cockpit-crm-communicator-cdn-prd-old"
+    ]
+  },
+  "webmotors-private/cockpit.crm.leadaccept.legacy": {
+    "prd_jobs": [
+      "crm.services.windows.prd"
+    ],
+    "all_jobs": [
+      "crm.services.windows.prd"
+    ]
+  },
+  "webmotors-private/cockpit.crm.pipes": {
+    "prd_jobs": [
+      "cockpit-crm-communicator-cdn-prd-old",
+      "cockpit-crm-lambda-services-prd",
+      "cockpit-crm-metrics-collection-prd",
+      "crm.api.message.send.lambda.prd",
+      "crm.audit.lambda.prd",
+      "crm.communicator.cdn.lambda.prd",
+      "crm.communicator.lambda.prd",
+      "crm.communicator.lambda.prd-v2",
+      "crm.configuration.lambda.prd",
+      "crm.customer.lambda.prd",
+      "crm.dash.api.prd",
+      "crm.data.sanitization.lambda.prd",
+      "crm.distribution.lambda.prd",
+      "crm.emailreceiver.lambda.prd",
+      "crm.financing.simulation.lambda.v2.prd",
+      "crm.getlead.lambda.prd",
+      "crm.getlead.webmotors.lambda.prd",
+      "crm.inputlead.lambda.prd",
+      "crm.inputlead.v2.lambda.prd",
+      "crm.integrated.information.lambda.prd",
+      "crm.integration.lambda.prd",
+      "crm.leadnotification.lambda.prd",
+      "crm.messagetemplates.lambda.prd",
+      "crm.messenger.lambda.prd",
+      "crm.negotiations.lambdas.prd",
+      "crm.panel.lambda.prd",
+      "crm.plans.lambdas.prd",
+      "crm.reasons.lambda.prd",
+      "crm.reports.lambdas.prd",
+      "crm.schedule.lambda.prd",
+      "crm.services.windows.prd",
+      "crm.socket.lambda.prd",
+      "crm.sync.elastic.lambda.prd",
+      "crm.synchronizer.lambda.prd",
+      "crm.thirdpartycrm.lambda.prd",
+      "crm.updatelead.lambda.prd"
+    ],
+    "all_jobs": [
+      "cockpit-crm-communicator-cdn-prd-old",
+      "cockpit-crm-lambda-services-prd",
+      "cockpit-crm-metrics-collection-prd",
+      "crm.api.message.send.lambda.prd",
+      "crm.audit.lambda.prd",
+      "crm.communicator.cdn.lambda.prd",
+      "crm.communicator.lambda.prd",
+      "crm.communicator.lambda.prd-v2",
+      "crm.configuration.lambda.prd",
+      "crm.customer.lambda.prd",
+      "crm.dash.api.prd",
+      "crm.data.sanitization.lambda.prd",
+      "crm.distribution.lambda.prd",
+      "crm.emailreceiver.lambda.prd",
+      "crm.financing.simulation.lambda.v2.prd",
+      "crm.getlead.lambda.prd",
+      "crm.getlead.webmotors.lambda.prd",
+      "crm.inputlead.lambda.prd",
+      "crm.inputlead.v2.lambda.prd",
+      "crm.integrated.information.lambda.prd",
+      "crm.integration.lambda.prd",
+      "crm.leadnotification.lambda.prd",
+      "crm.messagetemplates.lambda.prd",
+      "crm.messenger.lambda.prd",
+      "crm.negotiations.lambdas.prd",
+      "crm.panel.lambda.prd",
+      "crm.plans.lambdas.prd",
+      "crm.reasons.lambda.prd",
+      "crm.reports.lambdas.prd",
+      "crm.schedule.lambda.prd",
+      "crm.services.windows.prd",
+      "crm.socket.lambda.prd",
+      "crm.sync.elastic.lambda.prd",
+      "crm.synchronizer.lambda.prd",
+      "crm.thirdpartycrm.lambda.prd",
+      "crm.updatelead.lambda.prd"
+    ]
+  },
+  "webmotors-private/cockpit.crm.vmotors": {
+    "prd_jobs": [
+      "crm.vmotors.pj.api.prd.recycle",
+      "crm.vmotors.pj.app.api.prd",
+      "crm.vmotors.pj.azl.update.config.prd",
+      "crm.vmotors.pj.web.api.prd"
+    ],
+    "all_jobs": [
+      "crm.vmotors.pj.api.prd.recycle",
+      "crm.vmotors.pj.app.api.prd",
+      "crm.vmotors.pj.azl.update.config.prd",
+      "crm.vmotors.pj.web.api.prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmc.pipes": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-ia-agent-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-ia-agent-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.campaign": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-clientfacing-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-clientfacing-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.campaign.ia": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-campaign-ia-lambda-prd",
+      "cockpit-crmcustomer-ia-agent-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-campaign-ia-lambda-prd",
+      "cockpit-crmcustomer-ia-agent-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.clientfacing.cluster": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-clientfacing-prd",
+      "cockpit-crmcustomer-ia-agent-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-clientfacing-prd",
+      "cockpit-crmcustomer-ia-agent-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.messenger": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-messenger-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-messenger-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.mfe.campaigns.ui": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-mfe-campaigns-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-mfe-campaigns-ui-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.mfe.vision.ui": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-mfe-vision-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-mfe-vision-ui-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.pipes": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-campaign-ia-lambda-prd",
+      "cockpit-crmcustomer-clientfacing-prd",
+      "cockpit-crmcustomer-messenger-prd",
+      "cockpit-crmcustomer-mfe-campaigns-ui-prd",
+      "cockpit-crmcustomer-mfe-vision-ui-prd",
+      "cockpit-crmcustomer-segmentation-prd",
+      "cockpit-crmcustomer-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-campaign-ia-lambda-prd",
+      "cockpit-crmcustomer-clientfacing-prd",
+      "cockpit-crmcustomer-messenger-prd",
+      "cockpit-crmcustomer-mfe-campaigns-ui-prd",
+      "cockpit-crmcustomer-mfe-vision-ui-prd",
+      "cockpit-crmcustomer-segmentation-prd",
+      "cockpit-crmcustomer-ui-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.segmentation": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-segmentation-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-segmentation-prd"
+    ]
+  },
+  "webmotors-private/cockpit.crmcustomer.ui": {
+    "prd_jobs": [
+      "cockpit-crmcustomer-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-crmcustomer-ui-prd"
+    ]
+  },
+  "webmotors-private/cockpit.dealer.api": {
+    "prd_jobs": [
+      "PI-Security/prd-lambda-legalperson-insert-user",
+      "PI-Security/prd-lambda-legalperson-migrate-sqlserver",
+      "legalperson-api-all-prd",
+      "legalperson-api-sync-aurora-prd",
+      "legalperson-api-sync-fillfilters-prd",
+      "legalperson-api-sync-migrate-send-prd"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-lambda-legalperson-insert-user",
+      "PI-Security/prd-lambda-legalperson-migrate-sqlserver",
+      "legalperson-api-all-prd",
+      "legalperson-api-sync-aurora-prd",
+      "legalperson-api-sync-fillfilters-prd",
+      "legalperson-api-sync-migrate-send-prd"
+    ]
+  },
+  "webmotors-private/cockpit.dealer.businesshour": {
+    "prd_jobs": [
+      "ckp.dealer.businesshour.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.dealer.businesshour.api.prd"
+    ]
+  },
+  "webmotors-private/cockpit.dealer.group": {
+    "prd_jobs": [
+      "ckp.dealer.group.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.dealer.group.api.prd"
+    ]
+  },
+  "webmotors-private/cockpit.dealer.salesman": {
+    "prd_jobs": [
+      "ckp.dealer.salesman.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.dealer.salesman.api.prd"
+    ]
+  },
+  "webmotors-private/cockpit.dealer.users": {
+    "prd_jobs": [
+      "ckp.dealer.users.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.dealer.users.api.prd"
+    ]
+  },
+  "webmotors-private/cockpit.integration.api.channels": {
+    "prd_jobs": [
+      "cockpit-integration-new-api-channel-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-new-api-channel-prd"
+    ]
+  },
+  "webmotors-private/cockpit.integration.api.showroom": {
+    "prd_jobs": [
+      "cockpit-integration-showroom-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-showroom-prd"
+    ]
+  },
+  "webmotors-private/cockpit.integration.migration": {
+    "prd_jobs": [
+      "cockpit-integration-migration-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-migration-prd"
+    ]
+  },
+  "webmotors-private/cockpit.integration.pipes": {
+    "prd_jobs": [
+      "cockpit-integration-api-catalog-prd",
+      "cockpit-integration-broadcast-prd",
+      "cockpit-integration-icarros-prd",
+      "cockpit-integration-instagram-prd",
+      "cockpit-integration-meli-prd",
+      "cockpit-integration-mobiauto-prd",
+      "cockpit-integration-olx-prd",
+      "cockpit-integration-santander-prd",
+      "cockpit-integration-socarrao-prd",
+      "cockpit-integration-thirdpartycrm-prd",
+      "cockpit-integration-users-prd",
+      "cockpit-integration-whatsapp-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-api-catalog-prd",
+      "cockpit-integration-broadcast-prd",
+      "cockpit-integration-icarros-prd",
+      "cockpit-integration-instagram-prd",
+      "cockpit-integration-meli-prd",
+      "cockpit-integration-mobiauto-prd",
+      "cockpit-integration-olx-prd",
+      "cockpit-integration-santander-prd",
+      "cockpit-integration-socarrao-prd",
+      "cockpit-integration-thirdpartycrm-prd",
+      "cockpit-integration-users-prd",
+      "cockpit-integration-whatsapp-prd"
+    ]
+  },
+  "webmotors-private/cockpit.integration.usermanagement.ui": {
+    "prd_jobs": [
+      "cockpit-integration-usermanagement-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-usermanagement-ui-prd"
+    ]
+  },
+  "webmotors-private/consultor-turbo-api": {
+    "prd_jobs": [
+      "consultor-turbo-api-prd"
+    ],
+    "all_jobs": [
+      "consultor-turbo-api-prd"
+    ]
+  },
+  "webmotors-private/dora-metrics-extract": {
+    "prd_jobs": [
+      "AQ/arq.dora.metrics.extract.lambda.prd"
+    ],
+    "all_jobs": [
+      "AQ/arq.dora.metrics.extract.lambda.prd"
+    ]
+  },
+  "webmotors-private/eng-lake-database-migration": {
+    "prd_jobs": [
+      "prd-eng-lake-database-migration"
+    ],
+    "all_jobs": [
+      "prd-eng-lake-database-migration"
+    ]
+  },
+  "webmotors-private/flyapi": {
+    "prd_jobs": [
+      "agendafacil-flyapi-prd"
+    ],
+    "all_jobs": [
+      "agendafacil-flyapi-prd"
+    ]
+  },
+  "webmotors-private/jenkins.common.libs": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-LGPD",
+      "ANDROID-PRD-Lib-Cockpit-Notification",
+      "ANDROID-PRD-Lib-Webmotors-Design-System",
+      "ANDROID-PRD-Lib-Webmotors-Network",
+      "ANDROID-PRD-Lib-Webmotors-Tracking",
+      "ANDROID-PRODUCTION-Cockpit",
+      "IOS-PRD-Lib-Cockpit-LGPD",
+      "IOS-PRD-Lib-Cockpit-Notification",
+      "IOS-PRD-Lib-Cockpit-WMCore",
+      "IOS-PRD-Lib-Webmotors-Network",
+      "IOS-PRD-Lib-Webmotors-Tracking",
+      "IOS-PRODUCTION-Cockpit",
+      "KMM-PRD-Lib-Webmotors-Network-OLD",
+      "KMM-PRD-Lib-Webmotors-Network/merge%2FAPPJ-3739",
+      "KMM-PRD-Lib-Webmotors-Notification/merge%2FAPPJ-3739",
+      "KMM-PRD-Lib-Webmotors-Tools",
+      "iOS-PRD-Lib-Webmotors-Design-System"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-LGPD",
+      "ANDROID-PRD-Lib-Cockpit-Notification",
+      "ANDROID-PRD-Lib-Webmotors-Design-System",
+      "ANDROID-PRD-Lib-Webmotors-Network",
+      "ANDROID-PRD-Lib-Webmotors-Tracking",
+      "ANDROID-PRODUCTION-Cockpit",
+      "IOS-PRD-Lib-Cockpit-LGPD",
+      "IOS-PRD-Lib-Cockpit-Notification",
+      "IOS-PRD-Lib-Cockpit-WMCore",
+      "IOS-PRD-Lib-Webmotors-Network",
+      "IOS-PRD-Lib-Webmotors-Tracking",
+      "IOS-PRODUCTION-Cockpit",
+      "KMM-PRD-Lib-Webmotors-Network-OLD",
+      "KMM-PRD-Lib-Webmotors-Network/merge%2FAPPJ-3739",
+      "KMM-PRD-Lib-Webmotors-Notification/merge%2FAPPJ-3739",
+      "KMM-PRD-Lib-Webmotors-Tools",
+      "iOS-PRD-Lib-Webmotors-Design-System"
+    ]
+  },
+  "webmotors-private/lib-mobile-android-design-system": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Design-System"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Design-System"
+    ]
+  },
+  "webmotors-private/lib-mobile-android-lgpd": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-LGPD"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-LGPD"
+    ]
+  },
+  "webmotors-private/lib-mobile-android-network": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Network"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Network"
+    ]
+  },
+  "webmotors-private/lib-mobile-android-tracking": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Tracking"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Webmotors-Tracking"
+    ]
+  },
+  "webmotors-private/lib-mobile-ios-design-system": {
+    "prd_jobs": [
+      "iOS-PRD-Lib-Webmotors-Design-System"
+    ],
+    "all_jobs": [
+      "iOS-PRD-Lib-Webmotors-Design-System"
+    ]
+  },
+  "webmotors-private/lib-mobile-ios-lgpd": {
+    "prd_jobs": [
+      "IOS-PRD-Lib-Cockpit-LGPD"
+    ],
+    "all_jobs": [
+      "IOS-PRD-Lib-Cockpit-LGPD"
+    ]
+  },
+  "webmotors-private/lib-mobile-ios-network": {
+    "prd_jobs": [
+      "IOS-PRD-Lib-Webmotors-Network"
+    ],
+    "all_jobs": [
+      "IOS-PRD-Lib-Webmotors-Network"
+    ]
+  },
+  "webmotors-private/lib-mobile-ios-tracking": {
+    "prd_jobs": [
+      "IOS-PRD-Lib-Webmotors-Tracking"
+    ],
+    "all_jobs": [
+      "IOS-PRD-Lib-Webmotors-Tracking"
+    ]
+  },
+  "webmotors-private/lib-mobile-ios-wmcore": {
+    "prd_jobs": [
+      "IOS-PRD-Lib-Cockpit-WMCore"
+    ],
+    "all_jobs": [
+      "IOS-PRD-Lib-Cockpit-WMCore"
+    ]
+  },
+  "webmotors-private/lib-mobile-kmm-network": {
+    "prd_jobs": [
+      "KMM-PRD-Lib-Webmotors-Network-OLD",
+      "KMM-PRD-Lib-Webmotors-Network/merge%2FAPPJ-3739"
+    ],
+    "all_jobs": [
+      "KMM-PRD-Lib-Webmotors-Network-OLD",
+      "KMM-PRD-Lib-Webmotors-Network/merge%2FAPPJ-3739"
+    ]
+  },
+  "webmotors-private/lib-mobile-kmm-notification": {
+    "prd_jobs": [
+      "KMM-PRD-Lib-Webmotors-Notification/merge%2FAPPJ-3739"
+    ],
+    "all_jobs": [
+      "KMM-PRD-Lib-Webmotors-Notification/merge%2FAPPJ-3739"
+    ]
+  },
+  "webmotors-private/lib-mobile-kmm-tools": {
+    "prd_jobs": [
+      "KMM-PRD-Lib-Webmotors-Tools"
+    ],
+    "all_jobs": [
+      "KMM-PRD-Lib-Webmotors-Tools"
+    ]
+  },
+  "webmotors-private/maisfidelidade.bens.servicos.api": {
+    "prd_jobs": [
+      "mais-fidelidade-bes-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-bes-prd-api"
+    ]
+  },
+  "webmotors-private/maisfidelidade.bens.servicos.import": {
+    "prd_jobs": [
+      "mais-fidelidade-importador-bes-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-importador-bes-prd-api"
+    ]
+  },
+  "webmotors-private/maisfidelidade.bens.servicos.ui": {
+    "prd_jobs": [
+      "mais-fidelidade-bes-prd-ui"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-bes-prd-ui"
+    ]
+  },
+  "webmotors-private/maisfidelidade.bens.servicos.usarios.import": {
+    "prd_jobs": [
+      "mais-fidelidade-importador-bes-usuario-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-importador-bes-usuario-prd-api"
+    ]
+  },
+  "webmotors-private/maisfidelidade.contrata.api": {
+    "prd_jobs": [
+      "mais-fidelidade-contrata-prd-api",
+      "mais-fidelidade-contrata-websocket-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-contrata-prd-api",
+      "mais-fidelidade-contrata-websocket-prd-api"
+    ]
+  },
+  "webmotors-private/maisfidelidade.contrata.import": {
+    "prd_jobs": [
+      "mais-fidelidade-importador-contrata-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-importador-contrata-prd-api"
+    ]
+  },
+  "webmotors-private/maisfidelidade.contrata.ui": {
+    "prd_jobs": [
+      "mais-fidelidade-contrata-prd-ui"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-contrata-prd-ui"
+    ]
+  },
+  "webmotors-private/maisfidelidade.gestao.administrativa.api": {
+    "prd_jobs": [
+      "+Fidelidade.Gestao.Administrativa-Prd"
+    ],
+    "all_jobs": [
+      "+Fidelidade.Gestao.Administrativa-Prd"
+    ]
+  },
+  "webmotors-private/mobile-android-cockpit": {
+    "prd_jobs": [
+      "ANDROID-PRODUCTION-Cockpit"
+    ],
+    "all_jobs": [
+      "ANDROID-PRODUCTION-Cockpit"
+    ]
+  },
+  "webmotors-private/mobile-android-cockpit-notification": {
+    "prd_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-Notification"
+    ],
+    "all_jobs": [
+      "ANDROID-PRD-Lib-Cockpit-Notification"
+    ]
+  },
+  "webmotors-private/mobile-ios-cockpit": {
+    "prd_jobs": [
+      "IOS-PRODUCTION-Cockpit"
+    ],
+    "all_jobs": [
+      "IOS-PRODUCTION-Cockpit"
+    ]
+  },
+  "webmotors-private/mobile-ios-cockpit-notification": {
+    "prd_jobs": [
+      "IOS-PRD-Lib-Cockpit-Notification"
+    ],
+    "all_jobs": [
+      "IOS-PRD-Lib-Cockpit-Notification"
+    ]
+  },
+  "webmotors-private/pipelines-agendafacil": {
+    "prd_jobs": [
+      "flychat-ecs-prd"
+    ],
+    "all_jobs": [
+      "flychat-ecs-prd"
+    ]
+  },
+  "webmotors-private/portal-turbo-api": {
+    "prd_jobs": [
+      "portal-turbo-api-prd"
+    ],
+    "all_jobs": [
+      "portal-turbo-api-prd"
+    ]
+  },
+  "webmotors-private/precog-leads": {
+    "prd_jobs": [
+      "prd-api-precog-leads"
+    ],
+    "all_jobs": [
+      "prd-api-precog-leads"
+    ]
+  },
+  "webmotors-private/push-subscribers-api": {
+    "prd_jobs": [
+      "PushSubscriber-Api/pushsubscriber-api-prd"
+    ],
+    "all_jobs": [
+      "PushSubscriber-Api/pushsubscriber-api-prd"
+    ]
+  },
+  "webmotors-private/score-ordenacao": {
+    "prd_jobs": [
+      "Score-Ordenacao-prd"
+    ],
+    "all_jobs": [
+      "Score-Ordenacao-prd"
+    ]
+  },
+  "webmotors-private/score-ordenacao-motos": {
+    "prd_jobs": [
+      "Score-Ordenacao-Moto-prd"
+    ],
+    "all_jobs": [
+      "Score-Ordenacao-Moto-prd"
+    ]
+  },
+  "webmotors-private/seo-sitemap-strategic": {
+    "prd_jobs": [
+      "wm-seo-sitemap-prd"
+    ],
+    "all_jobs": [
+      "wm-seo-sitemap-prd"
+    ]
+  },
+  "webmotors-private/tacografo-agenda-facil": {
+    "prd_jobs": [
+      "tacografo-prd"
+    ],
+    "all_jobs": [
+      "tacografo-prd"
+    ]
+  },
+  "webmotors-private/vmotors-api-integrator": {
+    "prd_jobs": [
+      "prd-vmotors-api-integrator"
+    ],
+    "all_jobs": [
+      "prd-vmotors-api-integrator"
+    ]
+  },
+  "webmotors-private/vmotors-api-updater": {
+    "prd_jobs": [
+      "prd-vmotors-api-updater"
+    ],
+    "all_jobs": [
+      "prd-vmotors-api-updater"
+    ]
+  },
+  "webmotors-private/vmotors-geral": {
+    "prd_jobs": [
+      "cockpit-vmotors-geral-prd"
+    ],
+    "all_jobs": [
+      "cockpit-vmotors-geral-prd"
+    ]
+  },
+  "webmotors-private/vmotors-web": {
+    "prd_jobs": [
+      "vmotors-web-php-prd"
+    ],
+    "all_jobs": [
+      "vmotors-web-php-prd"
+    ]
+  },
+  "webmotors-private/webmotors": {
+    "prd_jobs": [
+      "pi.money-etl-faturaleadmodel-prd",
+      "pi.money-etl-faturapatrocinio-prd",
+      "pi.money-lote-baixamanual-etl-prd",
+      "pi.money-processos-prompt-etl-prd",
+      "prd-service-arquivocnab",
+      "prd-service-baixa-etl-pagamento",
+      "prd-service-processar-cnab-etl-retorno"
+    ],
+    "all_jobs": [
+      "pi.money-etl-faturaleadmodel-prd",
+      "pi.money-etl-faturapatrocinio-prd",
+      "pi.money-lote-baixamanual-etl-prd",
+      "pi.money-processos-prompt-etl-prd",
+      "prd-service-arquivocnab",
+      "prd-service-baixa-etl-pagamento",
+      "prd-service-processar-cnab-etl-retorno"
+    ]
+  },
+  "webmotors-private/webmotors-app-sdui": {
+    "prd_jobs": [
+      "web-cms-pf-prd"
+    ],
+    "all_jobs": [
+      "web-cms-pf-prd"
+    ]
+  },
+  "webmotors-private/webmotors.360.view": {
+    "prd_jobs": [
+      "prd-wm-service-360view"
+    ],
+    "all_jobs": [
+      "prd-wm-service-360view"
+    ]
+  },
+  "webmotors-private/webmotors.access": {
+    "prd_jobs": [
+      "PI-Security/prd-ecs-api-access"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-ecs-api-access"
+    ]
+  },
+  "webmotors-private/webmotors.account.api": {
+    "prd_jobs": [
+      "Account-Api/account-api-prd"
+    ],
+    "all_jobs": [
+      "Account-Api/account-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.accounting": {
+    "prd_jobs": [
+      "prd-ecs-api-accouting"
+    ],
+    "all_jobs": [
+      "prd-ecs-api-accouting"
+    ]
+  },
+  "webmotors-private/webmotors.ad-repriorization": {
+    "prd_jobs": [
+      "Repriorizacao-UI/repriorizacao-ui-prd"
+    ],
+    "all_jobs": [
+      "Repriorizacao-UI/repriorizacao-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.advertise.api": {
+    "prd_jobs": [
+      "Advertise-Api/advertise-api-prd"
+    ],
+    "all_jobs": [
+      "Advertise-Api/advertise-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.catalogo": {
+    "prd_jobs": [
+      "CatalogoAPI-PRD"
+    ],
+    "all_jobs": [
+      "CatalogoAPI-PRD"
+    ]
+  },
+  "webmotors-private/webmotors.api.charge": {
+    "prd_jobs": [
+      "prd-api-charge"
+    ],
+    "all_jobs": [
+      "prd-api-charge"
+    ]
+  },
+  "webmotors-private/webmotors.api.commercial": {
+    "prd_jobs": [
+      "pi.sales.api-commercial.branch.find.prd",
+      "pi.sales.api-commercial.network.list.prd",
+      "pi.sales.api-commercial.portifolio.find.prd",
+      "pi.sales.api-commercial.zone.list.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-commercial.branch.find.prd",
+      "pi.sales.api-commercial.network.list.prd",
+      "pi.sales.api-commercial.portifolio.find.prd",
+      "pi.sales.api-commercial.zone.list.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.customer": {
+    "prd_jobs": [
+      "pi.sales.api-customer.search.prd",
+      "pi.sales.api-customer.wallet.save.status.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-customer.search.prd",
+      "pi.sales.api-customer.wallet.save.status.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.invoice": {
+    "prd_jobs": [
+      "pi.sales.api-invoice.contract.detail.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-invoice.contract.detail.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.lead": {
+    "prd_jobs": [
+      "pi.sales.api-lead.contestation.contestated.prd",
+      "pi.sales.api-lead.contestation.details.prd",
+      "pi.sales.api-lead.contestation.find.prd",
+      "pi.sales.api-lead.contestation.reason.prd",
+      "pi.sales.api-lead.contestation.save.prd",
+      "pi.sales.api-lead.fixedprice.orderfind.prd",
+      "pi.sales.api-lead.invoice.find.prd",
+      "pi.sales.api-lead.log.find.prd",
+      "pi.sales.api-lead.log.save.prd",
+      "pi.sales.api-lead.management.duplicated.prd",
+      "pi.sales.api-lead.management.find.prd",
+      "pi.sales.api-lead.management.preview.prd",
+      "pi.sales.api-lead.management.refused.prd",
+      "pi.sales.api-lead.management.type.prd",
+      "pi.sales.api-lead.price.find.prd",
+      "pi.sales.api-lead.price.values.prd",
+      "pi.sales.api-lead.save.prd",
+      "pi.sales.api-lead.setup.find.prd",
+      "pi.sales.api-lead.setup.save.prd",
+      "pi.sales.api-lead.vehicle.brand.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-lead.contestation.contestated.prd",
+      "pi.sales.api-lead.contestation.details.prd",
+      "pi.sales.api-lead.contestation.find.prd",
+      "pi.sales.api-lead.contestation.reason.prd",
+      "pi.sales.api-lead.contestation.save.prd",
+      "pi.sales.api-lead.fixedprice.orderfind.prd",
+      "pi.sales.api-lead.invoice.find.prd",
+      "pi.sales.api-lead.log.find.prd",
+      "pi.sales.api-lead.log.save.prd",
+      "pi.sales.api-lead.management.duplicated.prd",
+      "pi.sales.api-lead.management.find.prd",
+      "pi.sales.api-lead.management.preview.prd",
+      "pi.sales.api-lead.management.refused.prd",
+      "pi.sales.api-lead.management.type.prd",
+      "pi.sales.api-lead.price.find.prd",
+      "pi.sales.api-lead.price.values.prd",
+      "pi.sales.api-lead.save.prd",
+      "pi.sales.api-lead.setup.find.prd",
+      "pi.sales.api-lead.setup.save.prd",
+      "pi.sales.api-lead.vehicle.brand.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.legalperson.discount": {
+    "prd_jobs": [
+      "legalperson-discount-api-prd"
+    ],
+    "all_jobs": [
+      "legalperson-discount-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.payment": {
+    "prd_jobs": [
+      "pi-account-prd-api-integration",
+      "root-account-prd-api-payment",
+      "root-account-prd-api-proxy-payment",
+      "root-account-prd-payment-monitoring"
+    ],
+    "all_jobs": [
+      "pi-account-prd-api-integration",
+      "root-account-prd-api-payment",
+      "root-account-prd-api-proxy-payment",
+      "root-account-prd-payment-monitoring"
+    ]
+  },
+  "webmotors-private/webmotors.api.plans": {
+    "prd_jobs": [
+      "pi.sales.api-plans.create.rule.prd",
+      "pi.sales.api-plans.exclude.financialentry.prd",
+      "pi.sales.api-plans.exclude.franchise.flag.prd",
+      "pi.sales.api-plans.get.leadprice.prd",
+      "pi.sales.api-plans.getavailablefranchise.prd",
+      "pi.sales.api-plans.getplan.prd",
+      "pi.sales.api-plans.save.consumption.prd",
+      "pi.sales.api-plans.save.franchise.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-plans.create.rule.prd",
+      "pi.sales.api-plans.exclude.financialentry.prd",
+      "pi.sales.api-plans.exclude.franchise.flag.prd",
+      "pi.sales.api-plans.get.leadprice.prd",
+      "pi.sales.api-plans.getavailablefranchise.prd",
+      "pi.sales.api-plans.getplan.prd",
+      "pi.sales.api-plans.save.consumption.prd",
+      "pi.sales.api-plans.save.franchise.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.products": {
+    "prd_jobs": [
+      "pi.sales.api-product.find.channel.prd",
+      "pi.sales.api-product.find.contract.prd",
+      "pi.sales.api-product.find.prd",
+      "pi.sales.api-product.find.region.prd",
+      "pi.sales.api-product.netsuite.find.prd",
+      "pi.sales.api-product.netsuite.sync.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-product.find.channel.prd",
+      "pi.sales.api-product.find.contract.prd",
+      "pi.sales.api-product.find.prd",
+      "pi.sales.api-product.find.region.prd",
+      "pi.sales.api-product.netsuite.find.prd",
+      "pi.sales.api-product.netsuite.sync.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.sales": {
+    "prd_jobs": [
+      "pi.sales.api-sales.customer.wallet.save.status.prd",
+      "pi.sales.api-sales.discount.prd",
+      "pi.sales.api-sales.order.find.billable.prd",
+      "pi.sales.api-sales.order.invoice.discount.prd",
+      "pi.sales.api-sales.pre.order.accept.prd",
+      "pi.sales.api-sales.pre.order.cancel.notificate.prd",
+      "pi.sales.api-sales.pre.order.list.prd",
+      "pi.sales.api-sales.pre.order.prd",
+      "pi.sales.api-sales.pre.order.store.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-sales.customer.wallet.save.status.prd",
+      "pi.sales.api-sales.discount.prd",
+      "pi.sales.api-sales.order.find.billable.prd",
+      "pi.sales.api-sales.order.invoice.discount.prd",
+      "pi.sales.api-sales.pre.order.accept.prd",
+      "pi.sales.api-sales.pre.order.cancel.notificate.prd",
+      "pi.sales.api-sales.pre.order.list.prd",
+      "pi.sales.api-sales.pre.order.prd",
+      "pi.sales.api-sales.pre.order.store.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.sales.logger": {
+    "prd_jobs": [
+      "pi.sales.api-sales-logger.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-sales-logger.prd"
+    ]
+  },
+  "webmotors-private/webmotors.api.sponsor": {
+    "prd_jobs": [
+      "pi.sales.api-sponsor.list-national-manager.prd",
+      "pi.sales.api-sponsor.list-regional-by-national-manager.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-sponsor.list-national-manager.prd",
+      "pi.sales.api-sponsor.list-regional-by-national-manager.prd"
+    ]
+  },
+  "webmotors-private/webmotors.apis": {
+    "prd_jobs": [
+      "webmotors-apis-santander-services-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-apis-santander-services-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.app.api": {
+    "prd_jobs": [
+      "prd-webmotors-app-api"
+    ],
+    "all_jobs": [
+      "prd-webmotors-app-api"
+    ]
+  },
+  "webmotors-private/webmotors.app.pf.push": {
+    "prd_jobs": [
+      "PushSend-Api/pushsend-api-prd"
+    ],
+    "all_jobs": [
+      "PushSend-Api/pushsend-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.atena": {
+    "prd_jobs": [
+      "Arquitetura/atena-prd"
+    ],
+    "all_jobs": [
+      "Arquitetura/atena-prd"
+    ]
+  },
+  "webmotors-private/webmotors.buyer": {
+    "prd_jobs": [
+      "prd-wm-buyer-api",
+      "prd-wm-buyer-api-services"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-api",
+      "prd-wm-buyer-api-services"
+    ]
   },
   "webmotors-private/webmotors.buyer.desktop.ui": {
-    "prd_jobs": ["prd-wm-buyer-lambda-desktop-ui"],
-    "all_jobs": ["azl-wm-buyer-lambda-desktop-ui", "azl-wm-buyer-lambda-desktop-ui-rollback", "hml-wm-buyer-lambda-desktop-ui", "hml-wm-buyer-lambda-desktop-ui-nodejs20", "hml-wm-buyer-lambda-desktop-ui-rollback", "prd-wm-buyer-lambda-desktop-ui", "prd-wm-buyer-lambda-desktop-ui-rollback"]
+    "prd_jobs": [
+      "prd-wm-buyer-lambda-desktop-ui",
+      "prd-wm-buyer-lambda-desktop-ui-rollback"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-lambda-desktop-ui",
+      "prd-wm-buyer-lambda-desktop-ui-rollback"
+    ]
   },
-  "webmotors-private/webmotors.portal.ui": {
-    "prd_jobs": ["prd-wm-buyer-lambda-home-ui"],
-    "all_jobs": ["azl-wm-buyer-lambda-home-ui", "hml-wm-buyer-lambda-home-ui", "prd-wm-buyer-lambda-home-ui"]
+  "webmotors-private/webmotors.buyer.fairs.config": {
+    "prd_jobs": [
+      "prd-wm-buyer-fairs-config"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-fairs-config"
+    ]
   },
   "webmotors-private/webmotors.buyer.ui": {
-    "prd_jobs": ["prd-wm-buyer-lambda-mobile-ui"],
-    "all_jobs": ["azl-wm-buyer-lambda-mobile-ui", "azl-wm-buyer-lambda-mobile-ui-rollback", "hml-wm-buyer-lambda-mobile-ui", "hml-wm-buyer-lambda-mobile-ui-rollback", "prd-wm-buyer-lambda-mobile-ui", "prd-wm-buyer-lambda-mobile-ui-rollback"]
+    "prd_jobs": [
+      "prd-wm-buyer-lambda-mobile-ui",
+      "prd-wm-buyer-lambda-mobile-ui-rollback"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-lambda-mobile-ui",
+      "prd-wm-buyer-lambda-mobile-ui-rollback"
+    ]
+  },
+  "webmotors-private/webmotors.catalog": {
+    "prd_jobs": [
+      "ExportBrazil-PRD"
+    ],
+    "all_jobs": [
+      "ExportBrazil-PRD"
+    ]
+  },
+  "webmotors-private/webmotors.catalogo": {
+    "prd_jobs": [
+      "Catalogo-service-v8-and-v9-prd"
+    ],
+    "all_jobs": [
+      "Catalogo-service-v8-and-v9-prd"
+    ]
+  },
+  "webmotors-private/webmotors.catalogo.jobs": {
+    "prd_jobs": [
+      "catalogo-console-dotnet-prd"
+    ],
+    "all_jobs": [
+      "catalogo-console-dotnet-prd"
+    ]
   },
   "webmotors-private/webmotors.catalogo.next.ui": {
-    "prd_jobs": ["catalogo-next-ui-prd"],
-    "all_jobs": ["catalogo-next-ui-azl", "catalogo-next-ui-hml", "catalogo-next-ui-prd"]
+    "prd_jobs": [
+      "catalogo-next-ui-prd"
+    ],
+    "all_jobs": [
+      "catalogo-next-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.catalogo.ui": {
+    "prd_jobs": [
+      "prd-catalogo-ui",
+      "prd-sitemap-catalogo"
+    ],
+    "all_jobs": [
+      "prd-catalogo-ui",
+      "prd-sitemap-catalogo"
+    ]
+  },
+  "webmotors-private/webmotors.certifiedpurchase": {
+    "prd_jobs": [
+      "pi.sales.api-certifiedpurchase.change.status.prd",
+      "pi.sales.api-certifiedpurchase.find.all.prd",
+      "pi.sales.api-certifiedpurchase.find.status.prd",
+      "pi.sales.api-certifiedpurchase.inspection.find.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-certifiedpurchase.change.status.prd",
+      "pi.sales.api-certifiedpurchase.find.all.prd",
+      "pi.sales.api-certifiedpurchase.find.status.prd",
+      "pi.sales.api-certifiedpurchase.inspection.find.prd"
+    ]
+  },
+  "webmotors-private/webmotors.chat.api": {
+    "prd_jobs": [
+      "Chat-Api/chat-api-prd",
+      "Chat-Api/chat-prd-python"
+    ],
+    "all_jobs": [
+      "Chat-Api/chat-api-prd",
+      "Chat-Api/chat-prd-python"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.anonymization": {
+    "prd_jobs": [
+      "ckp.anonymization.service.lambda.prd",
+      "cockpit-anonymization-api-prd"
+    ],
+    "all_jobs": [
+      "ckp.anonymization.service.lambda.prd",
+      "cockpit-anonymization-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.access": {
+    "prd_jobs": [
+      "cockpit-api-access-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-access-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.dealer": {
+    "prd_jobs": [
+      "cockpit-api-dealer-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-dealer-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.group.dealer": {
+    "prd_jobs": [
+      "cockpit-api-group-dealer-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-group-dealer-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.lead.extract": {
+    "prd_jobs": [
+      "cockpit-api-lead-extract-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-lead-extract-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.login": {
+    "prd_jobs": [
+      "cockpit-api-login-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-login-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.menu": {
+    "prd_jobs": [
+      "cockpit-api-menu-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-menu-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.plan": {
+    "prd_jobs": [
+      "cockpit-api-plan-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-plan-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.product": {
+    "prd_jobs": [
+      "cockpit-api-product-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-product-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.profile": {
+    "prd_jobs": [
+      "cockpit-api-profile-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-profile-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.statement": {
+    "prd_jobs": [
+      "money-api-statement-prd",
+      "money-statement-service-prd"
+    ],
+    "all_jobs": [
+      "money-api-statement-prd",
+      "money-statement-service-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.term": {
+    "prd_jobs": [
+      "cockpit-api-term-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-term-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.api.user": {
+    "prd_jobs": [
+      "cockpit-api-user-prd"
+    ],
+    "all_jobs": [
+      "cockpit-api-user-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.authorizer": {
+    "prd_jobs": [
+      "ckp.authorizer.api.prd",
+      "ckp.authorizer.root.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.authorizer.api.prd",
+      "ckp.authorizer.root.api.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.autoavaliar": {
+    "prd_jobs": [
+      "cockpit-autoavaliar-api-prd"
+    ],
+    "all_jobs": [
+      "cockpit-autoavaliar-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.backoffice.offers.ui": {
+    "prd_jobs": [
+      "cockpit-backoffice-offers-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-backoffice-offers-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.backoffice.ui": {
+    "prd_jobs": [
+      "cockpit-backoffice-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-backoffice-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.crm.mfe.configuration.ai.ui": {
+    "prd_jobs": [
+      "cockpit.crm.mfe.configuration.ai.ui.prd"
+    ],
+    "all_jobs": [
+      "cockpit.crm.mfe.configuration.ai.ui.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.crm.mfe.configuration.ui": {
+    "prd_jobs": [
+      "crm.mfe.configuration.ui.prd"
+    ],
+    "all_jobs": [
+      "crm.mfe.configuration.ui.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.crm.mfe.dashboard.ui": {
+    "prd_jobs": [
+      "crm.mfe.dashboard.ui.prd"
+    ],
+    "all_jobs": [
+      "crm.mfe.dashboard.ui.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.crm.ui": {
+    "prd_jobs": [
+      "cockpit-crm-ui-prd",
+      "cockpit-crm-ui-prd-rollback"
+    ],
+    "all_jobs": [
+      "cockpit-crm-ui-prd",
+      "cockpit-crm-ui-prd-rollback"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.dependabot.analyzer": {
+    "prd_jobs": [
+      "ckp.analyzer.dependabot.prd"
+    ],
+    "all_jobs": [
+      "ckp.analyzer.dependabot.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.i18n": {
+    "prd_jobs": [
+      "ckp.components.i18n.library.prd",
+      "ckp.upload.files.i18n.s3.prd"
+    ],
+    "all_jobs": [
+      "ckp.components.i18n.library.prd",
+      "ckp.upload.files.i18n.s3.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.ia.ui": {
+    "prd_jobs": [
+      "webmotors-cockpit-ia-ui-prd"
+    ],
+    "all_jobs": [
+      "webmotors-cockpit-ia-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.inspection.ui": {
+    "prd_jobs": [
+      "Cockpit.Inspection/prd-cockpit-inspection-ui"
+    ],
+    "all_jobs": [
+      "Cockpit.Inspection/prd-cockpit-inspection-ui"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.api": {
+    "prd_jobs": [
+      "cockpit-integration-api-channel-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-api-channel-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.api.adv": {
+    "prd_jobs": [
+      "cockpit-integration-advertisement-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-advertisement-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.api.adv.sync": {
+    "prd_jobs": [
+      "cockpit-integration-adv-sync-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-adv-sync-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.api.lead": {
+    "prd_jobs": [
+      "cockpit-integration-leads-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-leads-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.callback": {
+    "prd_jobs": [
+      "cockpit-integration-callback-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-callback-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integrador.updater": {
+    "prd_jobs": [
+      "cockpit-integration-new-updater-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-new-updater-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.integration.pluginpro.loader": {
+    "prd_jobs": [
+      "cockpit-integration-pluginpro-loader-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integration-pluginpro-loader-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.invoice.ui": {
+    "prd_jobs": [
+      "cockpit-invoice-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-invoice-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.landingpages.ui": {
+    "prd_jobs": [
+      "cockpit-landing-pages-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-landing-pages-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.leads.ui": {
+    "prd_jobs": [
+      "cockpit-leads-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-leads-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.library": {
+    "prd_jobs": [
+      "ckp.library.prd"
+    ],
+    "all_jobs": [
+      "ckp.library.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.maisfidelidade.api": {
+    "prd_jobs": [
+      "mais-fidelidade-chamas-prd-api",
+      "mais-fidelidade-lojas-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-chamas-prd-api",
+      "mais-fidelidade-lojas-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.maisfidelidade.import": {
+    "prd_jobs": [
+      "mais-fidelidade-importador-lojas-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-importador-lojas-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.maisfidelidade.import.chamas": {
+    "prd_jobs": [
+      "mais-fidelidade-lojas-importador-chamas-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-lojas-importador-chamas-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.maisfidelidade.import.oportunidades": {
+    "prd_jobs": [
+      "mais-fidelidade-lojas-importador-oportunidade-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-lojas-importador-oportunidade-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.maisfidelidade.ui": {
+    "prd_jobs": [
+      "mais-fidelidade-lojas-prd-ui"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-lojas-prd-ui"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.mfe.integration.ui": {
+    "prd_jobs": [
+      "cockpit-mfe-integration-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-mfe-integration-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.notifications.api": {
+    "prd_jobs": [
+      "central-de-notificacoes-api-prd",
+      "central-de-notificacoes-prd"
+    ],
+    "all_jobs": [
+      "central-de-notificacoes-api-prd",
+      "central-de-notificacoes-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.panel.api": {
+    "prd_jobs": [
+      "cockpit-panel-api-prd"
+    ],
+    "all_jobs": [
+      "cockpit-panel-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.panel.etl": {
+    "prd_jobs": [
+      "cockpit-panel-etl-prd",
+      "cockpit-panel-root-etl-prd"
+    ],
+    "all_jobs": [
+      "cockpit-panel-etl-prd",
+      "cockpit-panel-root-etl-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.sale": {
+    "prd_jobs": [
+      "ckp.sale.pj.api.prd",
+      "ckp.sale.root.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.sale.pj.api.prd",
+      "ckp.sale.root.api.prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.signature.api": {
+    "prd_jobs": [
+      "prd-cockpit-signature-api"
+    ],
+    "all_jobs": [
+      "prd-cockpit-signature-api"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.signature.ui": {
+    "prd_jobs": [
+      "prd-cockpit-signature-ui"
+    ],
+    "all_jobs": [
+      "prd-cockpit-signature-ui"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.stock.api": {
+    "prd_jobs": [
+      "prd-cockpit-stock",
+      "prd-cockpit-stock-i18n"
+    ],
+    "all_jobs": [
+      "prd-cockpit-stock",
+      "prd-cockpit-stock-i18n"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.stock.ui": {
+    "prd_jobs": [
+      "prd-cockpit-stock-ui"
+    ],
+    "all_jobs": [
+      "prd-cockpit-stock-ui"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.stock.ui.channel": {
+    "prd_jobs": [
+      "prd-cockpit-stock-ui-channel"
+    ],
+    "all_jobs": [
+      "prd-cockpit-stock-ui-channel"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.store.api": {
+    "prd_jobs": [
+      "cockpit-store-api-campaign-prd",
+      "cockpit-store-api-prd",
+      "cockpit-store-services-prd",
+      "root-cockpit-store-api-campaign-module-prd"
+    ],
+    "all_jobs": [
+      "cockpit-store-api-campaign-prd",
+      "cockpit-store-api-prd",
+      "cockpit-store-services-prd",
+      "root-cockpit-store-api-campaign-module-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.store.ui": {
+    "prd_jobs": [
+      "cockpit-store-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-store-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.subscription.ui": {
+    "prd_jobs": [
+      "prd-wm-cockpit-subscription-ui"
+    ],
+    "all_jobs": [
+      "prd-wm-cockpit-subscription-ui"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.ui": {
+    "prd_jobs": [
+      "cockpit-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.universidade.api": {
+    "prd_jobs": [
+      "universidade-api-prd"
+    ],
+    "all_jobs": [
+      "universidade-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.universidade.csv.salesforce.lambda": {
+    "prd_jobs": [
+      "university-send-csv-to-mailing-prd"
+    ],
+    "all_jobs": [
+      "university-send-csv-to-mailing-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.universidade.hub.sales.info.lambda": {
+    "prd_jobs": [
+      "universidade-sales-info-lambda-prd"
+    ],
+    "all_jobs": [
+      "universidade-sales-info-lambda-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.universidade.ui": {
+    "prd_jobs": [
+      "universidade-ui-prd"
+    ],
+    "all_jobs": [
+      "universidade-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.wallet.api": {
+    "prd_jobs": [
+      "cockpit-wallet-api-prd-old",
+      "cockpit-wallet-prd",
+      "cockpit-wallet-services-prd"
+    ],
+    "all_jobs": [
+      "cockpit-wallet-api-prd-old",
+      "cockpit-wallet-prd",
+      "cockpit-wallet-services-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.wallet.ui": {
+    "prd_jobs": [
+      "cockpit-wallet-ui-prd"
+    ],
+    "all_jobs": [
+      "cockpit-wallet-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cockpit.webtv.ui": {
+    "prd_jobs": [
+      "webmotors-cockpit-webtv-ui-prd"
+    ],
+    "all_jobs": [
+      "webmotors-cockpit-webtv-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cognito.api": {
+    "prd_jobs": [
+      "LoginPF-Api/loginpf-api-prd",
+      "LoginPF-Api/loginpf-whatsapp-prd"
+    ],
+    "all_jobs": [
+      "LoginPF-Api/loginpf-api-prd",
+      "LoginPF-Api/loginpf-whatsapp-prd"
+    ]
+  },
+  "webmotors-private/webmotors.cognito.ui": {
+    "prd_jobs": [
+      "LoginPF-UI/loginpf-ui-prd",
+      "PI-Security/login-ui/login-ui-prd"
+    ],
+    "all_jobs": [
+      "LoginPF-UI/loginpf-ui-prd",
+      "PI-Security/login-ui/login-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.consumer.storybook": {
+    "prd_jobs": [
+      "StoryBook-UI/storybook-ui-prd"
+    ],
+    "all_jobs": [
+      "StoryBook-UI/storybook-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.coupon.api": {
+    "prd_jobs": [
+      "Coupon-Api/coupon-api-prd"
+    ],
+    "all_jobs": [
+      "Coupon-Api/coupon-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.coupon.ui": {
+    "prd_jobs": [
+      "Coupon-UI/coupon-ui-prd"
+    ],
+    "all_jobs": [
+      "Coupon-UI/coupon-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.databricks.previa": {
+    "prd_jobs": [
+      "pi.sales.api-billing.preview.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-billing.preview.prd"
+    ]
+  },
+  "webmotors-private/webmotors.design.system.eleanor": {
+    "prd_jobs": [
+      "eleanor-ui-prd"
+    ],
+    "all_jobs": [
+      "eleanor-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.dynamic.price.api": {
+    "prd_jobs": [
+      "DynamicPrice-Api/dynamic-price-api-prd"
+    ],
+    "all_jobs": [
+      "DynamicPrice-Api/dynamic-price-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.entity.state": {
+    "prd_jobs": [
+      "pi.sales.api-entity.notify.prd",
+      "pi.sales.api-entity.save.prd",
+      "pi.sales.api-entity.send.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-entity.notify.prd",
+      "pi.sales.api-entity.save.prd",
+      "pi.sales.api-entity.send.prd"
+    ]
+  },
+  "webmotors-private/webmotors.etl": {
+    "prd_jobs": [
+      "PI-Security/prd-service-etl-internauta",
+      "webmotors-etl-services-financiamento-back-prd"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-service-etl-internauta",
+      "webmotors-etl-services-financiamento-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.etl.services.mailmessage": {
+    "prd_jobs": [
+      "prd-api-mail-message"
+    ],
+    "all_jobs": [
+      "prd-api-mail-message"
+    ]
+  },
+  "webmotors-private/webmotors.fairs.opener": {
+    "prd_jobs": [
+      "wm-fairs-opener-prd"
+    ],
+    "all_jobs": [
+      "wm-fairs-opener-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financial.ui.bank": {
+    "prd_jobs": [
+      "pi.money-financial-bank-ui-prd"
+    ],
+    "all_jobs": [
+      "pi.money-financial-bank-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financiamento.lib": {
+    "prd_jobs": [
+      "webmotors-financing-lib-npm-front-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-lib-npm-front-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financiamento.santander.api": {
+    "prd_jobs": [
+      "webmotors-financiamento-santander-api-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financiamento-santander-api-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing-platform": {
+    "prd_jobs": [
+      "webmotors-financing-platform-front-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-platform-front-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.auth": {
+    "prd_jobs": [
+      "webmotors-financing-auth-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-auth-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.backoffice": {
+    "prd_jobs": [
+      "webmotors-financing-backoffice-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-backoffice-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.dealerships": {
+    "prd_jobs": [
+      "webmotors-financing-dealerships-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-dealerships-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.extensions": {
+    "prd_jobs": [
+      "webmotors-financing-packages-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-packages-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.integrations": {
+    "prd_jobs": [
+      "webmotors-financing-integrations-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-integrations-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.intermediator": {
+    "prd_jobs": [
+      "webmotors-financing-intermediator-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-intermediator-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.packages": {
+    "prd_jobs": [
+      "webmotors-financing-packages-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-packages-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.pionner": {
+    "prd_jobs": [
+      "webmotors-financing-pioneer-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-pioneer-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.financing.rules": {
+    "prd_jobs": [
+      "webmotors-financing-rules-back-prd"
+    ],
+    "all_jobs": [
+      "webmotors-financing-rules-back-prd"
+    ]
+  },
+  "webmotors-private/webmotors.fipe.api": {
+    "prd_jobs": [
+      "fipe-api-dotnet-prd",
+      "fipe-api-node-prd",
+      "fipe-average-bike-prd",
+      "fipe-average-car-prd",
+      "fipe-parse-file-prd",
+      "fipe-services-dotnet-prd"
+    ],
+    "all_jobs": [
+      "fipe-api-dotnet-prd",
+      "fipe-api-node-prd",
+      "fipe-average-bike-prd",
+      "fipe-average-car-prd",
+      "fipe-parse-file-prd",
+      "fipe-services-dotnet-prd"
+    ]
   },
   "webmotors-private/webmotors.fipe.next.ui": {
-    "prd_jobs": ["fipe-next-ui-prd"],
-    "all_jobs": ["fipe-lambda-edge-hml", "fipe-next-ui-azl", "fipe-next-ui-hml", "fipe-next-ui-prd"]
+    "prd_jobs": [
+      "fipe-next-ui-prd"
+    ],
+    "all_jobs": [
+      "fipe-next-ui-prd"
+    ]
   },
-  "webmotors-private/webmotors.app.pf.search.bff": {
-    "prd_jobs": ["webmotors-app-api-search-bff"],
-    "all_jobs": ["webmotors-app-api-search-bff"]
+  "webmotors-private/webmotors.fipe.ui": {
+    "prd_jobs": [
+      "buyer-fipe-ui-prd"
+    ],
+    "all_jobs": [
+      "buyer-fipe-ui-prd"
+    ]
   },
-  "webmotors-private/eleanor.flutter": {
-    "prd_jobs": ["webmotors-eleanor-flutter"],
-    "all_jobs": ["webmotors-eleanor-flutter"]
+  "webmotors-private/webmotors.garagem": {
+    "prd_jobs": [
+      "Garagem-UI/garagem-ui-prd"
+    ],
+    "all_jobs": [
+      "Garagem-UI/garagem-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.group.fiscal.files": {
+    "prd_jobs": [
+      "api-fiscal-files-prd",
+      "prd-service-arquivos-grupos",
+      "prd-service-validar-arquivos-grupos"
+    ],
+    "all_jobs": [
+      "api-fiscal-files-prd",
+      "prd-service-arquivos-grupos",
+      "prd-service-validar-arquivos-grupos"
+    ]
+  },
+  "webmotors-private/webmotors.hub.pipelines": {
+    "prd_jobs": [
+      "pi.money-etl-faturaleadmodel-prd",
+      "pi.money-etl-faturapatrocinio-prd",
+      "pi.money-lote-baixamanual-etl-prd",
+      "pi.money-lote.reagendarcobranca-etl-prd",
+      "pi.money-processos-prompt-etl-prd",
+      "pi.sales-etl-LancarVendaAnuncioSite-prd",
+      "pi.sales-etl-associacaofeirao-prd",
+      "pi.sales-etl-ativacao.anuncio-prd",
+      "pi.sales-etl.venda.automatica.prd",
+      "pi.sales-etl.venda.automatica.start.stop.prd",
+      "pi.sales-lote.incluirvenda-prd",
+      "pi.sales-lote.substituirvenda-prd",
+      "pi.sales.etl.plano-controle-prd",
+      "prd-front-hub",
+      "sales.controlar-pendencias.servico.prd",
+      "sales.lote-cancelar-venda.servico.prd",
+      "sales.lote-periodo-desconto.servico.prd",
+      "sales.processo-reajusteIGPM.servico.prd"
+    ],
+    "all_jobs": [
+      "pi.money-etl-faturaleadmodel-prd",
+      "pi.money-etl-faturapatrocinio-prd",
+      "pi.money-lote-baixamanual-etl-prd",
+      "pi.money-lote.reagendarcobranca-etl-prd",
+      "pi.money-processos-prompt-etl-prd",
+      "pi.sales-etl-LancarVendaAnuncioSite-prd",
+      "pi.sales-etl-associacaofeirao-prd",
+      "pi.sales-etl-ativacao.anuncio-prd",
+      "pi.sales-etl.venda.automatica.prd",
+      "pi.sales-etl.venda.automatica.start.stop.prd",
+      "pi.sales-lote.incluirvenda-prd",
+      "pi.sales-lote.substituirvenda-prd",
+      "pi.sales.etl.plano-controle-prd",
+      "prd-front-hub",
+      "sales.controlar-pendencias.servico.prd",
+      "sales.lote-cancelar-venda.servico.prd",
+      "sales.lote-periodo-desconto.servico.prd",
+      "sales.processo-reajusteIGPM.servico.prd"
+    ]
+  },
+  "webmotors-private/webmotors.integrador": {
+    "prd_jobs": [
+      "cockpit-integrator-santander-leadfile-prd",
+      "cockpit-integrator-santander-sendlead-prd"
+    ],
+    "all_jobs": [
+      "cockpit-integrator-santander-leadfile-prd",
+      "cockpit-integrator-santander-sendlead-prd"
+    ]
+  },
+  "webmotors-private/webmotors.jira.automation": {
+    "prd_jobs": [
+      "PI-Security/prd-lambda-jira-automation"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-lambda-jira-automation"
+    ]
+  },
+  "webmotors-private/webmotors.landingpages.ui": {
+    "prd_jobs": [
+      "pf-landing-pages-ui-prd"
+    ],
+    "all_jobs": [
+      "pf-landing-pages-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.lead.api": {
+    "prd_jobs": [
+      "pi.sales.api-lead.contestation.prd",
+      "pi.sales.api-lead.list.leadbyad.prd",
+      "pi.sales.api-lead.listLogProcess.prd",
+      "pi.sales.api-lead.upload.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-lead.contestation.prd",
+      "pi.sales.api-lead.list.leadbyad.prd",
+      "pi.sales.api-lead.listLogProcess.prd",
+      "pi.sales.api-lead.upload.prd"
+    ]
+  },
+  "webmotors-private/webmotors.lojaoficial.api": {
+    "prd_jobs": [
+      "prd-loja-oficial-api-deletar"
+    ],
+    "all_jobs": [
+      "prd-loja-oficial-api-deletar"
+    ]
+  },
+  "webmotors-private/webmotors.maisfidelidade.backoffice.api": {
+    "prd_jobs": [
+      "mais-fidelidade-lojas-backoffice-prd-api"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-lojas-backoffice-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.maisfidelidade.backoffice.ui": {
+    "prd_jobs": [
+      "mais-fidelidade-lojas-backoffice-prd-ui"
+    ],
+    "all_jobs": [
+      "mais-fidelidade-lojas-backoffice-prd-ui"
+    ]
+  },
+  "webmotors-private/webmotors.money.pipelines": {
+    "prd_jobs": [
+      "PI-Money/money-criticality-dependabot-prd",
+      "PI-Money/prd-ecs-santander-integration",
+      "PI-Money/prd-fiscal-links-lambda-customer",
+      "PI-Money/prd-invoice-integration",
+      "prd-api-santander-integration-payments",
+      "prd-api-webhook-apple-refund",
+      "prd-api-webhook-apple-router",
+      "prd-ecs-api-payment",
+      "prd-nfe-cancel-fakecustomer-lambda-job",
+      "prd-service-arquivocnab",
+      "prd-service-arquivos-grupos",
+      "prd-service-baixa-etl-pagamento",
+      "prd-service-processar-cnab-etl-retorno",
+      "prd-service-validar-arquivos-grupos",
+      "root-account-prd-api-solicitation"
+    ],
+    "all_jobs": [
+      "PI-Money/money-criticality-dependabot-prd",
+      "PI-Money/prd-ecs-santander-integration",
+      "PI-Money/prd-fiscal-links-lambda-customer",
+      "PI-Money/prd-invoice-integration",
+      "prd-api-santander-integration-payments",
+      "prd-api-webhook-apple-refund",
+      "prd-api-webhook-apple-router",
+      "prd-ecs-api-payment",
+      "prd-nfe-cancel-fakecustomer-lambda-job",
+      "prd-service-arquivocnab",
+      "prd-service-arquivos-grupos",
+      "prd-service-baixa-etl-pagamento",
+      "prd-service-processar-cnab-etl-retorno",
+      "prd-service-validar-arquivos-grupos",
+      "root-account-prd-api-solicitation"
+    ]
+  },
+  "webmotors-private/webmotors.netsuite.integration": {
+    "prd_jobs": [
+      "pi.sales.api-product.netsuite.send.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-product.netsuite.send.prd"
+    ]
+  },
+  "webmotors-private/webmotors.next.ui": {
+    "prd_jobs": [
+      "prd-wm-buyer-home-frontend-ui",
+      "prd-wm-buyer-search-frontend-ui",
+      "prd-wm-buyer-subscriptions-frontend-ui"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-home-frontend-ui",
+      "prd-wm-buyer-search-frontend-ui",
+      "prd-wm-buyer-subscriptions-frontend-ui"
+    ]
+  },
+  "webmotors-private/webmotors.pandora": {
+    "prd_jobs": [
+      "ecs-pandora-search-prd",
+      "pandora-publisher-advertiser-prd",
+      "pandora-score-prd"
+    ],
+    "all_jobs": [
+      "ecs-pandora-search-prd",
+      "pandora-publisher-advertiser-prd",
+      "pandora-score-prd"
+    ]
+  },
+  "webmotors-private/webmotors.pandora.monitoring": {
+    "prd_jobs": [
+      "pandora-monitoring-prd"
+    ],
+    "all_jobs": [
+      "pandora-monitoring-prd"
+    ]
+  },
+  "webmotors-private/webmotors.parcer.ia.mcp.financing": {
+    "prd_jobs": [
+      "prd-mcp-financiamento"
+    ],
+    "all_jobs": [
+      "prd-mcp-financiamento"
+    ]
+  },
+  "webmotors-private/webmotors.parcer.ia.mcp.leads": {
+    "prd_jobs": [
+      "prd-mcp-lead"
+    ],
+    "all_jobs": [
+      "prd-mcp-lead"
+    ]
+  },
+  "webmotors-private/webmotors.parcer.ia.mcp.vehicle_discovery": {
+    "prd_jobs": [
+      "prd-mcp-anuncio"
+    ],
+    "all_jobs": [
+      "prd-mcp-anuncio"
+    ]
+  },
+  "webmotors-private/webmotors.payment": {
+    "prd_jobs": [
+      "root-account-ios-prd-receive-payment"
+    ],
+    "all_jobs": [
+      "root-account-ios-prd-receive-payment"
+    ]
+  },
+  "webmotors-private/webmotors.pf": {
+    "prd_jobs": [
+      "android-pf-prd-firebase",
+      "android-pf-prd-playstore",
+      "android-pf-prd-promotion",
+      "ios-pf-prd-firebase",
+      "ios-pf-prd-promotion",
+      "ios-pf-prd-testflight",
+      "web-cms-pf-prd",
+      "webservicos-web-prd"
+    ],
+    "all_jobs": [
+      "android-pf-prd-firebase",
+      "android-pf-prd-playstore",
+      "android-pf-prd-promotion",
+      "ios-pf-prd-firebase",
+      "ios-pf-prd-promotion",
+      "ios-pf-prd-testflight",
+      "web-cms-pf-prd",
+      "webservicos-web-prd"
+    ]
+  },
+  "webmotors-private/webmotors.phone.tracking": {
+    "prd_jobs": [
+      "ckp.event.bridge.enable.disable.prd",
+      "cockpit-integration-phone-tracking-lambda-prd",
+      "phone-tracking-api-prd"
+    ],
+    "all_jobs": [
+      "ckp.event.bridge.enable.disable.prd",
+      "cockpit-integration-phone-tracking-lambda-prd",
+      "phone-tracking-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.physical.person.ui": {
+    "prd_jobs": [
+      "prd-ui-physical-person"
+    ],
+    "all_jobs": [
+      "prd-ui-physical-person"
+    ]
+  },
+  "webmotors-private/webmotors.pi.sales.components": {
+    "prd_jobs": [
+      "sales.extension.components.prd"
+    ],
+    "all_jobs": [
+      "sales.extension.components.prd"
+    ]
+  },
+  "webmotors-private/webmotors.pk.security.pipes": {
+    "prd_jobs": [
+      "PI-Security/login-ui/login-ui-prd",
+      "PI-Security/prd-api-ad-zendesk",
+      "PI-Security/prd-ecs-api-access",
+      "PI-Security/prd-ecs-api-upld",
+      "PI-Security/prd-ecs-api-zendesk",
+      "PI-Security/prd-etl-upld-upload-process",
+      "PI-Security/prd-lambda-access-api",
+      "PI-Security/prd-lambda-address-api",
+      "PI-Security/prd-lambda-annotation",
+      "PI-Security/prd-lambda-antifraud-api",
+      "PI-Security/prd-lambda-api-ad",
+      "PI-Security/prd-lambda-api-cognito",
+      "PI-Security/prd-lambda-api-legal-person",
+      "PI-Security/prd-lambda-api-natural-person",
+      "PI-Security/prd-lambda-audit",
+      "PI-Security/prd-lambda-authorization",
+      "PI-Security/prd-lambda-bureau",
+      "PI-Security/prd-lambda-bureau-javascript",
+      "PI-Security/prd-lambda-bureau-santander-person",
+      "PI-Security/prd-lambda-consent",
+      "PI-Security/prd-lambda-internauta",
+      "PI-Security/prd-lambda-jira-automation",
+      "PI-Security/prd-lambda-legal-person-api-new",
+      "PI-Security/prd-lambda-legal-person-notificate",
+      "PI-Security/prd-lambda-legal-person-update-sql-keys",
+      "PI-Security/prd-lambda-login",
+      "PI-Security/prd-lambda-mail-message",
+      "PI-Security/prd-lambda-monitor-droz",
+      "PI-Security/prd-lambda-monitor-zendesk",
+      "PI-Security/prd-lambda-natural-person-purge",
+      "PI-Security/prd-lambda-ocr",
+      "PI-Security/prd-lambda-preventive-analysis",
+      "PI-Security/prd-lambda-preventive-analysis-legal-person",
+      "PI-Security/prd-lambda-proposal-analysis",
+      "PI-Security/prd-lambda-reason",
+      "PI-Security/prd-lambda-report-ad",
+      "PI-Security/prd-lambda-restrictive-list",
+      "PI-Security/prd-service-etl-internauta",
+      "PI-Security/prd-ui-legalperson-zendesk",
+      "prd-api-mail-message",
+      "prd-lambda-api-ad-import",
+      "prd-lambda-audit-access",
+      "prd-lambda-physicalperson-salesforce",
+      "prd-lambda-vehicleinspection",
+      "prd-ui-physical-person"
+    ],
+    "all_jobs": [
+      "PI-Security/login-ui/login-ui-prd",
+      "PI-Security/prd-api-ad-zendesk",
+      "PI-Security/prd-ecs-api-access",
+      "PI-Security/prd-ecs-api-upld",
+      "PI-Security/prd-ecs-api-zendesk",
+      "PI-Security/prd-etl-upld-upload-process",
+      "PI-Security/prd-lambda-access-api",
+      "PI-Security/prd-lambda-address-api",
+      "PI-Security/prd-lambda-annotation",
+      "PI-Security/prd-lambda-antifraud-api",
+      "PI-Security/prd-lambda-api-ad",
+      "PI-Security/prd-lambda-api-cognito",
+      "PI-Security/prd-lambda-api-legal-person",
+      "PI-Security/prd-lambda-api-natural-person",
+      "PI-Security/prd-lambda-audit",
+      "PI-Security/prd-lambda-authorization",
+      "PI-Security/prd-lambda-bureau",
+      "PI-Security/prd-lambda-bureau-javascript",
+      "PI-Security/prd-lambda-bureau-santander-person",
+      "PI-Security/prd-lambda-consent",
+      "PI-Security/prd-lambda-internauta",
+      "PI-Security/prd-lambda-jira-automation",
+      "PI-Security/prd-lambda-legal-person-api-new",
+      "PI-Security/prd-lambda-legal-person-notificate",
+      "PI-Security/prd-lambda-legal-person-update-sql-keys",
+      "PI-Security/prd-lambda-login",
+      "PI-Security/prd-lambda-mail-message",
+      "PI-Security/prd-lambda-monitor-droz",
+      "PI-Security/prd-lambda-monitor-zendesk",
+      "PI-Security/prd-lambda-natural-person-purge",
+      "PI-Security/prd-lambda-ocr",
+      "PI-Security/prd-lambda-preventive-analysis",
+      "PI-Security/prd-lambda-preventive-analysis-legal-person",
+      "PI-Security/prd-lambda-proposal-analysis",
+      "PI-Security/prd-lambda-reason",
+      "PI-Security/prd-lambda-report-ad",
+      "PI-Security/prd-lambda-restrictive-list",
+      "PI-Security/prd-service-etl-internauta",
+      "PI-Security/prd-ui-legalperson-zendesk",
+      "prd-api-mail-message",
+      "prd-lambda-api-ad-import",
+      "prd-lambda-audit-access",
+      "prd-lambda-physicalperson-salesforce",
+      "prd-lambda-vehicleinspection",
+      "prd-ui-physical-person"
+    ]
+  },
+  "webmotors-private/webmotors.portal": {
+    "prd_jobs": [
+      "PF-Api/pf-api-app-prd",
+      "PF-Api/pf-api-web-prd"
+    ],
+    "all_jobs": [
+      "PF-Api/pf-api-app-prd",
+      "PF-Api/pf-api-web-prd"
+    ]
+  },
+  "webmotors-private/webmotors.portal-parceria-lead": {
+    "prd_jobs": [
+      "wm-portal-parceria-lead-prd-pf",
+      "wm-portal-parceria-lead-prd-root"
+    ],
+    "all_jobs": [
+      "wm-portal-parceria-lead-prd-pf",
+      "wm-portal-parceria-lead-prd-root"
+    ]
+  },
+  "webmotors-private/webmotors.portal.api": {
+    "prd_jobs": [
+      "prd-wm-portal-api"
+    ],
+    "all_jobs": [
+      "prd-wm-portal-api"
+    ]
+  },
+  "webmotors-private/webmotors.portal.conversions.facebook": {
+    "prd_jobs": [
+      "prd-lambda-conversions-facebook"
+    ],
+    "all_jobs": [
+      "prd-lambda-conversions-facebook"
+    ]
+  },
+  "webmotors-private/webmotors.portal.dealer.info.sync": {
+    "prd_jobs": [
+      "wm-dealer-info-prd"
+    ],
+    "all_jobs": [
+      "wm-dealer-info-prd"
+    ]
+  },
+  "webmotors-private/webmotors.portal.lead.analytics": {
+    "prd_jobs": [
+      "prd-portal-lead-analytics-send"
+    ],
+    "all_jobs": [
+      "prd-portal-lead-analytics-send"
+    ]
+  },
+  "webmotors-private/webmotors.portal.logs": {
+    "prd_jobs": [
+      "wm-processlog-prd"
+    ],
+    "all_jobs": [
+      "wm-processlog-prd"
+    ]
+  },
+  "webmotors-private/webmotors.portal.postenquiry": {
+    "prd_jobs": [
+      "prd-portal-lead-send-post-enquiry"
+    ],
+    "all_jobs": [
+      "prd-portal-lead-send-post-enquiry"
+    ]
+  },
+  "webmotors-private/webmotors.portal.ui": {
+    "prd_jobs": [
+      "prd-wm-buyer-lambda-home-ui"
+    ],
+    "all_jobs": [
+      "prd-wm-buyer-lambda-home-ui"
+    ]
+  },
+  "webmotors-private/webmotors.portal.wm1.service": {
+    "prd_jobs": [
+      "prd-wm1-portal-service"
+    ],
+    "all_jobs": [
+      "prd-wm1-portal-service"
+    ]
+  },
+  "webmotors-private/webmotors.precodinamico.ui": {
+    "prd_jobs": [
+      "PrecoDinamico-UI/precodinamico-ui-prd"
+    ],
+    "all_jobs": [
+      "PrecoDinamico-UI/precodinamico-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.react.pj": {
+    "prd_jobs": [
+      "Cockpit.Inspection/prd-cockpit-inspection-ui",
+      "agendafacil-cockpit-ui-prd",
+      "cockpit-backoffice-offers-ui-prd",
+      "cockpit-backoffice-ui-prd",
+      "cockpit-crmcustomer-ui-prd",
+      "cockpit-integration-usermanagement-ui-prd",
+      "cockpit-invoice-ui-prd",
+      "cockpit-leads-ui-prd",
+      "cockpit-store-ui-prd",
+      "cockpit-ui-prd",
+      "cockpit-wallet-ui-prd",
+      "prd-cockpit-signature-ui",
+      "prd-cockpit-stock-ui",
+      "prd-cockpit-stock-ui-channel",
+      "prd-ui-physical-person",
+      "subscription-backoffice-ui-prd",
+      "webmotors-cockpit-webtv-ui-prd"
+    ],
+    "all_jobs": [
+      "Cockpit.Inspection/prd-cockpit-inspection-ui",
+      "agendafacil-cockpit-ui-prd",
+      "cockpit-backoffice-offers-ui-prd",
+      "cockpit-backoffice-ui-prd",
+      "cockpit-crmcustomer-ui-prd",
+      "cockpit-integration-usermanagement-ui-prd",
+      "cockpit-invoice-ui-prd",
+      "cockpit-leads-ui-prd",
+      "cockpit-store-ui-prd",
+      "cockpit-ui-prd",
+      "cockpit-wallet-ui-prd",
+      "prd-cockpit-signature-ui",
+      "prd-cockpit-stock-ui",
+      "prd-cockpit-stock-ui-channel",
+      "prd-ui-physical-person",
+      "subscription-backoffice-ui-prd",
+      "webmotors-cockpit-webtv-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.sales.api.revendamais": {
+    "prd_jobs": [
+      "pi.sales.api-revendamais.cancel.prd",
+      "pi.sales.api-revendamais.save.prd",
+      "pi.sales.api-revendamais.update.prd"
+    ],
+    "all_jobs": [
+      "pi.sales.api-revendamais.cancel.prd",
+      "pi.sales.api-revendamais.save.prd",
+      "pi.sales.api-revendamais.update.prd"
+    ]
+  },
+  "webmotors-private/webmotors.sales.dependabot.analyzer": {
+    "prd_jobs": [
+      "sales.dependabot.analyzer.prd"
+    ],
+    "all_jobs": [
+      "sales.dependabot.analyzer.prd"
+    ]
+  },
+  "webmotors-private/webmotors.santander.webapi.integration": {
+    "prd_jobs": [
+      "PI-Money/prd-ecs-santander-integration"
+    ],
+    "all_jobs": [
+      "PI-Money/prd-ecs-santander-integration"
+    ]
+  },
+  "webmotors-private/webmotors.seller.api": {
+    "prd_jobs": [
+      "Seller-Api/seller-api-prd"
+    ],
+    "all_jobs": [
+      "Seller-Api/seller-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.sendmail": {
+    "prd_jobs": [
+      "ckp.sendmail.salesforce.api.prd"
+    ],
+    "all_jobs": [
+      "ckp.sendmail.salesforce.api.prd"
+    ]
+  },
+  "webmotors-private/webmotors.subscription.api": {
+    "prd_jobs": [
+      "portal-assinaturas-root-account/wm-subscription-api-prd-root-account",
+      "portal-subscription/wm-subscription-prd-api"
+    ],
+    "all_jobs": [
+      "portal-assinaturas-root-account/wm-subscription-api-prd-root-account",
+      "portal-subscription/wm-subscription-prd-api"
+    ]
+  },
+  "webmotors-private/webmotors.subscription.backoffice.ui": {
+    "prd_jobs": [
+      "subscription-backoffice-ui-prd"
+    ],
+    "all_jobs": [
+      "subscription-backoffice-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.subscription.cms": {
+    "prd_jobs": [
+      "portal-subscription-cms/subscription-cms-api-prd"
+    ],
+    "all_jobs": [
+      "portal-subscription-cms/subscription-cms-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.tv": {
+    "prd_jobs": [
+      "webmotors-tv-cockpit-prd",
+      "webmotors-tv-common-prd",
+      "webmotors-tv-feed-prd",
+      "webmotors-tv-market-square-prd",
+      "webmotors-tv-production-schedule-hml",
+      "webmotors-tv-production-schedule-prd",
+      "webmotors-tv-sale-prd"
+    ],
+    "all_jobs": [
+      "webmotors-tv-cockpit-prd",
+      "webmotors-tv-common-prd",
+      "webmotors-tv-feed-prd",
+      "webmotors-tv-market-square-prd",
+      "webmotors-tv-production-schedule-hml",
+      "webmotors-tv-production-schedule-prd",
+      "webmotors-tv-sale-prd"
+    ]
+  },
+  "webmotors-private/webmotors.tv.ui": {
+    "prd_jobs": [
+      "webmotors-tv-ui-prd"
+    ],
+    "all_jobs": [
+      "webmotors-tv-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.banner": {
+    "prd_jobs": [
+      "university-banner-api-prd"
+    ],
+    "all_jobs": [
+      "university-banner-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.certificate": {
+    "prd_jobs": [
+      "university-certificate-api-prd"
+    ],
+    "all_jobs": [
+      "university-certificate-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.course": {
+    "prd_jobs": [
+      "university-course-api-prd"
+    ],
+    "all_jobs": [
+      "university-course-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.enrollment": {
+    "prd_jobs": [
+      "university-enrollment-api-prd"
+    ],
+    "all_jobs": [
+      "university-enrollment-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.event": {
+    "prd_jobs": [
+      "university-event-api-prd"
+    ],
+    "all_jobs": [
+      "university-event-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.lead": {
+    "prd_jobs": [
+      "university-lead-api-prd"
+    ],
+    "all_jobs": [
+      "university-lead-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.streaming": {
+    "prd_jobs": [
+      "university-streaming-api-prd"
+    ],
+    "all_jobs": [
+      "university-streaming-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.university.user": {
+    "prd_jobs": [
+      "university-user-api-prd"
+    ],
+    "all_jobs": [
+      "university-user-api-prd"
+    ]
+  },
+  "webmotors-private/webmotors.upld": {
+    "prd_jobs": [
+      "PI-Security/prd-ecs-api-upld"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-ecs-api-upld"
+    ]
+  },
+  "webmotors-private/webmotors.vehicleinspection": {
+    "prd_jobs": [
+      "prd-cockpit-stock-vehicleinspection"
+    ],
+    "all_jobs": [
+      "prd-cockpit-stock-vehicleinspection"
+    ]
+  },
+  "webmotors-private/webmotors.vender": {
+    "prd_jobs": [
+      "Vender-UI/vender-ui-prd"
+    ],
+    "all_jobs": [
+      "Vender-UI/vender-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.vender.lp": {
+    "prd_jobs": [
+      "VenderLP-UI/venderlp-ui-prd"
+    ],
+    "all_jobs": [
+      "VenderLP-UI/venderlp-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.vmotors": {
+    "prd_jobs": [
+      "api-pj-prd"
+    ],
+    "all_jobs": [
+      "api-pj-prd"
+    ]
+  },
+  "webmotors-private/webmotors.webapi.payment": {
+    "prd_jobs": [
+      "prd-ecs-api-payment"
+    ],
+    "all_jobs": [
+      "prd-ecs-api-payment"
+    ]
+  },
+  "webmotors-private/webmotors.webservicos.api": {
+    "prd_jobs": [
+      "webservicos-api-banner-prd",
+      "webservicos-api-user-prd"
+    ],
+    "all_jobs": [
+      "webservicos-api-banner-prd",
+      "webservicos-api-user-prd"
+    ]
+  },
+  "webmotors-private/webmotors.webservicos.api.bff": {
+    "prd_jobs": [
+      "webservicos-api-bff-prd"
+    ],
+    "all_jobs": [
+      "webservicos-api-bff-prd"
+    ]
+  },
+  "webmotors-private/webmotors.webservicos.lambdas": {
+    "prd_jobs": [
+      "webservicos-lambdas-prd"
+    ],
+    "all_jobs": [
+      "webservicos-lambdas-prd"
+    ]
+  },
+  "webmotors-private/webmotors.webservicos.landingpage": {
+    "prd_jobs": [
+      "webservicos-landingpage-next-ui-prd"
+    ],
+    "all_jobs": [
+      "webservicos-landingpage-next-ui-prd"
+    ]
+  },
+  "webmotors-private/webmotors.zendesk": {
+    "prd_jobs": [
+      "PI-Security/prd-ecs-api-zendesk"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-ecs-api-zendesk"
+    ]
+  },
+  "webmotors-private/webmotors.zendesk.app": {
+    "prd_jobs": [
+      "PI-Security/prd-ui-legalperson-zendesk"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-ui-legalperson-zendesk"
+    ]
+  },
+  "webmotors-private/webmotors.zendesk.natural.person.app": {
+    "prd_jobs": [
+      "PI-Security/prd-api-ad-zendesk"
+    ],
+    "all_jobs": [
+      "PI-Security/prd-api-ad-zendesk"
+    ]
+  },
+  "webmotors-private/webmotors.zero.integracao.facebook": {
+    "prd_jobs": [
+      "OEM/zero-integration-webhook-facebook/prd-lambda-zero-integration-webhook-facebook"
+    ],
+    "all_jobs": [
+      "OEM/zero-integration-webhook-facebook/prd-lambda-zero-integration-webhook-facebook"
+    ]
+  },
+  "webmotors-private/webmotors.zero.leads": {
+    "prd_jobs": [
+      "OEM/zero-leads/prd-lambda-zero-leads"
+    ],
+    "all_jobs": [
+      "OEM/zero-leads/prd-lambda-zero-leads"
+    ]
+  },
+  "webmotors-private/webmotors.zero.officialstore.ui": {
+    "prd_jobs": [
+      "zero-officialstore-ui-prod-deletar",
+      "zero-officialstore-ui/zero-officialstore-ui-prod"
+    ],
+    "all_jobs": [
+      "zero-officialstore-ui-prod-deletar",
+      "zero-officialstore-ui/zero-officialstore-ui-prod"
+    ]
+  },
+  "webmotors-private/webmotors.zero.pipelines": {
+    "prd_jobs": [
+      "OEM/zero-integration-webhook-facebook/prd-lambda-zero-integration-webhook-facebook",
+      "OEM/zero-leads/prd-lambda-zero-leads",
+      "OEM/zero-preorder/prd-lambda-zero-preorder"
+    ],
+    "all_jobs": [
+      "OEM/zero-integration-webhook-facebook/prd-lambda-zero-integration-webhook-facebook",
+      "OEM/zero-leads/prd-lambda-zero-leads",
+      "OEM/zero-preorder/prd-lambda-zero-preorder"
+    ]
+  },
+  "webmotors-private/webmotors.zero.preorder.api": {
+    "prd_jobs": [
+      "OEM/zero-preorder/prd-lambda-zero-preorder"
+    ],
+    "all_jobs": [
+      "OEM/zero-preorder/prd-lambda-zero-preorder"
+    ]
+  },
+  "webmotors-private/webmotors.zerokm": {
+    "prd_jobs": [
+      "prd-zero-campaigns-api-deletar"
+    ],
+    "all_jobs": [
+      "prd-zero-campaigns-api-deletar"
+    ]
+  },
+  "webmotors-private/webmotors.zerokm.client": {
+    "prd_jobs": [
+      "webmotors-zerokm-client-prd"
+    ],
+    "all_jobs": [
+      "webmotors-zerokm-client-prd"
+    ]
+  },
+  "webmotors-private/webmotors.zerokm.ui": {
+    "prd_jobs": [
+      "webmotors-zerokm-ui-prd"
+    ],
+    "all_jobs": [
+      "webmotors-zerokm-ui-prd"
+    ]
+  },
+  "webmotors-private/wm1-api": {
+    "prd_jobs": [
+      "prd-wm1-admin",
+      "prd-wm1-api"
+    ],
+    "all_jobs": [
+      "prd-wm1-admin",
+      "prd-wm1-api"
+    ]
+  },
+  "webmotors-private/wm1-ui": {
+    "prd_jobs": [
+      "prd-wm1-ui"
+    ],
+    "all_jobs": [
+      "prd-wm1-ui"
+    ]
+  },
+  "_metadata": {
+    "generated": "2026-04-14",
+    "method": "READ-ONLY SCM scan of 544 active PRD Jenkins jobs via lastBuild/remoteUrls API",
+    "total_repos": 283,
+    "total_prd_jobs": 577,
+    "note": "Maps GitHub repos to Jenkins PRD jobs. Source: Git remoteUrl from lastBuild metadata."
   }
 }

@@ -40,72 +40,14 @@ connections:
     base_url: ${JENKINS_BASE_URL}
     sync_interval_minutes: 15
     scope:
-      # Auto-mapped 2026-03-27 by scanning 1404 Jenkins jobs (READ-ONLY).
-      # Each job's lastBuild → BuildData → remoteUrls was matched to our 9 GitHub repos.
-      # Only PRD (production) jobs are included — for DORA Deployment Frequency.
-      # Full mapping saved in config/jenkins-job-mapping.json.
+      # Job list is loaded from config/jenkins-job-mapping.json (auto-generated).
+      # Generated 2026-04-14 by READ-ONLY SCM scan of 544 active PRD Jenkins
+      # jobs — each job's lastBuild → remoteUrls resolves the GitHub repo.
+      # Total: 577 PRD jobs across 283 repos.
       #
-      # Since these ARE production jobs (job name contains "prd"), every build
-      # counts as a production deployment. deploymentPattern matches all builds;
-      # productionPattern matches the job name itself (always "prd").
-      jobs:
-        # ── webmotors.next.ui (3 PRD jobs) ─────────────────
-        - fullName: "prd-wm-buyer-home-frontend-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "prd-wm-buyer-search-frontend-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "prd-wm-buyer-subscriptions-frontend-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.portal.ui (1 PRD job) ────────────────
-        - fullName: "prd-wm-buyer-lambda-home-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.buyer.ui (1 PRD job) ─────────────────
-        - fullName: "prd-wm-buyer-lambda-mobile-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.buyer.desktop.ui (1 PRD job) ─────────
-        - fullName: "prd-wm-buyer-lambda-desktop-ui"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.catalogo.next.ui (1 PRD job) ─────────
-        - fullName: "catalogo-next-ui-prd"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.fipe.next.ui (1 PRD job) ─────────────
-        - fullName: "fipe-next-ui-prd"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── webmotors.pf (6 PRD jobs: android, iOS, web) ───
-        - fullName: "android-pf-prd-firebase"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "android-pf-prd-playstore"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "ios-pf-prd-firebase"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "ios-pf-prd-testflight"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "web-cms-pf-prd"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        - fullName: "webservicos-web-prd"
-          deploymentPattern: ".*"
-          productionPattern: "(?i)prd"
-        # ── eleanor.flutter (1 job — no env suffix) ────────
-        - fullName: "webmotors-eleanor-flutter"
-          deploymentPattern: ".*"
-          productionPattern: ".*"
-        # ── webmotors.app.pf.search.bff (1 job — no env suffix)
-        - fullName: "webmotors-app-api-search-bff"
-          deploymentPattern: ".*"
-          productionPattern: ".*"
+      # To regenerate: run scripts/discover_jenkins_jobs.py (READ-ONLY).
+      # The sync worker reads prd_jobs from the mapping file at startup.
+      jobs_from_mapping: true  # Signals config.py to use jenkins-job-mapping.json
 
   - name: "Webmotors Jira"
     source: jira
