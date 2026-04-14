@@ -410,11 +410,14 @@ def normalize_deployment(
 
     source = _detect_source(devlake_deploy)
 
-    # For Jenkins, the job name (in `name` field) serves as a proxy for repo
-    # since Jenkins jobs are typically mapped 1:1 to repos
+    # For Jenkins, prefer the resolved repo_name from job→repo mapping
+    # (populated by JenkinsConnector from jenkins-job-mapping.json).
+    # Falls back to job name if no mapping exists.
     if source == "jenkins":
-        repo = str(devlake_deploy.get("name", "")) or _extract_repo_from_id(
-            devlake_deploy.get("repo_id"), None
+        repo = (
+            devlake_deploy.get("repo_name")
+            or str(devlake_deploy.get("name", ""))
+            or _extract_repo_from_id(devlake_deploy.get("repo_id"), None)
         )
     else:
         repo = _extract_repo_from_id(

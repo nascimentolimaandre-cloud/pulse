@@ -53,6 +53,7 @@ class JenkinsConnector(BaseConnector):
         username: str | None = None,
         api_token: str | None = None,
         jobs: list[dict[str, str]] | None = None,
+        job_to_repo: dict[str, str] | None = None,
         connection_id: int = 1,
     ) -> None:
         self._base_url = (base_url or settings.jenkins_base_url).rstrip("/")
@@ -62,6 +63,10 @@ class JenkinsConnector(BaseConnector):
 
         # Job configs from connections.yaml
         self._jobs = jobs or []
+
+        # Reverse map: Jenkins job fullName → GitHub repo short name
+        # Used to populate eng_deployments.repo with the actual repo name
+        self._job_to_repo = job_to_repo or {}
 
         if not self._base_url or not self._api_token:
             raise ValueError(
@@ -227,11 +232,15 @@ class JenkinsConnector(BaseConnector):
 
         environment = self._detect_environment(job_name, build)
 
+        # Resolve GitHub repo name from job→repo mapping
+        repo_name = self._job_to_repo.get(job_name, job_name)
+
         return {
             "id": f"jenkins:JenkinsBuild:{self._connection_id}:{job_name}:{build_number}",
             "cicd_deployment_id": f"jenkins:JenkinsJob:{self._connection_id}:{job_name}",
             "repo_id": None,
             "name": job_name,
+            "repo_name": repo_name,  # GitHub repo name (resolved from mapping)
             "result": result,  # SUCCESS, FAILURE, UNSTABLE, ABORTED, NOT_BUILT
             "status": "DONE",
             "environment": environment,

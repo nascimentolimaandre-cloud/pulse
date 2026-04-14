@@ -225,8 +225,16 @@ class DataSyncWorker:
         # Jenkins
         if settings.jenkins_api_token and settings.jenkins_base_url:
             try:
-                connectors.append(JenkinsConnector())
-                logger.info("Jenkins connector initialized (url: %s)", settings.jenkins_base_url)
+                jenkins_jobs = settings.jenkins_jobs
+                job_to_repo = settings.jenkins_job_to_repo
+                connectors.append(JenkinsConnector(
+                    jobs=jenkins_jobs,
+                    job_to_repo=job_to_repo,
+                ))
+                logger.info(
+                    "Jenkins connector initialized (url: %s, jobs: %d, repo-map: %d)",
+                    settings.jenkins_base_url, len(jenkins_jobs), len(job_to_repo),
+                )
             except Exception:
                 logger.warning("Failed to initialize Jenkins connector", exc_info=True)
 
