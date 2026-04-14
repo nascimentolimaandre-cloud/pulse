@@ -102,6 +102,8 @@ services:
       JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
     volumes:
       - ./packages/pulse-data/src:/app/src
+      - ./config/connections.yaml:/app/config/connections.yaml:ro
+      - ./config/jenkins-job-mapping.json:/app/config/jenkins-job-mapping.json:ro
     depends_on:
       postgres:
         condition: service_healthy
