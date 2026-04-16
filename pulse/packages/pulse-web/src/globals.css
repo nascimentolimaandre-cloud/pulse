@@ -142,6 +142,22 @@
   backdrop-filter: blur(24px);
 }
 
+/* Reduced motion: disable all custom animations */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer-flow,
+  .animate-pulse-ring,
+  .animate-data-flow,
+  .animate-node-glow,
+  .animate-cursor-blink {
+    animation: none !important;
+  }
+}
+
+/* Scrollbar for pipeline drawer / timeline */
+.pipeline-scroll::-webkit-scrollbar { width: 5px; }
+.pipeline-scroll::-webkit-scrollbar-track { background: transparent; }
+.pipeline-scroll::-webkit-scrollbar-thumb { background: var(--color-border-default); border-radius: 3px; }
+
 /* Base layer resets */
 @layer base {
   body {
