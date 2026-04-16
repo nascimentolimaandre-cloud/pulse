@@ -1,170 +1,140 @@
-/* ── Pipeline Monitor Types ── */
+/* ── Pipeline Monitor v2 Types ── */
 
-export type PipelineOverallStatus = 'healthy' | 'syncing' | 'degraded' | 'error';
+export type SourceStatus = 'healthy' | 'backfilling' | 'degraded' | 'error' | 'slow';
+export type EntityStatus = 'idle' | 'healthy' | 'running' | 'backfilling' | 'degraded' | 'error';
+export type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'degraded';
+export type GlobalHealth = 'healthy' | 'degraded' | 'error' | 'backfilling' | 'slow';
+export type Severity = 'success' | 'info' | 'warning' | 'error';
 
-export type PipelineStageStatus = 'healthy' | 'syncing' | 'idle' | 'error' | 'standby';
+export type StatusKey =
+  | 'healthy'
+  | 'idle'
+  | 'running'
+  | 'backfilling'
+  | 'degraded'
+  | 'error'
+  | 'done'
+  | 'slow'
+  | 'disabled'
+  | 'pending';
 
-export interface PipelineStage {
-  name: string;
-  status: PipelineStageStatus;
-  label: string;
-  detail: string | null;
-  last_activity: string | null;
+/* ── Health ── */
+
+export interface PipelineHealthResponse {
+  health: GlobalHealth;
+  lastUpdatedAt: string;
+  kpis: {
+    recordsToday: number;
+    recordsTrendPct: number;
+    prIssueLinkRate: number;
+    prIssueLinkTrendPp: number;
+    reposWithDeploy30d: { covered: number; total: number };
+    avgSyncLagSec: number;
+    p95SyncLagSec: number;
+  };
 }
 
-export interface PipelineKpis {
-  total_records: number;
-  synced_today: number;
-  pending_sync: number;
-  errors_24h: number;
-  total_records_trend: number | null;
+/* ── Sources ── */
+
+export interface Step {
+  name: 'fetch' | 'changelog' | 'normalize' | 'upsert';
+  status: StepStatus;
+  processed: number;
+  total: number;
+  durationSec?: number;
+  etaSec?: number;
+  throughputPerSec?: number;
 }
 
-export interface RecordCount {
-  entity: string;
-  /** @deprecated Renamed from devlake_count — now mirrors pulse_count (no intermediate DB). */
-  devlake_count: number;
-  pulse_count: number;
-  difference: number;
-  is_synced: boolean;
-}
-
-export interface RecentSync {
-  id: string;
-  started_at: string;
-  finished_at: string | null;
-  status: string;
-  trigger: string;
-  duration_seconds: number | null;
-  records_processed: Record<string, number>;
-  error_count: number;
-}
-
-export interface PipelineError {
-  stage: string;
-  message: string;
-  timestamp: string;
-  error_code: string | null;
-  context: Record<string, unknown>;
-}
-
-/** @deprecated Kept for API response backward compatibility. Always returns defaults. */
-export interface DevLakeStatus {
-  is_running: boolean;
-  last_status: string | null;
-  last_finished_at: string | null;
-}
-
-/* ── Source Connection (MVP-1.7.14) ── */
-
-export interface SourceConnection {
+export interface Entity {
   type: string;
   label: string;
-  icon: string;
-  active: boolean;
-  syncing: boolean;
+  status: EntityStatus;
+  watermark: string;
+  lastCycleRecords?: number;
+  lastCycleDurationSec?: number;
+  error?: string;
+  steps?: Step[];
 }
 
-/* ── Pipeline Event (MVP-1.7.10 / MVP-1.7.15) ── */
+export interface SourceCatalog {
+  active: number;
+  discovered: number;
+  paused: number;
+  blocked: number;
+  archived: number;
+}
 
-export interface PipelineEvent {
+export interface Source {
   id: string;
-  event_type: string;
-  source: string;
-  title: string;
-  detail: string | null;
-  severity: 'info' | 'warning' | 'error' | 'success';
-  metadata: Record<string, unknown>;
-  occurred_at: string;
-}
-
-/* ── Ingestion Progress (real-time tracking) ── */
-
-export interface IngestionEntityProgress {
-  entity_type: string;
-  status: 'idle' | 'running' | 'completed' | 'failed';
-  total_sources: number;
-  sources_done: number;
-  records_ingested: number;
-  current_source: string | null;
-  started_at: string | null;
-  last_batch_at: string | null;
-  finished_at: string | null;
-  error_message: string | null;
-  progress_pct: number;
-  rate_per_minute: number;
-  eta_minutes: number | null;
-  elapsed_minutes: number;
-}
-
-export interface IngestionProgressResponse {
-  entities: IngestionEntityProgress[];
-  any_running: boolean;
-  last_updated: string;
-}
-
-/* ── Main Status Response (Tela 1) ── */
-
-export interface PipelineStatusData {
-  overall_status: PipelineOverallStatus;
-  stages: PipelineStage[];
-  kpis: PipelineKpis;
-  record_counts: RecordCount[];
-  recent_syncs: RecentSync[];
-  recent_errors: PipelineError[];
-  recent_events: PipelineEvent[];
-  source_connections: SourceConnection[];
-  devlake: DevLakeStatus;
-  last_updated: string;
-}
-
-/* ── Source Filtered Status (Tela 2 — MVP-1.7.12/16/17/18) ── */
-
-export interface ActiveSync {
   name: string;
-  strategy: string;
-  progress: number;
-  last_key: string;
-  status: string;
+  status: SourceStatus;
+  connections: number;
+  rateLimitPct: number;
+  watermark: string;
+  catalog: SourceCatalog;
+  entities: Entity[];
 }
 
-export interface SourceFilteredStatus {
-  source: string;
-  kpis: Record<string, unknown>;
-  stages: PipelineStage[];
-  active_syncs: ActiveSync[];
-  recent_logs: PipelineEvent[];
-  health_pct: number;
-  sync_mode: string;
-}
+/* ── Integrations ── */
 
-/* ── Metrics Worker Status (Tela 3 — MVP-1.7.19/20) ── */
-
-export interface MetricsWorkerSnapshot {
-  snapshot_id: string;
-  metric_type: string;
-  timestamp: string | null;
-  duration_seconds: number | null;
-  records_processed: number;
-  status: string;
-}
-
-export interface MetricsWorkerStage {
+export interface Integration {
+  id: string;
   name: string;
-  icon: string;
-  active: boolean;
-  label: string;
+  connected: boolean;
+  status: 'healthy' | 'backfilling' | 'degraded' | 'error' | 'disabled';
+  detail: string;
 }
 
-export interface MetricsWorkerClusterLog {
-  timestamp: string;
-  level: string;
+/* ── Teams ── */
+
+export interface TeamHealth {
+  id: string;
+  name: string;
+  tribe: string | null;
+  squadKey: string;
+  health: 'healthy' | 'backfilling' | 'degraded' | 'error';
+  repos: number;
+  jiraProjects: string[];
+  jenkinsJobs: number;
+  prCount: number;
+  issueCount: number;
+  deployCount: number;
+  linkRate: number;
+  lastSync: string;
+  lagSec: number;
+}
+
+/* ── Timeline ── */
+
+export interface TimelineEvent {
+  ts: string;
+  severity: Severity;
+  stage: string;
   message: string;
 }
 
-export interface MetricsWorkerStatus {
-  kpis: Record<string, unknown>;
-  stages: MetricsWorkerStage[];
-  snapshots: MetricsWorkerSnapshot[];
-  cluster_logs: MetricsWorkerClusterLog[];
+/* ── Coverage ── */
+
+export interface CoverageResponse {
+  reposWithDeploy: { covered: number; total: number };
+  prIssueLinkRate: number;
+  orphanPrefixes: Array<{ prefix: string; prMentions: number }>;
+  activeProjectsWithoutIssues: Array<{ key: string; name: string }>;
+}
+
+/* ── Pipeline Phase (used for pipeline tab view) ── */
+
+export interface PipelinePhaseCell {
+  phase: string;
+  status: StatusKey;
+  line1: string;
+  line2: string;
+  steps?: Array<{ n: string; s: StepStatus; p: number }>;
+}
+
+export interface PipelineSourceRow {
+  sourceId: string;
+  sourceName: string;
+  phases: PipelinePhaseCell[];
 }
