@@ -1,226 +1,199 @@
-"""Pydantic v2 response models for BC5 — Pipeline Monitor API.
+"""Pydantic v2 response models for Pipeline Monitor v2.
 
-Typed responses for the pipeline status endpoint. Models represent
-the pipeline stages, KPIs, record counts, sync logs, and errors
-that make up the consolidated pipeline health view.
+Complete replacement of v1 schemas. All models use camelCase aliases
+for JSON output as required by the frontend spec.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 
 # ---------------------------------------------------------------------------
-# Pipeline stage status
+# Status literal types
 # ---------------------------------------------------------------------------
 
-
-class PipelineStageStatus(BaseModel):
-    """Status of a single pipeline stage."""
-
-    name: str  # "sources" | "sync_worker" | "pulse_db" | "metrics_worker"
-    status: str  # "healthy" | "syncing" | "idle" | "error" | "standby"
-    label: str  # Human-readable label
-    detail: str | None = None  # e.g. "12 active" or "1.4 GB/s"
-    last_activity: datetime | None = None
+StepStatus = Literal["pending", "running", "done", "error", "degraded"]
+EntityStatus = Literal["idle", "healthy", "running", "backfilling", "degraded", "error"]
+SourceStatus = Literal["healthy", "backfilling", "degraded", "error", "slow"]
+IntegrationStatus = Literal["healthy", "backfilling", "degraded", "error", "disabled"]
+HealthStatus = Literal["healthy", "degraded", "error", "backfilling", "slow"]
 
 
 # ---------------------------------------------------------------------------
-# KPIs
+# Base config for camelCase output
 # ---------------------------------------------------------------------------
 
-
-class PipelineKPIs(BaseModel):
-    """Key performance indicators for the pipeline."""
-
-    total_records: int = 0
-    synced_today: int = 0
-    pending_sync: int = 0
-    errors_24h: int = 0
-    total_records_trend: float | None = None  # % change vs last period
+class _CamelModel(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
 
 # ---------------------------------------------------------------------------
-# Record counts
+# Step / Entity / Source
 # ---------------------------------------------------------------------------
 
+class Step(_CamelModel):
+    """A single processing step within an entity sync cycle.
 
-class RecordCount(BaseModel):
-    """Record count for a single entity type."""
-
-    entity: str  # "pull_requests" | "issues" | "deployments" | "sprints"
-    devlake_count: int = 0  # Legacy field name; now mirrors pulse_count (no intermediate DB)
-    pulse_count: int = 0
-    difference: int = 0
-    is_synced: bool = True
-
-
-# ---------------------------------------------------------------------------
-# Sync logs
-# ---------------------------------------------------------------------------
-
-
-class SyncLogEntry(BaseModel):
-    """A single sync cycle log entry."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    started_at: datetime
-    finished_at: datetime | None = None
-    status: str
-    trigger: str = "scheduled"
-    duration_seconds: float | None = None
-    records_processed: dict[str, Any] = Field(default_factory=dict)
-    error_count: int = 0
-
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
-class PipelineError(BaseModel):
-    """A recent pipeline error."""
-
-    stage: str
-    message: str
-    timestamp: datetime
-    error_code: str | None = None
-    context: dict[str, Any] = Field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# Legacy pipeline info (kept for API backward compatibility)
-# ---------------------------------------------------------------------------
-
-
-class DevLakePipelineInfo(BaseModel):
-    """Legacy pipeline info stub. Always returns defaults since DevLake was removed (ADR-005)."""
-
-    is_running: bool = False
-    last_status: str | None = None
-    last_finished_at: datetime | None = None
-
-
-# ---------------------------------------------------------------------------
-# Pipeline events
-# ---------------------------------------------------------------------------
-
-
-class PipelineEventEntry(BaseModel):
-    """A pipeline activity event."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    event_type: str
-    source: str
-    title: str
-    detail: str | None = None
-    severity: str = "info"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    occurred_at: datetime
-
-
-# ---------------------------------------------------------------------------
-# Source-filtered status (Tela 2)
-# ---------------------------------------------------------------------------
-
-
-class SourceFilteredStatus(BaseModel):
-    """Pipeline status filtered by source type (Tela 2)."""
-
-    source: str
-    kpis: dict[str, Any]  # Dynamic KPIs per source
-    stages: list[PipelineStageStatus]
-    active_syncs: list[dict[str, Any]]  # Board/repo sync details
-    recent_logs: list[PipelineEventEntry]
-    health_pct: float = 100.0
-    sync_mode: str = "delta"
-
-
-# ---------------------------------------------------------------------------
-# Metrics worker (Tela 3)
-# ---------------------------------------------------------------------------
-
-
-class MetricsWorkerSnapshot(BaseModel):
-    """Metrics worker snapshot entry (Tela 3)."""
-
-    snapshot_id: str
-    metric_type: str  # "DORA" | "Lean & Flow" | "Cycle Time" | "Throughput"
-    timestamp: datetime | None = None
-    duration_seconds: float | None = None
-    records_processed: int = 0
-    status: str = "idle"  # "success" | "calculating" | "idle" | "error"
-
-
-class MetricsWorkerStatus(BaseModel):
-    """Metrics Worker drill-down view (Tela 3)."""
-
-    kpis: dict[str, Any]
-    stages: list[dict[str, Any]]
-    snapshots: list[MetricsWorkerSnapshot]
-    cluster_logs: list[dict[str, Any]]
-
-
-# ---------------------------------------------------------------------------
-# Ingestion progress (real-time tracking)
-# ---------------------------------------------------------------------------
-
-
-class IngestionEntityProgress(BaseModel):
-    """Progress of ingestion for a single entity type (e.g., pull_requests)."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    entity_type: str
-    status: str  # idle | running | completed | failed
-    total_sources: int = 0
-    sources_done: int = 0
-    records_ingested: int = 0
-    current_source: str | None = None
-    started_at: datetime | None = None
-    last_batch_at: datetime | None = None
-    finished_at: datetime | None = None
-    error_message: str | None = None
-    # Computed fields
-    progress_pct: float = 0.0
-    rate_per_minute: float = 0.0
-    eta_minutes: float | None = None
-    elapsed_minutes: float = 0.0
-
-
-class IngestionProgressResponse(BaseModel):
-    """Full ingestion progress response — all entity types."""
-
-    entities: list[IngestionEntityProgress]
-    any_running: bool = False
-    last_updated: datetime
-
-
-# ---------------------------------------------------------------------------
-# Consolidated response
-# ---------------------------------------------------------------------------
-
-
-class PipelineStatusResponse(BaseModel):
-    """Full pipeline status response — consolidates all pipeline health data.
-
-    GET /data/v1/pipeline/status response.
+    TODO: replace synthesis with real per-step instrumentation once sync
+    worker emits step-level events (see docs/backlog.md).
     """
 
-    overall_status: str  # "healthy" | "syncing" | "degraded" | "error"
-    stages: list[PipelineStageStatus]
-    kpis: PipelineKPIs
-    record_counts: list[RecordCount]
-    recent_syncs: list[SyncLogEntry]
-    recent_errors: list[PipelineError]
-    recent_events: list[PipelineEventEntry] = []
-    source_connections: list[dict[str, Any]] = []
-    devlake: DevLakePipelineInfo
-    last_updated: datetime
+    name: Literal["fetch", "changelog", "normalize", "upsert"]
+    status: StepStatus
+    processed: int
+    total: int
+    duration_sec: float | None = None
+    eta_sec: float | None = None
+    throughput_per_sec: float | None = None
+
+
+class Entity(_CamelModel):
+    """Status of a single entity type within a source."""
+
+    type: str  # pull_requests | reviews | commits | deployments | issues | sprints | builds
+    label: str  # pt-BR display label
+    status: EntityStatus
+    watermark: datetime | None = None
+    last_cycle_records: int | None = None
+    last_cycle_duration_sec: float | None = None
+    error: str | None = None
+    steps: list[Step] | None = None  # Only present when status == "running"
+
+
+class CatalogCounts(_CamelModel):
+    """Counts per catalog status for a source."""
+
+    active: int = 0
+    discovered: int = 0
+    paused: int = 0
+    blocked: int = 0
+    archived: int = 0
+
+
+class Source(_CamelModel):
+    """A configured data source with its entities."""
+
+    id: str  # github | jira | jenkins
+    name: str
+    status: SourceStatus
+    connections: int
+    rate_limit_pct: float  # 0..1 — PLACEHOLDER until real tracking
+    watermark: datetime | None = None
+    catalog: CatalogCounts
+    entities: list[Entity]
+
+
+# ---------------------------------------------------------------------------
+# Integration
+# ---------------------------------------------------------------------------
+
+class Integration(_CamelModel):
+    """Status of an integration connector (configured or not)."""
+
+    id: str  # github | jira | jenkins | gitlab | azure | bitbucket
+    name: str
+    connected: bool
+    status: IntegrationStatus
+    detail: str  # pt-BR description
+
+
+# ---------------------------------------------------------------------------
+# TeamHealth
+# ---------------------------------------------------------------------------
+
+class TeamHealth(_CamelModel):
+    """Health status for a squad/team derived from Jira project activity."""
+
+    id: str  # project_key lowercased
+    name: str
+    tribe: str | None = None
+    squad_key: str  # ENO, FID, etc
+    health: str
+    repos: int
+    jira_projects: list[str]
+    jenkins_jobs: int
+    pr_count: int
+    issue_count: int
+    deploy_count: int
+    link_rate: float  # 0..1
+    last_sync: datetime | None = None
+    lag_sec: int
+
+
+# ---------------------------------------------------------------------------
+# TimelineEvent
+# ---------------------------------------------------------------------------
+
+class TimelineEvent(_CamelModel):
+    """A pipeline activity event for the timeline feed."""
+
+    ts: datetime
+    severity: Literal["success", "info", "warning", "error"]
+    stage: str  # github | jira | jenkins | system | metrics_worker
+    message: str  # pt-BR
+
+
+# ---------------------------------------------------------------------------
+# KPIs / Health
+# ---------------------------------------------------------------------------
+
+class ReposWithDeploy(_CamelModel):
+    """Deploy coverage counts."""
+
+    covered: int
+    total: int
+
+
+class KPIs(_CamelModel):
+    """Pipeline health KPIs."""
+
+    records_today: int
+    records_trend_pct: float
+    pr_issue_link_rate: float  # 0..1
+    pr_issue_link_trend_pp: float
+    repos_with_deploy_30d: ReposWithDeploy = Field(..., alias="reposWithDeploy30d")
+    avg_sync_lag_sec: int
+    p95_sync_lag_sec: int
+
+
+class PipelineHealthResponse(_CamelModel):
+    """Top-level pipeline health response for GET /health."""
+
+    health: HealthStatus
+    last_updated_at: datetime
+    kpis: KPIs
+
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+class OrphanPrefix(_CamelModel):
+    """A project key prefix found in PR titles but missing from the catalog."""
+
+    prefix: str
+    pr_mentions: int
+
+
+class ActiveProjectWithoutIssues(_CamelModel):
+    """A catalog entry marked active but with zero issues."""
+
+    key: str
+    name: str
+
+
+class CoverageResponse(_CamelModel):
+    """Pipeline coverage analysis response."""
+
+    repos_with_deploy: ReposWithDeploy
+    pr_issue_link_rate: float  # 0..1
+    orphan_prefixes: list[OrphanPrefix]
+    active_projects_without_issues: list[ActiveProjectWithoutIssues]

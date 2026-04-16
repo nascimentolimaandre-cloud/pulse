@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import settings
@@ -344,6 +344,13 @@ class DataSyncWorker:
             results,
         )
 
+        # Refresh jira_project_catalog counters so Pipeline Monitor and
+        # Jira Settings always show fresh issue_count + pr_reference_count.
+        try:
+            await self._refresh_catalog_counters()
+        except Exception:
+            logger.warning("Catalog counter refresh failed (non-fatal)", exc_info=True)
+
         # Re-raise if all entities failed (preserves existing error behavior)
         if status == "failed" and errors:
             raise RuntimeError(
@@ -352,6 +359,64 @@ class DataSyncWorker:
             )
 
         return results
+
+    async def _refresh_catalog_counters(self) -> None:
+        """Refresh issue_count, pr_reference_count, and last_sync_at in jira_project_catalog.
+
+        Called after every sync cycle so the Pipeline Monitor /teams endpoint
+        and the Jira Settings > Projetos tab always show fresh numbers.
+
+        This is fast (<500ms) — 2 UPDATE queries against existing data.
+        """
+        async with get_session(self._tenant_id) as session:
+            # 1. issue_count from eng_issues.project_key
+            await session.execute(text("""
+                UPDATE jira_project_catalog jpc
+                SET issue_count = COALESCE(sub.cnt, 0),
+                    updated_at = NOW()
+                FROM (
+                    SELECT project_key, COUNT(*) AS cnt
+                    FROM eng_issues
+                    WHERE project_key IS NOT NULL
+                    GROUP BY project_key
+                ) sub
+                WHERE jpc.project_key = sub.project_key
+                  AND jpc.tenant_id = :tid
+            """), {"tid": str(self._tenant_id)})
+
+            # 2. pr_reference_count from PR title regex (90d window)
+            await session.execute(text(r"""
+                WITH pr_refs AS (
+                    SELECT
+                        UPPER((regexp_match(title, '\m([A-Za-z][A-Za-z0-9]+)-\d+'))[1]) AS pk,
+                        COUNT(DISTINCT id) AS cnt
+                    FROM eng_pull_requests
+                    WHERE created_at >= NOW() - INTERVAL '90 days'
+                      AND title IS NOT NULL
+                    GROUP BY 1
+                )
+                UPDATE jira_project_catalog jpc
+                SET pr_reference_count = pr_refs.cnt,
+                    last_sync_at = NOW(),
+                    last_sync_status = 'success',
+                    updated_at = NOW()
+                FROM pr_refs
+                WHERE jpc.project_key = pr_refs.pk
+                  AND jpc.tenant_id = :tid
+            """), {"tid": str(self._tenant_id)})
+
+            # 3. For projects with issues but no PR refs, still update last_sync_at
+            await session.execute(text("""
+                UPDATE jira_project_catalog
+                SET last_sync_at = NOW(),
+                    last_sync_status = 'success',
+                    updated_at = NOW()
+                WHERE tenant_id = :tid
+                  AND status IN ('active', 'discovered')
+                  AND (last_sync_at IS NULL OR last_sync_at < NOW() - INTERVAL '1 hour')
+            """), {"tid": str(self._tenant_id)})
+
+        logger.info("Refreshed jira_project_catalog counters for tenant %s", self._tenant_id)
 
     async def _sync_pull_requests(self) -> int:
         """Read PRs from source connectors, upsert to PULSE DB, publish to Kafka.

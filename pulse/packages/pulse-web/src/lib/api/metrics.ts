@@ -16,12 +16,6 @@ import type {
   SprintResponse,
   Integration,
 } from '@/types/metrics';
-import type {
-  PipelineStatusData,
-  SourceFilteredStatus,
-  MetricsWorkerStatus,
-  IngestionProgressResponse,
-} from '@/types/pipeline';
 
 export interface MetricsQueryParams {
   teamId: string;
@@ -102,32 +96,3 @@ export async function fetchIntegrations(): Promise<Integration[]> {
   return response.data;
 }
 
-/* ── Pipeline Monitor APIs ── */
-
-export async function fetchPipelineStatus(): Promise<PipelineStatusData> {
-  const response = await dataClient.get<PipelineStatusData>('/pipeline/status');
-  return response.data;
-}
-
-export async function fetchSourceFilteredStatus(
-  sourceType: string,
-): Promise<SourceFilteredStatus> {
-  const response = await dataClient.get<SourceFilteredStatus>(
-    `/pipeline/status/source/${sourceType}`,
-  );
-  return response.data;
-}
-
-export async function fetchMetricsWorkerStatus(): Promise<MetricsWorkerStatus> {
-  const response = await dataClient.get<MetricsWorkerStatus>(
-    '/pipeline/metrics-worker/status',
-  );
-  return response.data;
-}
-
-export async function fetchIngestionProgress(): Promise<IngestionProgressResponse> {
-  const response = await dataClient.get<IngestionProgressResponse>(
-    '/pipeline/ingestion/progress',
-  );
-  return response.data;
-}
