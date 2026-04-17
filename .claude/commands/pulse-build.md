@@ -9,6 +9,7 @@ Target: **$ARGUMENTS**
 ## Routing
 
 **→ `pulse-product-director`** if: feature spec, persona story, BDD criteria, pricing, UX pattern
+**→ `pulse-ux-reviewer`** if: UX/UI review of a page or journey, 3-concept exploration, design editorial hand-off (delivers HTML/CSS/JS + impl spec + FDD backlog)
 **→ `pulse-frontend`** if: pulse/pulse-ui/, prototype, HTML/CSS/JS, Chart.js, design tokens
 **→ `pulse-engineer`** if: packages/, NestJS, FastAPI, React+Vite, Docker, CI/CD, migrations, Makefile
 **→ `pulse-data-engineer`** if: DevLake, Kafka, sync worker, metrics worker, DB schema, pipeline, connectors

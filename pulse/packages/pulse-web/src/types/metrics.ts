@@ -31,6 +31,23 @@ export interface DoraMetricItem {
   benchmarks?: BenchmarkThresholds;
 }
 
+/**
+ * Variant of DoraMetricItem for the Home dashboard where the backend may return
+ * `null` for metrics that require future pipeline work (e.g. MTTR, which depends
+ * on the incident ingestion scheduled for R1).
+ */
+export interface HomeMetricItem {
+  label: string;
+  /** `null` when backend has no data yet — UI must render "—" with tooltip. */
+  value: number | null;
+  unit: string;
+  trend: MetricTrend;
+  /** `null` when a classification cannot be derived. */
+  classification: DoraClassification | null;
+  sparklineData: number[];
+  benchmarks?: BenchmarkThresholds;
+}
+
 export interface DoraMetrics {
   deploymentFrequency: DoraMetricItem;
   leadTimeForChanges: DoraMetricItem;
@@ -146,14 +163,31 @@ export interface PullRequest {
 
 /* ── Home Dashboard ── */
 
+export interface LeadTimeCoverage {
+  /** PRs in the period with a real `deployed_at` timestamp linked. */
+  covered: number;
+  /** Total PRs merged in the period (denominator). */
+  total: number;
+  /** covered / total — ratio between 0 and 1. */
+  pct: number;
+}
+
 export interface HomeMetrics {
   deploymentFrequency: DoraMetricItem;
+  /** LEGACY inclusive variant — uses merged_at fallback. Kept for back-compat. */
   leadTimeForChanges: DoraMetricItem;
+  /** Strict DORA Lead Time — only PRs with deployed_at. May be null when sample <5. */
+  leadTimeStrict: HomeMetricItem;
+  /** Coverage data for the strict card (covered / total / pct). */
+  leadTimeCoverage: LeadTimeCoverage | null;
   changeFailureRate: DoraMetricItem;
+  /** MTTR/Time to Restore — backend returns null until incident ingestion ships (R1, FDD-DSH-050). */
+  timeToRestore: HomeMetricItem;
   cycleTime: DoraMetricItem;
+  /** Cycle Time P85 — tail latency, from /metrics/cycle-time breakdown.total_p85. */
+  cycleTimeP85: HomeMetricItem;
   wipCount: DoraMetricItem;
   throughput: DoraMetricItem;
-  prsNeedingAttention: PullRequest[];
   period: string;
   teamId: string;
 }

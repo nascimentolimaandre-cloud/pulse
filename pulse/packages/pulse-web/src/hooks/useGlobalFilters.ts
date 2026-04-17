@@ -27,7 +27,7 @@ export function useGlobalFilters() {
       setTeamId(search.teamId);
     }
     if (search.period && search.period !== period) {
-      const validPeriods: PeriodOption[] = ['7d', '30d', '90d', 'custom'];
+      const validPeriods: PeriodOption[] = ['7d', '30d', '60d', '90d', '120d', 'custom'];
       if (validPeriods.includes(search.period as PeriodOption)) {
         setPeriod(search.period as PeriodOption);
       }

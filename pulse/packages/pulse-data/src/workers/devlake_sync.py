@@ -40,6 +40,9 @@ from src.contexts.engineering_data.models import (
     EngPullRequest,
     EngSprint,
 )
+from src.contexts.engineering_data.services.backfill_deployed_at import (
+    link_recent_deploys_to_prs,
+)
 from src.contexts.engineering_data.normalizer import (
     apply_pr_issue_links,
     build_issue_key_map,
@@ -678,6 +681,30 @@ class DataSyncWorker:
 
         # Upsert to PULSE DB
         count = await self._upsert_deployments(normalized)
+
+        # INC-004 — forward-path linker: bind newly ingested deploys back to
+        # any merged PRs in the same repo that were still missing
+        # `deployed_at`. Scoped to the min deployed_at in this batch so the
+        # UPDATE does not scan the whole table.
+        try:
+            deploy_timestamps = [
+                d.get("deployed_at") for d in normalized if d.get("deployed_at")
+            ]
+            if deploy_timestamps:
+                since_at = min(deploy_timestamps)
+                linked = await link_recent_deploys_to_prs(
+                    tenant_id=self._tenant_id,
+                    since_at=since_at,
+                )
+                if linked:
+                    logger.info(
+                        "INC-004 linked %d PRs to %d newly ingested deploys",
+                        linked, len(deploy_timestamps),
+                    )
+        except Exception:
+            # Never fail the sync cycle because of the linker — it's a
+            # DB-only UPDATE that we can always reapply via the admin endpoint.
+            logger.exception("INC-004 forward-path linker failed (non-fatal)")
 
         # Publish to Kafka
         events = []

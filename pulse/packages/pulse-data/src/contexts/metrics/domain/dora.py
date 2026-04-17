@@ -97,6 +97,13 @@ class DoraMetrics:
     cfr_level: DoraLevel | None
     mttr_level: DoraLevel | None
     overall_level: DoraLevel | None
+    # NEW (FDD-DSH-082): strict DORA Lead Time — only PRs with a real
+    # deployed_at timestamp. Defaults keep existing call sites (and tests)
+    # working unchanged; the public builder always populates them.
+    lead_time_for_changes_hours_strict: float | None = None
+    lead_time_strict_eligible_count: int = 0
+    lead_time_strict_total_count: int = 0
+    lt_strict_level: DoraLevel | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +193,52 @@ def calculate_lead_time(
         return None
 
     return statistics.median(lead_times)
+
+
+# Minimum sample size for the strict variant — under this we return None to
+# avoid publishing a P50 dominated by a handful of outlier deploys. Mirrors
+# the convention used by lead_time_distribution (see lean.py).
+_LT_STRICT_MIN_SAMPLE = 5
+
+
+def calculate_lead_time_strict(
+    pull_requests: list[PullRequestData],
+) -> tuple[float | None, int, int]:
+    """Canonical DORA lead time — only PRs with a real `deployed_at`.
+
+    Removes the `merged_at` fallback used by `calculate_lead_time`. When
+    deploy↔PR linkage coverage is partial (typical at Webmotors: ~50% on
+    several squads), the fallback collapses Lead Time onto Cycle Time and
+    produces a misleading aggregate. This variant excludes any PR without
+    a real deploy timestamp; the caller surfaces coverage so users can
+    judge representativeness.
+
+    Returns a `(value, eligible_count, total_count)` triple so the caller
+    can render coverage badges. `value` is `None` when fewer than
+    `_LT_STRICT_MIN_SAMPLE` PRs have a deploy linked — small samples make
+    the median noise.
+
+    Args:
+        pull_requests: Merged PRs in the measurement period.
+
+    Returns:
+        (median_hours_or_none, eligible_count, total_count)
+    """
+    eligible_deltas: list[float] = []
+    for pr in pull_requests:
+        if pr.first_commit_at is None or pr.deployed_at is None:
+            continue
+        delta_hours = (pr.deployed_at - pr.first_commit_at).total_seconds() / 3_600
+        if delta_hours >= 0:
+            eligible_deltas.append(delta_hours)
+
+    total = len(pull_requests)
+    eligible = len(eligible_deltas)
+
+    if eligible < _LT_STRICT_MIN_SAMPLE:
+        return None, eligible, total
+
+    return statistics.median(eligible_deltas), eligible, total
 
 
 def calculate_change_failure_rate(
@@ -410,9 +463,13 @@ def calculate_dora_metrics(
     )
     df_level = _classify_deployment_frequency(df_per_day) if df_per_day is not None else None
 
-    # --- Lead Time for Changes ---
+    # --- Lead Time for Changes (inclusive — fallback uses merged_at) ---
     lt_hours = calculate_lead_time(pull_requests)
     lt_level = _classify_lead_time(lt_hours) if lt_hours is not None else None
+
+    # --- Lead Time for Changes (STRICT — deployed_at only, FDD-DSH-082) ---
+    lt_strict_hours, lt_strict_eligible, lt_strict_total = calculate_lead_time_strict(pull_requests)
+    lt_strict_level = _classify_lead_time(lt_strict_hours) if lt_strict_hours is not None else None
 
     # --- Change Failure Rate ---
     cfr = calculate_change_failure_rate(deployments)
@@ -435,10 +492,14 @@ def calculate_dora_metrics(
         deployment_frequency_per_day=df_per_day,
         deployment_frequency_per_week=df_per_week,
         lead_time_for_changes_hours=lt_hours,
+        lead_time_for_changes_hours_strict=lt_strict_hours,
+        lead_time_strict_eligible_count=lt_strict_eligible,
+        lead_time_strict_total_count=lt_strict_total,
         change_failure_rate=cfr,
         mean_time_to_recovery_hours=mttr_hours,
         df_level=df_level,
         lt_level=lt_level,
+        lt_strict_level=lt_strict_level,
         cfr_level=cfr_level,
         mttr_level=mttr_level,
         overall_level=overall,

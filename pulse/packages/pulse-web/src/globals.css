@@ -35,6 +35,12 @@
   --color-dora-medium: #F59E0B;        /* amber */
   --color-dora-low: #EF4444;           /* red */
 
+  /* DORA Classification — soft backgrounds (ranking bars, chips) */
+  --color-dora-elite-bg: #D1FAE5;      /* emerald-100 */
+  --color-dora-high-bg:  #DBEAFE;      /* blue-100 */
+  --color-dora-medium-bg:#FEF3C7;      /* amber-100 */
+  --color-dora-low-bg:   #FEE2E2;      /* red-100 */
+
   /* Chart Palette (6 cores distintas para series) */
   --chart-1: #6366F1;   /* indigo — primary series */
   --chart-2: #8B5CF6;   /* violet */
