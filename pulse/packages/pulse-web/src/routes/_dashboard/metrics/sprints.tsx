@@ -1,8 +1,10 @@
-import { createRoute } from '@tanstack/react-router';
+import { createRoute, Link } from '@tanstack/react-router';
 import { rootRoute } from '../../__root';
 import { MetricCardSkeleton } from '@/components/charts/MetricCard';
-import { useSprintMetrics } from '@/hooks/useMetrics';
-import { AlertCircle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { useSprintMetrics, usePipelineTeamsList } from '@/hooks/useMetrics';
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities';
+import { useFilterStore } from '@/stores/filterStore';
+import { AlertCircle, TrendingUp, TrendingDown, Minus, Workflow, ArrowRight } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -19,8 +21,82 @@ import {
 export const sprintsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/metrics/sprints',
-  component: SprintsPage,
+  component: SprintsRoute,
 });
+
+/**
+ * Top-level route component. When the active squad has no sprints (or, with
+ * "Todas as squads" selected, the whole tenant has none), renders a friendly
+ * empty state instead of the sprint dashboard. We only hide AFTER capabilities
+ * resolve — during loading we show the normal page to avoid flicker.
+ *
+ * FDD-DSH-091 Phase 2: the capability call is scoped per-squad. FID / PTURB
+ * return has_sprints=true; the other 25 squads return false and see the
+ * Kanban-redirect empty state instead.
+ */
+function SprintsRoute() {
+  const teamId = useFilterStore((s) => s.teamId);
+  const { data: teams } = usePipelineTeamsList();
+
+  // The home filter stores either 'default' (all squads), a squad key, or a
+  // team UUID. We only treat it as a squad key when it's not 'default' and
+  // matches the shape a Jira project key takes (backend guards the rest).
+  const squadKey = teamId !== 'default' ? teamId : undefined;
+  const squadName = squadKey
+    ? teams?.find((t) => t.id === teamId || t.squadKey.toLowerCase() === teamId.toLowerCase())?.name ?? squadKey.toUpperCase()
+    : null;
+
+  const { data: capabilities, isSuccess } = useTenantCapabilities(squadKey);
+
+  if (isSuccess && capabilities && !capabilities.hasSprints) {
+    return <SprintsEmptyState squadName={squadName} />;
+  }
+  return <SprintsPage />;
+}
+
+interface SprintsEmptyStateProps {
+  /** Optional squad display name — drives the copy ('a squad X' vs tenant-wide). */
+  squadName?: string | null;
+}
+
+function SprintsEmptyState({ squadName }: SprintsEmptyStateProps) {
+  const isSquadSpecific = Boolean(squadName);
+  const heading = isSquadSpecific
+    ? `A squad ${squadName} trabalha com fluxo contínuo`
+    : 'Sua organização trabalha com fluxo contínuo';
+  const subline = isSquadSpecific
+    ? 'Esta squad não possui sprints ativos no Jira. Para acompanhá-la, use as métricas Kanban.'
+    : 'As métricas de sprint aparecem automaticamente quando o PULSE detectar sprints ativos no seu Jira — mínimo de 3 nos últimos 6 meses.';
+
+  return (
+    <div
+      className="flex min-h-[60vh] items-center justify-center"
+      role="region"
+      aria-labelledby="sprints-empty-heading"
+    >
+      <div className="max-w-xl rounded-card border border-border-default bg-surface-primary p-8 text-center shadow-card">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-light">
+          <Workflow className="h-6 w-6 text-brand-primary" aria-hidden="true" />
+        </div>
+        <h1 id="sprints-empty-heading" className="mb-2 text-xl font-semibold text-content-primary">
+          {heading}
+        </h1>
+        <p className="mb-2 text-sm text-content-secondary">{subline}</p>
+        <p className="mb-6 text-sm text-content-secondary">
+          Para times Kanban, recomendamos acompanhar <strong>Lead Time</strong>,{' '}
+          <strong>Throughput</strong> e <strong>WIP</strong> em Lean &amp; Flow.
+        </p>
+        <Link
+          to="/metrics/lean"
+          className="inline-flex items-center gap-2 rounded-button bg-brand-primary px-4 py-2 text-sm font-medium text-content-inverse transition-colors hover:bg-brand-primary-hover focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        >
+          Ver Lean &amp; Flow
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 const VELOCITY_ICONS = {
   improving: TrendingUp,

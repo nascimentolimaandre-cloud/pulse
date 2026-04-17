@@ -719,3 +719,85 @@ percebidas; leitura de KPI de 2 segundos ficava comprometida.
 5. **Sprint 5 (Quality — CRÍTICO):** DSH-070 (test pyramid + CI gate)
 6. **R1 iteration:** DSH-050 (MTTR), DSH-060 (squad→team UUID)
 7. **R2+ iteration:** DSH-040, DSH-041, DSH-042
+
+---
+
+### FDD-DSH-091 · Capability-aware UI (hide sprint/kanban sections per tenant)
+**Epic:** Dashboard Redesign · **Release:** MVP · **Priority:** P1
+**Persona:** Ana (CTO), Carlos (EM)
+**Owner class:** Full-stack (`pulse-engineer`)
+
+**Status:** Phase 1 delivered (2026-04-17). Phase 2 (squad-level) delivered (2026-04-17) — DONE.
+
+**Motivation:**
+A Webmotors opera em fluxo contínuo e historicamente não ingeria sprints, porém
+a UI exibia a aba `/metrics/sprints` vazia e cards sprint-dependentes zerados.
+O guard condiciona exibição via *capability flag* persistida por tenant, sem
+remover código — apenas esconde quando o tenant não usa sprint / kanban.
+
+**Acceptance (BDD):**
+```
+Given um tenant cujo backend retorna has_sprints=false
+ When o usuário acessa o dashboard
+ Then o item "Sprints" não aparece no menu lateral
+  And a rota /metrics/sprints mostra empty state com CTA para /metrics/lean
+  And nenhum card sprint-específico é renderizado na Home
+
+Given um tenant cujo backend retorna has_kanban=false (futuro R2+)
+ When o usuário acessa o dashboard
+ Then cards dependentes de kanban (Aging WIP, Flow Efficiency) não aparecem
+
+Given o endpoint /tenant/capabilities está lento ou indisponível
+ When a sidebar é renderizada
+ Then TODOS os itens permanecem visíveis (fail-open, zero flicker)
+```
+
+**Phase 1 scope (delivered):**
+- Endpoint `GET /data/v1/tenant/capabilities` (Redis cache 5min)
+- Heurística: has_sprints = `COUNT(eng_sprints.started_at >= now() - 180d) >= 3`
+- Heurística: has_kanban = `COUNT(eng_issues in in_progress/in_review) >= 10`
+- Hook `useTenantCapabilities` + componente `CapabilityGuard`
+- Sidebar esconde item "Sprints" quando `hasSprints=false`
+- Rota `/metrics/sprints` com empty state em PT-BR
+
+**Phase 2 scope (delivered 2026-04-17):**
+- Endpoint `GET /data/v1/tenant/capabilities?squad_key=<KEY>` retorna flags
+  escopadas por squad (Jira project key). Sem `squad_key` → comportamento
+  tenant-wide (backward-compat).
+- Heurística primária: join `eng_issues (issue_key prefix = squad_key) →
+  eng_sprints (via external_id)` com janela de 180d. Exemplo real Webmotors:
+  FID → 14 sprints / board 549; PTURB → 6 sprints / board 872; BG/OKM/SECOM → 0.
+- Heurística fallback (apenas quando a primária retorna 0): `LOWER(sprint.name)
+  ILIKE '%<token>%'` com aliases hand-tuned (FID→fidelidade, PTURB→motor vn).
+  Ainda gate pelo `SPRINT_THRESHOLD`.
+- Fail-open: squad_key inválido ou query quebrada → retorna tenant-wide /
+  `has_sprints=false` (conservador).
+- Cache Redis separado: chave `tenant:capabilities:squad:<tid>:<KEY>`, TTL 5min.
+- Regex gate para squad_key (evita injection: `[A-Z][A-Z0-9]{1,31}`).
+- Hook `useTenantCapabilities(squadKey?)` com cache key por-squad.
+- `CapabilityGuard` aceita prop `squadKey?`.
+- Rota `/metrics/sprints` lê `teamId` do `filterStore`, consulta capability
+  squad-específica e mostra empty state dedicado: *"A squad <Nome> trabalha
+  com fluxo contínuo."*
+- Sidebar **mantém** comportamento tenant-wide (não esconde "Sprints" por
+  squad — selecionar "Todas as squads" ainda precisa do item visível).
+
+**Phase 3 backlog (pendente):**
+- Aplicar guard em cards sprint-específicos na Home (quando "Scope Creep" for
+  adicionado — ver INC-006), passando `squadKey={activeSquadKey}`.
+- Aplicar guard simétrico em cards kanban-específicos (Aging WIP, Flow
+  Efficiency) quando forem construídos.
+- Telemetria: instrumentar quantos tenants/squads caem em cada combinação.
+- Thresholds configuráveis via tabela `tenant_settings`.
+- Endpoint admin para forçar `has_sprints=false` (override manual).
+- Mapeamento squad→board persistido (hoje derivado on-the-fly).
+
+**Files:**
+- `packages/pulse-data/src/contexts/tenant/{routes,service,schemas}.py`
+- `packages/pulse-web/src/hooks/useTenantCapabilities.ts`
+- `packages/pulse-web/src/components/CapabilityGuard.tsx`
+- `packages/pulse-web/src/types/tenant.ts`
+- `packages/pulse-web/src/routes/_dashboard/metrics/sprints.tsx`
+
+**Tests:** 18 unit tests (pure heuristics + compute path with mocked DB +
+squad_key normalizer / injection guard).

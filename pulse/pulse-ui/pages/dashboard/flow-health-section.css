@@ -1,0 +1,447 @@
+/* ============================================================
+   PULSE · Flow Health section (Aging WIP + Flow Efficiency)
+   Integra à home Diagnostic-first. Tokens-only. BEM. WCAG AA.
+   ============================================================ */
+
+/* ------- Concept switcher (dev preview only) ------- */
+.concept-switch {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 16px 0 24px;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+}
+.concept-switch__label {
+  font-size: 11px; font-weight: 500;
+  color: var(--color-text-secondary);
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.concept-switch__btn {
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-button);
+  font-size: 12px; color: var(--color-text-secondary);
+  transition: all 150ms ease-out;
+}
+.concept-switch__btn.is-active {
+  background: var(--color-brand-primary);
+  border-color: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+}
+.concept-switch__sep { color: var(--color-text-tertiary); margin: 0 4px; }
+
+/* ============================================================
+   FLOW HEALTH — shared chrome
+============================================================ */
+.flow-health {
+  display: flex; flex-direction: column; gap: 12px;
+  margin: 24px 0;
+}
+.flow-health__head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px;
+}
+.flow-health__meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--color-text-secondary);
+}
+.flow-health__meta-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.flow-health__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-brand-primary);
+}
+
+.flow-health__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+/* ============================================================
+   CARDS
+============================================================ */
+.fh-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-card);
+  padding: var(--space-card-padding);
+  box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; gap: 14px;
+  min-height: 0;
+}
+.fh-card--wide { padding-bottom: 12px; }
+
+.fh-card__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.fh-card__title-wrap { min-width: 0; }
+.fh-card__title {
+  font-size: 15px; font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 2px 0;
+}
+.fh-card__sub {
+  font-size: 12px; color: var(--color-text-secondary);
+  margin: 0;
+}
+.fh-card__actions { display: flex; align-items: center; gap: 8px; }
+
+.fh-badge {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 8px;
+  border-radius: var(--radius-badge);
+  font-size: 11px; font-weight: 500;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+.fh-badge--v1 {
+  background: var(--color-dora-medium-bg);
+  color: #92400E;
+}
+
+.fh-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.fh-tiny { font-size: 11px; color: var(--color-text-tertiary); }
+
+/* ============================================================
+   CRITICAL CALLOUT (at_risk strip)
+============================================================ */
+.fh-callout {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-button);
+  background: var(--color-dora-low-bg);
+  color: #991B1B;
+  font-size: 13px;
+}
+.fh-callout--danger { background: var(--color-dora-low-bg); color: #991B1B; }
+.fh-callout--warning { background: var(--color-dora-medium-bg); color: #92400E; }
+.fh-callout--neutral { background: var(--color-bg-tertiary); color: var(--color-text-secondary); }
+.fh-callout__icon { display: inline-flex; flex-shrink: 0; }
+.fh-callout__text { flex: 1; }
+.fh-callout__cta {
+  border: 0; background: transparent;
+  font-size: 13px; font-weight: 500;
+  color: inherit; text-decoration: underline;
+  padding: 0; white-space: nowrap;
+}
+.fh-callout[hidden] { display: none; }
+
+/* ============================================================
+   VIEWPORT — shared container for concept A/B/C
+============================================================ */
+.fh-viewport { min-height: 280px; }
+
+/* ------------------------------------------------------------
+   CONCEPT A — Outlier-first (ranked at_risk table)
+------------------------------------------------------------ */
+.outlier-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.outlier-table thead th {
+  text-align: left;
+  font-size: 11px; font-weight: 500;
+  color: var(--color-text-secondary);
+  letter-spacing: .04em; text-transform: uppercase;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  position: sticky; top: 0;
+}
+.outlier-table tbody td {
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: middle;
+}
+.outlier-table tbody tr:hover { background: var(--color-bg-tertiary); cursor: pointer; }
+.outlier-table tbody tr:focus-within { background: var(--color-bg-tertiary); }
+
+.outlier-table__key {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--color-text-primary);
+}
+.outlier-table__age {
+  font-family: var(--font-mono); font-weight: 500;
+  text-align: right;
+  color: var(--color-danger);
+  font-variant-numeric: tabular-nums;
+}
+.outlier-table__age--warn { color: var(--color-warning); }
+.outlier-table__status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--color-text-secondary);
+}
+.outlier-table__status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-info); }
+.outlier-table__status--review .outlier-table__status-dot { background: var(--chart-2); }
+
+.outlier-bar {
+  position: relative;
+  height: 6px; width: 90px;
+  background: var(--color-bg-tertiary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.outlier-bar__fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: var(--color-danger);
+  border-radius: 999px;
+}
+.outlier-bar__fill--warn { background: var(--color-warning); }
+
+.outlier-table__squad {
+  font-size: 12px; font-weight: 500;
+  color: var(--color-text-primary);
+}
+.outlier-table__squad-hint {
+  font-size: 11px; color: var(--color-text-tertiary);
+  margin-left: 6px;
+}
+
+.outlier-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 10px 2px;
+  font-size: 12px; color: var(--color-text-secondary);
+}
+.outlier-foot__link {
+  color: var(--color-brand-primary);
+  font-weight: 500; text-decoration: none;
+}
+.outlier-foot__link:hover { text-decoration: underline; }
+
+/* ------------------------------------------------------------
+   CONCEPT B — Distribution-first (histogram + squad chips)
+------------------------------------------------------------ */
+.dist-wrap { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+.dist-chart-shell {
+  position: relative;
+  height: 180px;
+  padding: 6px 4px 0;
+}
+.dist-chart-shell canvas { max-width: 100%; }
+
+.dist-legend {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  font-size: 11px; color: var(--color-text-secondary);
+  padding: 0 4px;
+}
+.dist-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.dist-legend__swatch { width: 10px; height: 10px; border-radius: 3px; }
+.dist-legend__swatch--healthy { background: var(--color-info); }
+.dist-legend__swatch--watch   { background: var(--color-warning); }
+.dist-legend__swatch--risk    { background: var(--color-danger); }
+
+.dist-squad-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding-top: 10px; border-top: 1px solid var(--color-border-subtle);
+}
+.dist-squad-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-badge);
+  background: var(--color-dora-low-bg);
+  color: #991B1B;
+  font-size: 12px; font-weight: 500;
+  border: 0; cursor: pointer;
+}
+.dist-squad-chip .fh-mono { font-weight: 600; font-size: 12px; }
+.dist-squad-chip:hover { filter: brightness(0.97); }
+
+/* ------------------------------------------------------------
+   CONCEPT C — Squad × age heatmap (top-15 squads)
+------------------------------------------------------------ */
+.heatmap {
+  display: grid;
+  grid-template-columns: 130px repeat(4, 1fr) 56px;
+  gap: 3px;
+  font-size: 12px;
+}
+.heatmap__hdr {
+  font-size: 10px; font-weight: 500;
+  color: var(--color-text-secondary);
+  letter-spacing: .04em; text-transform: uppercase;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-border-default);
+  text-align: right;
+}
+.heatmap__hdr--squad { text-align: left; }
+.heatmap__row-label {
+  display: flex; align-items: center;
+  padding: 0 6px; height: 28px;
+  font-weight: 500; color: var(--color-text-primary);
+  font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.heatmap__cell {
+  height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 12px;
+  border-radius: 4px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+  cursor: pointer;
+}
+.heatmap__cell[data-intensity="0"] { background: var(--color-bg-tertiary); color: var(--color-text-tertiary); }
+.heatmap__cell[data-intensity="1"] { background: #DBEAFE; }
+.heatmap__cell[data-intensity="2"] { background: #BFDBFE; }
+.heatmap__cell[data-intensity="3"] { background: #93C5FD; }
+.heatmap__cell[data-intensity="4"] { background: #60A5FA; color: #fff; }
+/* risk column uses red scale */
+.heatmap__cell--risk[data-intensity="0"] { background: var(--color-bg-tertiary); color: var(--color-text-tertiary); }
+.heatmap__cell--risk[data-intensity="1"] { background: #FEE2E2; color: #991B1B; }
+.heatmap__cell--risk[data-intensity="2"] { background: #FCA5A5; color: #7F1D1D; }
+.heatmap__cell--risk[data-intensity="3"] { background: var(--color-danger); color: #fff; font-weight: 600; }
+.heatmap__cell--risk[data-intensity="4"] { background: #991B1B; color: #fff; font-weight: 600; }
+
+.heatmap__total { font-family: var(--font-mono); text-align: right; padding: 0 6px; color: var(--color-text-secondary); }
+
+.heatmap-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 10px;
+  font-size: 12px; color: var(--color-text-secondary);
+}
+
+/* ============================================================
+   FLOW EFFICIENCY — gauge + disclaimer
+============================================================ */
+.fe-gauge {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 8px 0 4px;
+}
+.fe-gauge__ring { position: relative; }
+.fe-gauge__value {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+}
+.fe-gauge__pct {
+  font-size: 32px; font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.fe-gauge__trend {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; margin-top: 4px;
+  color: var(--color-text-secondary);
+}
+.fe-gauge__trend--down { color: var(--color-danger); }
+.fe-gauge__trend--up   { color: var(--color-success); }
+
+.fe-stats {
+  display: grid; grid-template-columns: 1fr; gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 12px;
+}
+.fe-stats > div { display: flex; justify-content: space-between; gap: 8px; }
+.fe-stats dt { color: var(--color-text-secondary); margin: 0; }
+.fe-stats dd { color: var(--color-text-primary); margin: 0; font-weight: 500; }
+
+.fe-disclaimer {
+  display: flex; gap: 8px;
+  padding: 10px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-button);
+  font-size: 12px; line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+.fe-disclaimer__icon { flex-shrink: 0; color: var(--color-text-tertiary); margin-top: 2px; }
+.fe-disclaimer strong { color: var(--color-text-primary); font-weight: 600; }
+.fe-disclaimer p { margin: 0; }
+
+/* ============================================================
+   DRAWER (shared list of at_risk items)
+============================================================ */
+.fh-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 520px; max-width: 100vw;
+  background: var(--color-bg-surface);
+  border-left: 1px solid var(--color-border-default);
+  box-shadow: var(--shadow-elevated);
+  display: flex; flex-direction: column;
+  z-index: 60;
+  transform: translateX(0);
+  transition: transform 200ms ease-out;
+}
+.fh-drawer[hidden] { display: none; }
+.fh-drawer__head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border-default);
+}
+.fh-drawer__eyebrow {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  margin: 0 0 4px 0;
+}
+.fh-drawer__title { font-size: 16px; font-weight: 600; margin: 0 0 2px 0; }
+.fh-drawer__sub { font-size: 12px; color: var(--color-text-secondary); margin: 0; }
+
+.fh-drawer__filters {
+  display: grid; grid-template-columns: 1fr 140px 140px; gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border-default);
+}
+.fh-drawer__filters input,
+.fh-drawer__filters select {
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-button);
+  font-size: 13px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+.fh-drawer__body { flex: 1; overflow-y: auto; padding: 8px 0; }
+
+.btn-icon {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0;
+  border-radius: var(--radius-button);
+  color: var(--color-text-secondary);
+}
+.btn-icon:hover { background: var(--color-bg-tertiary); }
+
+/* ============================================================
+   STATES
+============================================================ */
+.fh-skeleton-row {
+  height: 14px; background: var(--color-bg-tertiary);
+  border-radius: 4px; margin: 10px 12px;
+  animation: pulse-skeleton 1.6s ease-in-out infinite;
+}
+.fh-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 40px 16px; text-align: center;
+  color: var(--color-text-secondary); font-size: 13px;
+}
+.fh-empty strong { color: var(--color-text-primary); font-size: 14px; }
+
+/* ============================================================
+   RESPONSIVE
+============================================================ */
+@media (max-width: 1100px) {
+  .flow-health__grid { grid-template-columns: 1fr; }
+  .heatmap { grid-template-columns: 110px repeat(4, 1fr) 48px; }
+}
+@media (max-width: 768px) {
+  .heatmap { grid-template-columns: 96px repeat(4, 1fr) 44px; font-size: 11px; }
+  .outlier-table thead th:nth-child(4),
+  .outlier-table tbody td:nth-child(4) { display: none; } /* hide progress bar */
+  .fh-drawer { width: 100vw; }
+  .fh-drawer__filters { grid-template-columns: 1fr; }
+  .fe-gauge__pct { font-size: 28px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fh-drawer { transition: none; }
+  .fh-skeleton-row { animation: none; }
+}

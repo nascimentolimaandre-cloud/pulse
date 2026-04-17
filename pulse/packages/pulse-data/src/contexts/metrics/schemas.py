@@ -247,6 +247,112 @@ class HomeMetricsResponse(MetricsEnvelope):
 
 
 # ---------------------------------------------------------------------------
+# Kanban Flow Health (Aging WIP + Flow Efficiency) — FDD-KB-003 / FDD-KB-004
+# ---------------------------------------------------------------------------
+
+
+class AgingWipItem(BaseModel):
+    """A single open work item with its current age.
+
+    ANTI-SURVEILLANCE CONTRACT: this model deliberately omits `assignee`,
+    `author`, `reporter`, `creator`, and `title`. Issue-level identifier
+    (`issue_key`) is a public artifact (appears in commit messages, PR
+    titles, etc.) and carries no PII on its own. If you ever need to add
+    a PII-bearing field, it MUST go through CISO review and a dedicated
+    feature flag — do NOT add it here silently.
+    """
+
+    issue_key: str = Field(description="Public issue key (e.g. 'OKM-4312').")
+    age_days: float = Field(
+        description="Days since the item last entered an active status."
+    )
+    status: str = Field(description="Raw Jira status (e.g. 'Em Desenvolvimento').")
+    status_category: str = Field(
+        description="Normalized category: 'in_progress' | 'in_review'."
+    )
+    squad_key: str | None = Field(
+        None, description="Jira project key; null only when source lacks it."
+    )
+    is_at_risk: bool = Field(
+        description="True when age_days > at_risk_threshold_days."
+    )
+
+
+class AgingWipSummary(BaseModel):
+    """Aggregate stats for a squad's (or tenant's) in-flight WIP."""
+
+    count: int = Field(description="Total items currently in_progress or in_review.")
+    p50_days: float | None = None
+    p85_days: float | None = None
+    at_risk_count: int = 0
+    at_risk_threshold_days: float | None = Field(
+        None,
+        description="2 × baseline P85 cycle time. Used to flag aging outliers.",
+    )
+    baseline_source: str = Field(
+        description=(
+            "Which baseline was used: 'squad_p85_90d' (squad has ≥10 "
+            "completed issues in 90d), 'tenant_p85_90d' (tenant-wide "
+            "request — tenant baseline is the correct scope), "
+            "'tenant_p85_90d_fallback' (squad-scoped request but squad "
+            "lacked history — fell back to tenant-wide), or "
+            "'absolute_fallback' (tenant also lacked history, defaulted "
+            "to 14d)."
+        )
+    )
+
+
+class FlowEfficiencyData(BaseModel):
+    """Flow Efficiency — v1 simplified (touch time / cycle time)."""
+
+    value: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Ratio 0..1. Null when insufficient_data or cycle_sum=0.",
+    )
+    sample_size: int = Field(
+        description="Issues resolved in-window with cycle_time ≥ 1h."
+    )
+    formula_version: str = Field(
+        default="v1_simplified",
+        description="Version tag; frontend keys the disclaimer off of this.",
+    )
+    formula_disclaimer: str = Field(
+        description="PT-BR text shown beside the metric in the UI."
+    )
+    insufficient_data: bool = Field(
+        description="True when sample_size < 5 or no valid cycle time."
+    )
+
+
+class FlowHealthResponse(MetricsEnvelope):
+    """GET /data/v1/metrics/flow-health response.
+
+    Combines Aging WIP (current snapshot of in-flight items) and Flow
+    Efficiency (retrospective metric over `period_days`). Each metric
+    renders independently on the frontend so either may be in a
+    degraded/insufficient state without blocking the other.
+    """
+
+    squad_key: str | None = None
+    period_days: int = 60
+    aging_wip: AgingWipSummary = Field(default_factory=lambda: AgingWipSummary(
+        count=0, at_risk_count=0, baseline_source="absolute_fallback",
+    ))
+    aging_wip_items: list[AgingWipItem] = Field(default_factory=list)
+    flow_efficiency: FlowEfficiencyData = Field(
+        default_factory=lambda: FlowEfficiencyData(
+            value=None,
+            sample_size=0,
+            formula_version="v1_simplified",
+            formula_disclaimer="",
+            insufficient_data=True,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # Engineering data: Pull Request list
 # ---------------------------------------------------------------------------
 
