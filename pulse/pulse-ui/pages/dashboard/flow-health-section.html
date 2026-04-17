@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PULSE · Flow Health Section (concepts A/B/C)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../../tokens.css" />
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./flow-health-section.css" />
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script type="module" src="./flow-health-section.js" defer></script>
+</head>
+<body>
+
+<main id="main" class="page">
+  <!-- Concept switcher (dev preview only — not part of production UI) -->
+  <nav class="concept-switch" aria-label="Preview de concept">
+    <span class="concept-switch__label">Preview</span>
+    <button type="button" class="concept-switch__btn is-active" data-concept="A">A · Outlier-first</button>
+    <button type="button" class="concept-switch__btn" data-concept="B">B · Distribution-first</button>
+    <button type="button" class="concept-switch__btn" data-concept="C">C · Squad-matrix</button>
+    <span class="concept-switch__sep" aria-hidden="true">|</span>
+    <span class="concept-switch__label">Estado</span>
+    <button type="button" class="concept-switch__btn is-active" data-state="healthy">Normal</button>
+    <button type="button" class="concept-switch__btn" data-state="critical">Crítico (squad DESK 24 at_risk)</button>
+    <button type="button" class="concept-switch__btn" data-state="empty">Vazio</button>
+    <button type="button" class="concept-switch__btn" data-state="loading">Loading</button>
+  </nav>
+
+  <!-- ============================================================
+       SECTION: FLOW HEALTH (integrada à home, entre KPI groups e
+       Comparativo por squad)
+  ============================================================ -->
+  <section class="flow-health" aria-labelledby="fh-title" id="flow-health-section">
+
+    <header class="flow-health__head">
+      <div>
+        <h2 id="fh-title" class="section-title">Flow Health</h2>
+        <p class="section-sub">Saúde do fluxo Kanban · baseado em status atuais (Aging WIP) e histórico (Flow Efficiency 60d)</p>
+      </div>
+      <div class="flow-health__meta">
+        <span class="flow-health__meta-item">
+          <span class="flow-health__dot flow-health__dot--flow" aria-hidden="true"></span>
+          Kanban-native · MVP v1
+        </span>
+      </div>
+    </header>
+
+    <div class="flow-health__grid">
+
+      <!-- ========================================================
+           LEFT: AGING WIP (concept-dependent rendering)
+      ======================================================== -->
+      <article class="fh-card fh-card--wide" aria-labelledby="aging-title" id="aging-card">
+        <header class="fh-card__head">
+          <div class="fh-card__title-wrap">
+            <h3 id="aging-title" class="fh-card__title">Aging WIP</h3>
+            <p class="fh-card__sub" id="aging-sub">633 itens em progresso · P50 6,5d · P85 22,3d</p>
+          </div>
+          <div class="fh-card__actions" id="aging-actions">
+            <!-- Concept A/B/C variants inject a "ver lista" link here -->
+          </div>
+        </header>
+
+        <!-- Critical callout strip (visible when at_risk > 0) -->
+        <div class="fh-callout fh-callout--danger" id="aging-callout" role="status">
+          <span class="fh-callout__icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2l8 15H2L10 2zm0 5v5m0 2.5v.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="fh-callout__text">
+            <strong id="aging-atrisk-count">67</strong> itens em risco (idade &gt; <span class="fh-mono" id="aging-threshold">44,6d</span>, 2× P85 histórico 90d)
+          </span>
+          <button type="button" class="fh-callout__cta" id="aging-view-list">Ver lista →</button>
+        </div>
+
+        <!-- Concept viewport — A/B/C swap inside -->
+        <div class="fh-viewport" id="aging-viewport">
+          <!-- injected by JS -->
+        </div>
+      </article>
+
+      <!-- ========================================================
+           RIGHT: FLOW EFFICIENCY (gauge + disclaimer + trend)
+      ======================================================== -->
+      <article class="fh-card" aria-labelledby="fe-title" id="fe-card">
+        <header class="fh-card__head">
+          <div class="fh-card__title-wrap">
+            <h3 id="fe-title" class="fh-card__title">Flow Efficiency</h3>
+            <p class="fh-card__sub">Tempo em trabalho ativo ÷ cycle time · 60d</p>
+          </div>
+          <span class="fh-badge fh-badge--v1" title="Fórmula v1 simplificada">v1</span>
+        </header>
+
+        <div class="fe-gauge" role="img" aria-label="Flow Efficiency 42 por cento, queda de 3 pontos percentuais vs período anterior">
+          <div class="fe-gauge__ring" id="fe-ring">
+            <svg viewBox="0 0 120 120" width="160" height="160" aria-hidden="true">
+              <circle cx="60" cy="60" r="52" stroke="var(--color-border-subtle)" stroke-width="10" fill="none"/>
+              <circle id="fe-arc" cx="60" cy="60" r="52" stroke="var(--color-brand-primary)" stroke-width="10" fill="none"
+                      stroke-linecap="round"
+                      stroke-dasharray="326.73" stroke-dashoffset="189.5"
+                      transform="rotate(-90 60 60)"/>
+            </svg>
+            <div class="fe-gauge__value">
+              <span class="fe-gauge__pct" id="fe-value">42%</span>
+              <span class="fe-gauge__trend fe-gauge__trend--down" id="fe-trend">
+                <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1 3l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+                -3pp vs 60d anteriores
+              </span>
+            </div>
+          </div>
+
+          <dl class="fe-stats">
+            <div><dt>Amostra</dt><dd><span class="fh-mono">2.145</span> itens concluídos</dd></div>
+            <div><dt>Janela</dt><dd>16/02 – 16/04</dd></div>
+            <div><dt>Classificação</dt><dd>—<span class="fh-tiny"> (vs benchmark externo em R2)</span></dd></div>
+          </dl>
+        </div>
+
+        <!-- Inline disclaimer (required by spec; NOT tooltip-only) -->
+        <aside class="fe-disclaimer" aria-labelledby="fe-disclaimer-title">
+          <svg class="fe-disclaimer__icon" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 5v4m0 3v.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          <p>
+            <strong id="fe-disclaimer-title">Métrica v1 simplificada.</strong>
+            Estados "Aguardando" contam como trabalho ativo.
+            Refinamento com mapeamento de status por squad em R2.
+          </p>
+        </aside>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       DRAWER: lista completa de items at_risk (shared pelos 3 concepts)
+  ======================================================== -->
+  <aside class="fh-drawer" id="fh-drawer" role="dialog" aria-modal="false" aria-labelledby="fh-drawer-title" hidden>
+    <header class="fh-drawer__head">
+      <div>
+        <p class="fh-drawer__eyebrow">AGING WIP</p>
+        <h2 class="fh-drawer__title" id="fh-drawer-title">Itens em risco · 67</h2>
+        <p class="fh-drawer__sub">Ordenado por idade descendente · idade &gt; 44,6d (2× P85 histórico)</p>
+      </div>
+      <button type="button" class="btn-icon" id="fh-drawer-close" aria-label="Fechar">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div class="fh-drawer__filters">
+      <input type="search" id="fh-drawer-search" placeholder="Buscar por issue key ou squad…" aria-label="Buscar" />
+      <select id="fh-drawer-squad" aria-label="Filtrar por squad">
+        <option value="">Todas as squads</option>
+      </select>
+      <select id="fh-drawer-status" aria-label="Filtrar por status">
+        <option value="">Todos status</option>
+        <option value="in_progress">In Progress</option>
+        <option value="in_review">In Review</option>
+      </select>
+    </div>
+
+    <div class="fh-drawer__body" id="fh-drawer-body">
+      <!-- virtualised table injected -->
+    </div>
+  </aside>
+
+</main>
+
+</body>
+</html>

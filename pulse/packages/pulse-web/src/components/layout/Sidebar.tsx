@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useMatchRoute } from '@tanstack/react-router';
 import {
   Home,
@@ -13,11 +13,15 @@ import {
   PanelLeftOpen,
   Settings,
 } from 'lucide-react';
+import { useTenantCapabilities } from '@/hooks/useTenantCapabilities';
+import type { CapabilityKey } from '@/types/tenant';
 
 interface NavItem {
   label: string;
   path: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** When set, item is only visible if tenant has this capability. */
+  requiresCapability?: CapabilityKey;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -26,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Cycle Time', path: '/metrics/cycle-time', icon: Clock },
   { label: 'Throughput', path: '/metrics/throughput', icon: BarChart3 },
   { label: 'Lean & Flow', path: '/metrics/lean', icon: Workflow },
-  { label: 'Sprints', path: '/metrics/sprints', icon: Zap },
+  { label: 'Sprints', path: '/metrics/sprints', icon: Zap, requiresCapability: 'sprints' },
   { label: 'Open PRs', path: '/prs', icon: GitPullRequest },
   { label: 'Integrations', path: '/integrations', icon: Cable },
   { label: 'Pipeline', path: '/pipeline-monitor', icon: Activity },
@@ -36,6 +40,20 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const matchRoute = useMatchRoute();
+  const { data: capabilities, isSuccess: capsLoaded } = useTenantCapabilities();
+
+  // Filter capability-gated items only AFTER capabilities resolve successfully.
+  // While loading / on error, we keep every item visible to avoid flicker and
+  // to fail open if the endpoint is down.
+  const visibleItems = useMemo(() => {
+    if (!capsLoaded || !capabilities) return NAV_ITEMS;
+    return NAV_ITEMS.filter((item) => {
+      if (!item.requiresCapability) return true;
+      return item.requiresCapability === 'sprints'
+        ? capabilities.hasSprints
+        : capabilities.hasKanban;
+    });
+  }, [capsLoaded, capabilities]);
 
   return (
     <aside
@@ -58,7 +76,7 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-3">
         <ul className="flex flex-col gap-0.5">
-          {NAV_ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = matchRoute({ to: item.path, fuzzy: true });
             const Icon = item.icon;
 

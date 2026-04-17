@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from src.config import settings
 from src.contexts.metrics.infrastructure.models import MetricsSnapshot
 from src.contexts.metrics.repositories import MetricsRepository
+from src.contexts.metrics.services.flow_health_on_demand import compute_flow_health
 from src.contexts.metrics.services.home_on_demand import (
     compute_home_metrics_on_demand,
     compute_previous_period,
@@ -30,6 +31,7 @@ from src.contexts.metrics.schemas import (
     DoraClassifications,
     DoraMetricsData,
     DoraResponse,
+    FlowHealthResponse,
     HomeMetricCard,
     HomeMetricsData,
     HomeMetricsResponse,
@@ -1023,6 +1025,48 @@ async def get_home_metrics(
             ),
             overall_dora_level=dora_all.get("overall_level"),
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Flow Health — Aging WIP + Flow Efficiency (on-demand, Kanban-native)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/flow-health", response_model=FlowHealthResponse)
+async def get_flow_health(
+    tenant_id: UUID = Depends(get_tenant_id),
+    squad_key: str | None = Query(
+        None,
+        min_length=1,
+        max_length=10,
+        pattern=r"^[A-Za-z][A-Za-z0-9]*$",
+        description="Jira project key (e.g. 'OKM'). Alphanumeric only — SQL-injection safe.",
+    ),
+    period: str = Query(
+        "60d",
+        description="Window for Flow Efficiency (7d|14d|30d|60d|90d|120d|custom)",
+    ),
+    start_date: str | None = Query(None, description="ISO date (required if period=custom)"),
+    end_date: str | None = Query(None, description="ISO date (required if period=custom)"),
+) -> FlowHealthResponse:
+    """Flow Health metrics (Aging WIP + Flow Efficiency) — Kanban-native.
+
+    Always on-demand (no snapshot lookup). Aging WIP measures current
+    in-flight items; Flow Efficiency is retrospective over the window.
+
+    See `pulse/docs/metrics/kanban-formulas-v1.md` for formula specs.
+    See FDD-KB-003 / FDD-KB-004 in the Kanban backlog.
+
+    Anti-surveillance: the response never exposes assignee or author.
+    """
+    period_start, period_end = _parse_period(period, start_date, end_date)
+    period_days = max(1, (period_end - period_start).days)
+
+    return await compute_flow_health(
+        tenant_id=tenant_id,
+        squad_key=squad_key.upper() if squad_key else None,
+        period_days=period_days,
     )
 
 
