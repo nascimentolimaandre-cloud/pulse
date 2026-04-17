@@ -6,6 +6,7 @@ argument-hint: [path-or-review-type] (e.g., "pulse/pulse-ui/", "packages/", "sec
 
 ## Routing
 - **pulse/pulse-ui/** → `pulse-frontend`: design tokens, semantic HTML, a11y, skeleton states
+- **ux / ui / design** → `pulse-ux-reviewer`: page-level UX/UI review — 3 editorial concepts, impl spec hand-off, FDD backlog (prefer `/pulse-ux-review <page>`)
 - **packages/** → `pulse-engineer`: architecture compliance, TypeScript strict, Python types, DDD boundaries
 - **security** → `pulse-ciso`: RLS, secrets, headers, container security, metadata-only enforcement
 - **data-quality** → `pulse-data-engineer`: pipeline idempotency, schema versioning, data observability

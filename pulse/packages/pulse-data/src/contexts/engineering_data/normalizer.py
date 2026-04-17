@@ -267,6 +267,14 @@ def normalize_pull_request(
     commits_count = devlake_pr.get("_commits_count", 0) or 0
     reviewers = devlake_pr.get("_reviewers", []) or []
 
+    # INC-003 fix: prefer the real first-commit authored_date from the
+    # connector enrichment. Falls back to created_date (PR open time) only
+    # when the source doesn't provide it (e.g. legacy DevLake rows or a
+    # transient GitHub failure). The backfill service fixes those later.
+    first_commit_at = _parse_datetime(devlake_pr.get("_first_commit_at"))
+    if first_commit_at is None:
+        first_commit_at = created_date
+
     # is_merged: true when PR has a merged_date
     is_merged = merged_date is not None
 
@@ -279,7 +287,7 @@ def normalize_pull_request(
         "author": devlake_pr.get("author_name", "unknown"),
         "state": state,
         "is_merged": is_merged,
-        "first_commit_at": created_date,  # Use created_date as proxy for first commit
+        "first_commit_at": first_commit_at,  # INC-003: real authored_date when enriched
         "first_review_at": first_review_at,
         "approved_at": approved_at,
         "merged_at": merged_date,

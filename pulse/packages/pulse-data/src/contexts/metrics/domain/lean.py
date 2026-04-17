@@ -36,6 +36,24 @@ from typing import Any
 
 _ACTIVE_STATUSES = frozenset({"in_progress", "in_review"})
 
+
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    """Coerce a datetime to timezone-aware UTC (INC-014 fix).
+
+    SQLAlchemy can return naive datetimes for columns that come from drivers
+    without timezone awareness, while we build EOD comparisons with
+    `tzinfo=timezone.utc`. Mixing naive vs aware raises `TypeError` which the
+    worker silently swallows, so CFD/WIP end up empty.
+
+    We treat naive datetimes as UTC — the ingestion pipeline normalizes
+    upstream timestamps to UTC before persisting, so this is safe.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 # Histogram bucket definitions: (label, lower_bound_hours, upper_bound_hours)
 # upper_bound is exclusive; None means open-ended.
 _LEAD_TIME_BUCKETS: list[tuple[str, float, float | None]] = [
@@ -187,6 +205,8 @@ def calculate_cfd(
                     if isinstance(entered_raw, datetime)
                     else datetime.fromisoformat(str(entered_raw))
                 )
+                entered_dt = _ensure_aware(entered_dt)  # type: ignore[assignment]
+                assert entered_dt is not None
                 # We need the normalized form — if the transition carries raw status,
                 # use it as-is (the caller is responsible for normalization).
                 sorted_trans.append((entered_dt, str(status_raw)))
@@ -194,7 +214,9 @@ def calculate_cfd(
         sorted_trans.sort(key=lambda x: x[0])
         # Fallback: treat created_at as initial "todo" entry
         if not sorted_trans:
-            sorted_trans = [(issue.created_at, "todo")]
+            created_aware = _ensure_aware(issue.created_at)
+            assert created_aware is not None
+            sorted_trans = [(created_aware, "todo")]
 
         issue_transitions.append(sorted_trans)
 
@@ -216,8 +238,9 @@ def calculate_cfd(
         for i, issue in enumerate(issues):
             trans = issue_transitions[i]
 
-            # Skip issues created after this day
-            if issue.created_at > eod:
+            # Skip issues created after this day (INC-014: normalize tz)
+            created_aware = _ensure_aware(issue.created_at)
+            if created_aware is not None and created_aware > eod:
                 continue
 
             # Find the last transition that started on or before end-of-day
@@ -278,9 +301,19 @@ def calculate_wip(
     if as_of is None:
         return sum(1 for issue in issues if issue.normalized_status in _ACTIVE_STATUSES)
 
+    # INC-014: normalize tz on both sides for safe comparison
+    as_of_aware = _ensure_aware(as_of)
+    assert as_of_aware is not None
+
+    def _entered_key(x: dict[str, Any]) -> datetime:
+        raw = x["entered_at"]
+        dt = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        return _ensure_aware(dt)  # type: ignore[return-value]
+
     count = 0
     for issue in issues:
-        if issue.created_at > as_of:
+        created_aware = _ensure_aware(issue.created_at)
+        if created_aware is not None and created_aware > as_of_aware:
             continue  # issue didn't exist yet
 
         if not issue.status_transitions:
@@ -291,11 +324,7 @@ def calculate_wip(
 
         # Find last transition at or before as_of
         active_status: str = "todo"  # default if issue created but no transitions yet
-        for t in sorted(issue.status_transitions, key=lambda x: (
-            x["entered_at"]
-            if isinstance(x["entered_at"], datetime)
-            else datetime.fromisoformat(str(x["entered_at"]))
-        )):
+        for t in sorted(issue.status_transitions, key=_entered_key):
             entered_raw = t.get("entered_at")
             if entered_raw is None:
                 continue
@@ -304,7 +333,8 @@ def calculate_wip(
                 if isinstance(entered_raw, datetime)
                 else datetime.fromisoformat(str(entered_raw))
             )
-            if entered_dt <= as_of:
+            entered_dt = _ensure_aware(entered_dt)
+            if entered_dt is not None and entered_dt <= as_of_aware:
                 active_status = str(t.get("status") or t.get("normalized_status", "todo"))
 
         if active_status in _ACTIVE_STATUSES:

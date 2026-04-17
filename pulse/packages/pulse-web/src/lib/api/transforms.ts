@@ -11,6 +11,7 @@ import type {
   DoraMetricItem,
   DoraClassification,
   BenchmarkThresholds,
+  LeadTimeCoverage,
   CycleTimeBreakdown,
   CycleTimePhase,
   ThroughputResponse,
@@ -197,6 +198,12 @@ function periodToDays(period: string): number {
 
 /* ── Raw API shapes (snake_case) ── */
 
+interface RawLeadTimeCoverage {
+  covered: number;
+  total: number;
+  pct: number;
+}
+
 interface RawHomeMetricItem {
   value: number | null;
   unit: string | null;
@@ -204,6 +211,8 @@ interface RawHomeMetricItem {
   trend_direction: string | null;
   trend_percentage: number | null;
   previous_value: number | null;
+  /** Present only on lead_time_strict. */
+  coverage?: RawLeadTimeCoverage | null;
 }
 
 interface RawHomeResponse {
@@ -215,8 +224,11 @@ interface RawHomeResponse {
   data: {
     deployment_frequency: RawHomeMetricItem;
     lead_time: RawHomeMetricItem;
+    lead_time_strict?: RawHomeMetricItem;
     change_failure_rate: RawHomeMetricItem;
     cycle_time: RawHomeMetricItem;
+    cycle_time_p85: RawHomeMetricItem;
+    time_to_restore: RawHomeMetricItem;
     wip: RawHomeMetricItem;
     throughput: RawHomeMetricItem;
     overall_dora_level: string | null;
@@ -306,8 +318,44 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
 
   // Non-DORA metrics: classify locally
   const ctValue = round2(safeNumber(d.cycle_time.value));
+  const ct85Value = round2(safeNumber(d.cycle_time_p85?.value));
   const wipValue = safeNumber(d.wip.value);
   const tpValue = safeNumber(d.throughput.value);
+
+  // Strict DORA Lead Time (FDD-DSH-082) — backend may omit on older snapshots.
+  const ltStrictRaw = d.lead_time_strict;
+  const ltStrictCoverageRaw = ltStrictRaw?.coverage ?? null;
+  const leadTimeCoverage: LeadTimeCoverage | null = ltStrictCoverageRaw
+    ? {
+        covered: safeNumber(ltStrictCoverageRaw.covered),
+        total: safeNumber(ltStrictCoverageRaw.total),
+        pct: safeNumber(ltStrictCoverageRaw.pct),
+      }
+    : null;
+  const leadTimeStrictItem = {
+    label: 'Lead Time (DORA)',
+    value: ltStrictRaw?.value ?? null,
+    unit: ltStrictRaw?.unit ?? 'hours',
+    trend: buildTrendFromApi(
+      ltStrictRaw?.trend_percentage ?? null,
+      ltStrictRaw?.trend_direction ?? null,
+      'lower-is-better',
+    ),
+    classification: ltStrictRaw?.level ? mapClassification(ltStrictRaw.level) : null,
+    sparklineData: [],
+    benchmarks: BENCHMARKS['lead_time'],
+  };
+
+  // MTTR/Time to Restore: backend returns null until incident pipeline ships.
+  // We surface the card with value=null so the UI can render "—" + tooltip.
+  const ttr = d.time_to_restore ?? {
+    value: null,
+    unit: 'hours',
+    level: null,
+    trend_direction: null,
+    trend_percentage: null,
+    previous_value: null,
+  };
 
   return {
     deploymentFrequency: buildDoraMetricItem(
@@ -322,13 +370,37 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
       'lower-is-better',
       'lead_time',
     ),
+    leadTimeStrict: leadTimeStrictItem,
+    leadTimeCoverage,
     changeFailureRate: cfrItem,
+    timeToRestore: {
+      label: 'Time to Restore',
+      value: ttr.value,
+      unit: ttr.unit ?? 'hours',
+      trend: buildTrendFromApi(ttr.trend_percentage, ttr.trend_direction, 'lower-is-better'),
+      classification: null,
+      sparklineData: [],
+      benchmarks: BENCHMARKS['lead_time'], // same time-scale benchmarks
+    },
     cycleTime: {
       label: 'Cycle Time',
       value: ctValue,
       unit: d.cycle_time.unit ?? 'hours',
       trend: buildTrendFromApi(d.cycle_time.trend_percentage, d.cycle_time.trend_direction, 'lower-is-better'),
       classification: classifyCycleTime(ctValue),
+      sparklineData: [],
+      benchmarks: BENCHMARKS['cycle_time'],
+    },
+    cycleTimeP85: {
+      label: 'Cycle Time (P85)',
+      value: ct85Value,
+      unit: d.cycle_time_p85?.unit ?? 'hours',
+      trend: buildTrendFromApi(
+        d.cycle_time_p85?.trend_percentage ?? null,
+        d.cycle_time_p85?.trend_direction ?? null,
+        'lower-is-better',
+      ),
+      classification: classifyCycleTime(ct85Value),
       sparklineData: [],
       benchmarks: BENCHMARKS['cycle_time'],
     },
@@ -350,7 +422,6 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
       sparklineData: [],
       benchmarks: BENCHMARKS['throughput'],
     },
-    prsNeedingAttention: [],
     period: raw.period,
     teamId: raw.team_id ?? 'default',
   };

@@ -24,16 +24,33 @@ export interface MetricsQueryParams {
   endDate?: string | null;
 }
 
+// Matches canonical UUID v1–v5 (with hyphens). Case-insensitive.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function buildParams(params: MetricsQueryParams): Record<string, string> {
   const result: Record<string, string> = {
     period: params.period,
   };
-  // Only send team_id if it's a real UUID (not the "default" placeholder)
+  // Team scoping: backend accepts either `team_id` (UUID from the teams table)
+  // or `squad_key` (Jira project key derived from PR titles — the 27 active
+  // squads surfaced by /pipeline/teams). We route to whichever matches.
+  // See FDD-DSH-060 (resolved via squad_key passthrough).
   if (params.teamId && params.teamId !== 'default') {
-    result.team_id = params.teamId;
+    if (UUID_RE.test(params.teamId)) {
+      result.team_id = params.teamId;
+    } else {
+      // Squad keys come in lowercase from /pipeline/teams (TeamHealth.id); the
+      // backend expects the canonical uppercase project key. Uppercase here
+      // so the regex match on PR titles (case-insensitive anyway) stays clean.
+      result.squad_key = params.teamId.toUpperCase();
+    }
   }
-  if (params.startDate) result.start_date = params.startDate;
-  if (params.endDate) result.end_date = params.endDate;
+  // Custom date range: only forward dates when period=custom AND both set.
+  // Backend rejects partial custom windows with HTTP 400.
+  if (params.period === 'custom' && params.startDate && params.endDate) {
+    result.start_date = params.startDate;
+    result.end_date = params.endDate;
+  }
   return result;
 }
 

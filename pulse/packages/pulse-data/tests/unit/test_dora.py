@@ -29,6 +29,7 @@ from src.contexts.metrics.domain.dora import (
     calculate_deployment_frequency,
     calculate_dora_metrics,
     calculate_lead_time,
+    calculate_lead_time_strict,
     calculate_mttr,
     classify_dora,
 )
@@ -187,6 +188,101 @@ class TestLeadTime:
         ]
         result = calculate_lead_time(prs)
         assert result == 10.0
+
+
+# ---------------------------------------------------------------------------
+# calculate_lead_time_strict (FDD-DSH-082)
+# ---------------------------------------------------------------------------
+
+
+class TestLeadTimeStrict:
+    """Strict variant — only PRs with deployed_at, no merged_at fallback."""
+
+    def test_empty_returns_none_with_zero_counts(self) -> None:
+        assert calculate_lead_time_strict([]) == (None, 0, 0)
+
+    def test_below_min_sample_returns_none(self) -> None:
+        # 4 eligible PRs (< _LT_STRICT_MIN_SAMPLE=5) → value None but counts populated
+        prs = [
+            _pr(first_commit=_dt(2024, 1, 1), deployed=_dt(2024, 1, 2))
+            for _ in range(4)
+        ]
+        value, eligible, total = calculate_lead_time_strict(prs)
+        assert value is None
+        assert eligible == 4
+        assert total == 4
+
+    def test_excludes_prs_without_deployed_at(self) -> None:
+        # 3 with deploy + 5 without → eligible=3 < min, returns None
+        eligible_prs = [
+            _pr(first_commit=_dt(2024, 1, 1), deployed=_dt(2024, 1, 2))
+            for _ in range(3)
+        ]
+        no_deploy = [
+            _pr(first_commit=_dt(2024, 1, 1), merged=_dt(2024, 1, 1, 2), deployed=None)
+            for _ in range(5)
+        ]
+        value, eligible, total = calculate_lead_time_strict(eligible_prs + no_deploy)
+        assert value is None
+        assert eligible == 3
+        assert total == 8
+
+    def test_returns_median_when_sample_sufficient(self) -> None:
+        # 5 PRs all with deploy at +24h, +48h, +72h, +96h, +120h => median 72h
+        base = _dt(2024, 1, 1)
+        prs = [
+            _pr(first_commit=base, deployed=base + timedelta(hours=h))
+            for h in (24, 48, 72, 96, 120)
+        ]
+        value, eligible, total = calculate_lead_time_strict(prs)
+        assert value == 72.0
+        assert eligible == 5
+        assert total == 5
+
+    def test_diverges_from_inclusive_when_coverage_partial(self) -> None:
+        # Mirrors the OKM bug: inclusive fallback collapses lead time onto
+        # cycle time, strict surfaces the real DORA value.
+        deployed_prs = [
+            _pr(
+                first_commit=_dt(2024, 1, 1),
+                merged=_dt(2024, 1, 1, 2),
+                deployed=_dt(2024, 1, 5),  # 96h
+            )
+            for _ in range(5)
+        ]
+        merged_only = [
+            _pr(
+                first_commit=_dt(2024, 1, 1),
+                merged=_dt(2024, 1, 1, 1),  # 1h fallback
+                deployed=None,
+            )
+            for _ in range(5)
+        ]
+        all_prs = deployed_prs + merged_only
+
+        inclusive = calculate_lead_time(all_prs)
+        strict_value, eligible, total = calculate_lead_time_strict(all_prs)
+
+        # Inclusive median sits between the two clusters (closer to 1h)
+        assert inclusive is not None
+        # Strict reflects only the deployed cluster
+        assert strict_value == 96.0
+        assert eligible == 5
+        assert total == 10
+        assert strict_value > inclusive
+
+    def test_negative_delta_excluded(self) -> None:
+        # 4 valid + 1 with deployed_at < first_commit (clock skew)
+        good = [
+            _pr(first_commit=_dt(2024, 1, 1), deployed=_dt(2024, 1, 2))
+            for _ in range(4)
+        ]
+        bad = _pr(first_commit=_dt(2024, 1, 5), deployed=_dt(2024, 1, 1))
+        value, eligible, total = calculate_lead_time_strict(good + [bad])
+        # Only 4 valid (negative dropped) — under min sample → None
+        assert value is None
+        assert eligible == 4
+        assert total == 5
 
 
 # ---------------------------------------------------------------------------

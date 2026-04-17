@@ -662,6 +662,51 @@ class TestNormalizePrEnrichmentFields:
         assert result["approved_at"] == expected_approved
 
 
+class TestFirstCommitEnrichment:
+    """INC-003 — normalizer must prefer real `_first_commit_at` over created_date."""
+
+    def test_uses_enrichment_first_commit_when_present(self) -> None:
+        pr = {
+            "id": "github:GithubPullRequest:1:400",
+            "status": "MERGED",
+            "title": "feat",
+            "created_date": "2026-04-10T15:00:00Z",
+            "merged_date": "2026-04-10T15:05:00Z",
+            "_first_commit_at": "2026-04-01T09:00:00Z",  # 9 days earlier
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["first_commit_at"] == datetime(
+            2026, 4, 1, 9, 0, 0, tzinfo=timezone.utc,
+        )
+
+    def test_falls_back_to_created_date_when_enrichment_missing(self) -> None:
+        pr = {
+            "id": "github:GithubPullRequest:1:401",
+            "status": "MERGED",
+            "title": "feat",
+            "created_date": "2026-04-10T15:00:00Z",
+            "merged_date": "2026-04-10T15:05:00Z",
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["first_commit_at"] == datetime(
+            2026, 4, 10, 15, 0, 0, tzinfo=timezone.utc,
+        )
+
+    def test_falls_back_when_enrichment_is_none(self) -> None:
+        pr = {
+            "id": "github:GithubPullRequest:1:402",
+            "status": "MERGED",
+            "title": "feat",
+            "created_date": "2026-04-10T15:00:00Z",
+            "merged_date": "2026-04-10T15:05:00Z",
+            "_first_commit_at": None,
+        }
+        result = normalize_pull_request(pr, TENANT_ID)
+        assert result["first_commit_at"] == datetime(
+            2026, 4, 10, 15, 0, 0, tzinfo=timezone.utc,
+        )
+
+
 class TestNormalizePrEnrichmentNulls:
     """Verify enrichment fields default to safe zero-values when absent."""
 

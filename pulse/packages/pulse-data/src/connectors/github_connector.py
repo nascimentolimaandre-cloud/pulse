@@ -65,7 +65,15 @@ query($owner: String!, $name: String!, $cursor: String, $pageSize: Int!, $review
         headRefName
         author { login }
         mergeCommit { oid }
-        commits { totalCount }
+        commits(first: 1) {
+          totalCount
+          nodes {
+            commit {
+              authoredDate
+              oid
+            }
+          }
+        }
         reviews(first: $reviewsPerPR) {
           nodes {
             state
@@ -302,7 +310,16 @@ class GitHubConnector(BaseConnector):
                 # Enrich: fetch reviews (first_review_at, approved_at, reviewers)
                 reviews = await self._fetch_pr_reviews(repo_full_name, pr_number)
 
-                mapped = self._map_pr(repo_full_name, pr, detail=detail, reviews=reviews)
+                # Enrich: fetch first commit authored_date (INC-003)
+                first_commit_at = await self._fetch_first_commit_date(
+                    repo_full_name, pr_number,
+                )
+
+                mapped = self._map_pr(
+                    repo_full_name, pr,
+                    detail=detail, reviews=reviews,
+                    first_commit_at=first_commit_at,
+                )
                 all_prs.append(mapped)
 
             if len(prs) < PER_PAGE:
@@ -397,7 +414,18 @@ class GitHubConnector(BaseConnector):
 
         author = (node.get("author") or {}).get("login") or "unknown"
         merge_commit = (node.get("mergeCommit") or {}).get("oid")
-        commits_count = (node.get("commits") or {}).get("totalCount", 0)
+        commits_block = node.get("commits") or {}
+        commits_count = commits_block.get("totalCount", 0)
+
+        # INC-003 fix: extract authoredDate of the first commit on the PR.
+        # Use `author.date` (immutable) not `committer.date` (mutable on rebase).
+        # In GraphQL PullRequestCommitConnection, nodes are ordered by position
+        # in the PR, so nodes[0] is the oldest commit.
+        first_commit_at: str | None = None
+        commit_nodes = commits_block.get("nodes") or []
+        if commit_nodes:
+            first_commit_obj = (commit_nodes[0] or {}).get("commit") or {}
+            first_commit_at = first_commit_obj.get("authoredDate")
 
         # Reviews — compute first_review_at and approved_at
         review_nodes = ((node.get("reviews") or {}).get("nodes")) or []
@@ -441,6 +469,7 @@ class GitHubConnector(BaseConnector):
             # Enrichment fields (consumed by normalizer)
             "_files_changed": node.get("changedFiles", 0),
             "_commits_count": commits_count,
+            "_first_commit_at": first_commit_at,  # INC-003
             "_first_review_at": first_review_at,
             "_approved_at": approved_at,
             "_reviewers": reviewers,
@@ -473,6 +502,35 @@ class GitHubConnector(BaseConnector):
         except Exception:
             logger.debug("Failed to fetch detail for %s#%d", repo_full_name, pr_number)
             return {"additions": 0, "deletions": 0, "changed_files": 0, "commits": 0}
+
+    async def _fetch_first_commit_date(
+        self, repo_full_name: str, pr_number: int,
+    ) -> str | None:
+        """Fetch the authored_date of the first commit on a PR (INC-003).
+
+        Uses GET /repos/{owner}/{repo}/pulls/{n}/commits with per_page=1.
+        Commits are returned in chronological order (oldest first), so
+        the first element is the first commit on the branch.
+
+        Returns `commit.author.date` (ISO8601 string) or None if unavailable.
+        We deliberately use `author.date` (immutable) rather than
+        `committer.date`, which can be rewritten by a rebase.
+        """
+        try:
+            commits = await self._client.get(
+                f"/repos/{repo_full_name}/pulls/{pr_number}/commits",
+                params={"per_page": 1, "page": 1},
+            )
+        except Exception:
+            logger.debug("Failed to fetch first commit for %s#%d", repo_full_name, pr_number)
+            return None
+
+        if not commits:
+            return None
+        first = commits[0] or {}
+        commit_obj = first.get("commit") or {}
+        author_obj = commit_obj.get("author") or {}
+        return author_obj.get("date")
 
     async def _fetch_pr_reviews(
         self, repo_full_name: str, pr_number: int,
@@ -637,6 +695,7 @@ class GitHubConnector(BaseConnector):
         pr: dict[str, Any],
         detail: dict[str, Any] | None = None,
         reviews: dict[str, Any] | None = None,
+        first_commit_at: str | None = None,
     ) -> dict[str, Any]:
         """Map a GitHub PR API response to the normalizer-expected format.
 
@@ -681,6 +740,7 @@ class GitHubConnector(BaseConnector):
             # Enrichment fields (consumed by normalizer)
             "_files_changed": detail.get("changed_files", 0),
             "_commits_count": detail.get("commits", 0),
+            "_first_commit_at": first_commit_at,  # INC-003
             "_first_review_at": reviews.get("_first_review_at"),
             "_approved_at": reviews.get("_approved_at"),
             "_reviewers": reviews.get("_reviewers", []),

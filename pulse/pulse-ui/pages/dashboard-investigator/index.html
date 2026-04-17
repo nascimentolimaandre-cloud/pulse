@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PULSE Dashboard — Investigator-first (Concept B)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../tokens.css"/>
+<style>
+.topbar{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 24px;background:var(--color-bg-surface);border-bottom:1px solid var(--color-border-default);font-size:14px}
+.page{max-width:1600px;margin:0 auto;padding:32px 24px 80px}
+.page h1{font-size:24px;margin:0 0 4px 0;font-weight:600}
+.page .sub{font-size:14px;color:var(--color-text-secondary);margin:0 0 24px 0}
+.concept-tag{display:inline-block;margin-left:8px;padding:2px 8px;background:var(--color-brand-light);color:var(--color-brand-primary-hover);font-size:11px;border-radius:999px;font-weight:600;vertical-align:middle}
+.filters{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.pill{height:34px;padding:0 14px;border:1px solid var(--color-border-default);border-radius:var(--radius-button);background:var(--color-bg-surface);font-size:13px;color:var(--color-text-primary)}
+.pill.is-active{background:var(--color-brand-light);border-color:var(--color-brand-primary);color:var(--color-brand-primary-hover);font-weight:500}
+
+.kpi-strip{background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:var(--radius-card);padding:16px;margin-bottom:24px;display:grid;grid-template-columns:repeat(8,1fr);gap:12px;box-shadow:var(--shadow-card)}
+.kpi-strip__item{display:flex;flex-direction:column;gap:2px;padding:0 10px;border-right:1px solid var(--color-border-subtle)}
+.kpi-strip__item:last-child{border-right:0}
+.kpi-strip__label{font-size:10px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.06em;font-weight:500}
+.kpi-strip__v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi-strip__u{font-size:11px;color:var(--color-text-secondary);font-weight:500}
+
+.matrix-card{background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:var(--radius-card);padding:20px;box-shadow:var(--shadow-card);overflow:hidden}
+.matrix-card h2{font-size:16px;margin:0 0 4px 0;font-weight:600}
+.matrix-card p.sub2{font-size:13px;color:var(--color-text-secondary);margin:0 0 16px 0}
+.matrix-legend{display:flex;gap:16px;margin-bottom:12px;font-size:12px}
+.matrix-legend__item{display:inline-flex;align-items:center;gap:6px;color:var(--color-text-secondary)}
+.matrix-legend__sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+.matrix-wrap{overflow:auto;max-height:720px;border:1px solid var(--color-border-subtle);border-radius:8px}
+.matrix{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.matrix thead th{position:sticky;top:0;background:var(--color-bg-surface);padding:10px 8px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-secondary);border-bottom:1px solid var(--color-border-default);z-index:2}
+.matrix thead th:first-child,.matrix tbody td:first-child{position:sticky;left:0;background:var(--color-bg-surface);z-index:1;text-align:left;padding-left:12px;border-right:1px solid var(--color-border-default)}
+.matrix thead th:first-child{z-index:3}
+.matrix td{padding:8px;text-align:center;font-family:var(--font-mono);font-variant-numeric:tabular-nums;border-bottom:1px solid var(--color-border-subtle);white-space:nowrap}
+.matrix td.team{text-align:left;font-family:var(--font-sans);font-weight:500}
+.matrix td.team .tribe{display:block;font-size:9px;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:0.06em;font-weight:400}
+.cell{display:inline-block;padding:2px 8px;border-radius:4px;min-width:54px}
+.cell--elite{background:var(--color-dora-elite-bg);color:#065F46}
+.cell--high{background:var(--color-dora-high-bg);color:#1E40AF}
+.cell--medium{background:var(--color-dora-medium-bg);color:#92400E}
+.cell--low{background:var(--color-dora-low-bg);color:#991B1B}
+.matrix tbody tr:hover{background:var(--color-bg-secondary)}
+.tribe-row td{background:var(--color-bg-tertiary) !important;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-secondary);padding:6px 12px}
+</style>
+</head>
+<body>
+<header class="topbar"><strong>PULSE</strong> <span style="color:var(--color-text-tertiary)">/ Dashboard</span></header>
+<main class="page">
+  <h1>PULSE Dashboard <span class="concept-tag">Concept B · Investigator-first</span></h1>
+  <p class="sub">Matriz densa 27×6 para detectar outliers em segundos. KPI strip compacta + heatmap por classificação DORA.</p>
+
+  <div class="filters">
+    <select class="pill"><option>Todas as squads (27)</option></select>
+    <div style="display:flex;gap:4px"><button class="pill">30d</button><button class="pill is-active">60d</button><button class="pill">90d</button><button class="pill">120d</button><button class="pill">Personalizado…</button></div>
+    <select class="pill" id="sort-col"><option value="deployFreq">Ordenar: Deploy Freq</option><option value="cfr">Ordenar: CFR</option><option value="cycleTimeP50">Ordenar: Cycle P50</option><option value="wip">Ordenar: WIP</option></select>
+  </div>
+
+  <!-- Slim strip -->
+  <section class="kpi-strip" id="strip"></section>
+
+  <!-- Matrix -->
+  <section class="matrix-card">
+    <h2>Matriz Squads × Métricas</h2>
+    <p class="sub2">27 squads × 6 métricas · classificação DORA em cada célula · clique para drill-down</p>
+    <div class="matrix-legend">
+      <span class="matrix-legend__item"><span class="matrix-legend__sw" style="background:var(--color-dora-elite-bg)"></span>Elite</span>
+      <span class="matrix-legend__item"><span class="matrix-legend__sw" style="background:var(--color-dora-high-bg)"></span>High</span>
+      <span class="matrix-legend__item"><span class="matrix-legend__sw" style="background:var(--color-dora-medium-bg)"></span>Medium</span>
+      <span class="matrix-legend__item"><span class="matrix-legend__sw" style="background:var(--color-dora-low-bg)"></span>Low</span>
+    </div>
+    <div class="matrix-wrap">
+      <table class="matrix" aria-label="Matriz de métricas por squad">
+        <thead><tr>
+          <th style="min-width:200px">Squad</th>
+          <th>Deploy /dia</th><th>Lead Time (h)</th><th>Change Failure</th><th>Cycle P50 (d)</th><th>WIP</th><th>Throughput</th>
+        </tr></thead>
+        <tbody id="matrix-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { GLOBAL_METRICS, TEAMS, classifyDora, fmtNumber } from '../dashboard/mock-data.js';
+
+const strip = document.getElementById('strip');
+const groups = [
+  ['DORA Dep Freq', GLOBAL_METRICS.dora.deploymentFrequency],
+  ['DORA Lead Time', GLOBAL_METRICS.dora.leadTimeForChanges],
+  ['DORA CFR', GLOBAL_METRICS.dora.changeFailureRate],
+  ['DORA TTR', GLOBAL_METRICS.dora.timeToRestore],
+  ['Flow Cycle P50', GLOBAL_METRICS.flow.cycleTimeP50],
+  ['Flow Cycle P85', GLOBAL_METRICS.flow.cycleTimeP85],
+  ['Flow WIP', GLOBAL_METRICS.flow.wip],
+  ['Flow Throughput', GLOBAL_METRICS.flow.throughput],
+];
+strip.innerHTML = groups.map(([lbl,m])=>`
+  <div class="kpi-strip__item"><span class="kpi-strip__label">${lbl}</span>
+    <span><span class="kpi-strip__v">${m.value}</span> <span class="kpi-strip__u">${m.unit}</span></span>
+  </div>`).join('');
+
+function classify(metric,v){
+  if(metric==='deployFreq') return classifyDora('deployFreq',v);
+  if(metric==='leadTime') return classifyDora('leadTime',v);
+  if(metric==='cfr') return classifyDora('cfr',v);
+  if(metric==='cycleTimeP50') return v<3?'elite':v<5?'high':v<8?'medium':'low';
+  if(metric==='wip') return v<15?'elite':v<22?'high':v<30?'medium':'low';
+  if(metric==='throughput') return v>=20?'elite':v>=14?'high':v>=9?'medium':'low';
+}
+function cell(metric, v, unit=''){
+  const c = classify(metric,v);
+  return `<td><span class="cell cell--${c}">${fmtNumber(v)}${unit?' '+unit:''}</span></td>`;
+}
+
+function render(sortKey='deployFreq'){
+  // group by tribe
+  const byTribe = new Map();
+  TEAMS.forEach(t=>{ if(!byTribe.has(t.tribe)) byTribe.set(t.tribe,[]); byTribe.get(t.tribe).push(t); });
+  const rows = [];
+  for (const [tribe, list] of byTribe.entries()){
+    const sorted = [...list].sort((a,b)=>{
+      if(sortKey==='deployFreq'||sortKey==='throughput') return b[sortKey]-a[sortKey];
+      return a[sortKey]-b[sortKey];
+    });
+    rows.push(`<tr class="tribe-row"><td colspan="7">${tribe} · ${list.length} squads</td></tr>`);
+    sorted.forEach(t=>{
+      rows.push(`<tr>
+        <td class="team">${t.name}<span class="tribe">${t.tribe}</span></td>
+        ${cell('deployFreq',t.deployFreq)}
+        ${cell('leadTime',t.leadTime)}
+        ${cell('cfr',t.cfr,'%')}
+        ${cell('cycleTimeP50',t.cycleTimeP50)}
+        ${cell('wip',t.wip)}
+        ${cell('throughput',t.throughput)}
+      </tr>`);
+    });
+  }
+  document.getElementById('matrix-body').innerHTML = rows.join('');
+}
+render();
+document.getElementById('sort-col').addEventListener('change',(e)=>render(e.target.value));
+</script>
+</body></html>

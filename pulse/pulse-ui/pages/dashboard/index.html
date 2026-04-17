@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PULSE Dashboard — Diagnostic-first</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../../tokens.css" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js" defer></script>
+  <script type="module" src="./script.js" defer></script>
+</head>
+<body>
+
+  <!-- SKIP LINK for keyboard users -->
+  <a href="#main" class="skip-link">Pular para o conteúdo</a>
+
+  <header class="topbar" role="banner">
+    <div class="topbar__brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <strong>PULSE</strong>
+      <span class="topbar__divider" aria-hidden="true">/</span>
+      <span class="topbar__crumb">Dashboard</span>
+    </div>
+
+    <div class="topbar__actions">
+      <span class="topbar__time" aria-live="polite" id="last-sync">
+        Última sincronização <time datetime="2026-04-16T13:22Z">2026-04-16 13:22 UTC</time> · há 2min
+      </span>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+
+    <!-- ============= PAGE HEADER + FILTERS ============= -->
+    <section class="page-head" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title" class="page-head__title">PULSE Dashboard</h1>
+        <p class="page-head__subtitle">
+          Visão de engenharia por time em DORA e Flow. Selecione squad e período para explorar.
+        </p>
+      </div>
+
+      <form class="filters" role="search" aria-label="Filtros do dashboard" onsubmit="return false;">
+        <!-- Team filter (searchable) -->
+        <div class="filter">
+          <label class="filter__label" for="f-team">Squad</label>
+          <div class="combobox" id="team-combobox">
+            <button
+              type="button"
+              class="combobox__trigger"
+              id="f-team"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="team-list"
+            >
+              <span class="combobox__value" id="team-value">Todas as squads</span>
+              <svg class="icon-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 7l5 5 5-5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            </button>
+            <div class="combobox__panel" id="team-list" role="listbox" hidden>
+              <input type="search" class="combobox__search" id="team-search" placeholder="Buscar squad ou tribo…" aria-label="Buscar squad" />
+              <ul class="combobox__options" id="team-options"><!-- injected --></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Period filter -->
+        <fieldset class="filter filter--period">
+          <legend class="filter__label">Período</legend>
+          <div class="segmented" role="radiogroup" aria-label="Período">
+            <button type="button" class="segmented__opt" data-period="30d"  role="radio" aria-checked="false">30d</button>
+            <button type="button" class="segmented__opt is-active" data-period="60d" role="radio" aria-checked="true">60d</button>
+            <button type="button" class="segmented__opt" data-period="90d"  role="radio" aria-checked="false">90d</button>
+            <button type="button" class="segmented__opt" data-period="120d" role="radio" aria-checked="false">120d</button>
+            <button type="button" class="segmented__opt" data-period="custom" role="radio" aria-checked="false" id="btn-custom">Personalizado…</button>
+          </div>
+
+          <!-- Custom date range (shown when Personalizado active) -->
+          <div class="date-range" id="date-range" hidden>
+            <label class="date-range__item">
+              <span class="filter__sublabel">De</span>
+              <input type="date" id="date-start" value="2026-01-16" />
+            </label>
+            <label class="date-range__item">
+              <span class="filter__sublabel">Até</span>
+              <input type="date" id="date-end" value="2026-04-16" />
+            </label>
+          </div>
+        </fieldset>
+
+        <button type="button" class="btn-ghost" id="btn-reset" aria-label="Limpar filtros">Limpar</button>
+      </form>
+    </section>
+
+    <!-- ============= APPLIED FILTER CONTEXT ============= -->
+    <div class="applied-filters" id="applied-filters" aria-live="polite">
+      <span class="applied-filters__text">
+        Exibindo <strong id="af-scope">todas as 27 squads</strong> · últimos <strong id="af-period">60 dias</strong>
+      </span>
+    </div>
+
+    <!-- ============= KPI STRIP — GROUPED ============= -->
+    <section class="kpi-groups" aria-labelledby="kpi-title">
+      <h2 id="kpi-title" class="section-title">Indicadores globais</h2>
+
+      <div class="kpi-groups__grid">
+
+        <!-- Group 1: DORA -->
+        <article class="kpi-group" aria-labelledby="grp-dora">
+          <header class="kpi-group__head">
+            <h3 id="grp-dora" class="kpi-group__title">
+              <span class="kpi-group__dot kpi-group__dot--dora" aria-hidden="true"></span>
+              DORA Metrics
+            </h3>
+            <span class="kpi-group__hint" id="dora-overall-hint">Classificação geral: Elite em 3 de 4</span>
+          </header>
+
+          <div class="kpi-group__grid" id="kpi-dora"><!-- kpi cards injected --></div>
+        </article>
+
+        <!-- Group 2: Flow & Management -->
+        <article class="kpi-group" aria-labelledby="grp-flow">
+          <header class="kpi-group__head">
+            <h3 id="grp-flow" class="kpi-group__title">
+              <span class="kpi-group__dot kpi-group__dot--flow" aria-hidden="true"></span>
+              Flow &amp; Management
+            </h3>
+            <span class="kpi-group__hint">Based on Little's Law · P50/P85</span>
+          </header>
+
+          <div class="kpi-group__grid" id="kpi-flow"><!-- kpi cards injected --></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============= PER-TEAM METRIC RANKINGS ============= -->
+    <section class="rankings" aria-labelledby="ranking-title">
+      <div class="rankings__head">
+        <h2 id="ranking-title" class="section-title">Comparativo por squad</h2>
+        <p class="section-sub">Ordenado por desempenho — clique em uma squad para abrir detalhe.</p>
+      </div>
+
+      <!-- Tabs to switch active metric ranking -->
+      <div class="metric-tabs" role="tablist" aria-label="Métrica do ranking">
+        <button role="tab" aria-selected="true"  class="metric-tab is-active" data-metric="deployFreq">Deploy Frequency</button>
+        <button role="tab" aria-selected="false" class="metric-tab" data-metric="leadTime">Lead Time</button>
+        <button role="tab" aria-selected="false" class="metric-tab" data-metric="cfr">Change Failure</button>
+        <button role="tab" aria-selected="false" class="metric-tab" data-metric="cycleTime">Cycle Time</button>
+        <button role="tab" aria-selected="false" class="metric-tab" data-metric="wip">WIP</button>
+        <button role="tab" aria-selected="false" class="metric-tab" data-metric="throughput">Throughput</button>
+      </div>
+
+      <div class="ranking-card" role="tabpanel" aria-labelledby="ranking-title">
+        <header class="ranking-card__head">
+          <div>
+            <h3 class="ranking-card__title" id="ranking-metric-title">Deploy Frequency por squad</h3>
+            <p class="ranking-card__sub" id="ranking-metric-sub">Maior é melhor · thresholds DORA overlay</p>
+          </div>
+          <div class="ranking-card__legend" aria-hidden="false" role="list" aria-label="Legenda DORA">
+            <span class="dora-legend"><i class="dora-dot dora-dot--elite"></i>Elite</span>
+            <span class="dora-legend"><i class="dora-dot dora-dot--high"></i>High</span>
+            <span class="dora-legend"><i class="dora-dot dora-dot--medium"></i>Medium</span>
+            <span class="dora-legend"><i class="dora-dot dora-dot--low"></i>Low</span>
+          </div>
+        </header>
+
+        <!-- Cleveland dot plot / horizontal bar ranking: 27 teams virtualised via max-height + overflow -->
+        <div class="ranking-chart" id="ranking-chart" role="region" aria-label="Ranking de squads">
+          <!-- injected bars -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ============= EVOLUTION SMALL MULTIPLES ============= -->
+    <section class="evolution" aria-labelledby="evolution-title">
+      <div class="evolution__head">
+        <h2 id="evolution-title" class="section-title">Evolução por squad</h2>
+        <p class="section-sub">Mini trend de 12 semanas · hover mostra valor na semana</p>
+
+        <div class="evolution__controls">
+          <label class="filter__sublabel" for="ev-metric">Métrica</label>
+          <select id="ev-metric" class="select">
+            <option value="deployFreq">Deploy Frequency</option>
+            <option value="leadTime">Lead Time</option>
+            <option value="cfr">Change Failure</option>
+            <option value="cycleTimeP50" selected>Cycle Time P50</option>
+            <option value="wip">Work in Progress</option>
+            <option value="throughput">Throughput</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="small-multiples" id="small-multiples">
+        <!-- injected mini-charts, grouped by tribe -->
+      </div>
+    </section>
+
+    <footer class="page-foot">
+      <p class="page-foot__text">
+        PULSE é read-only. Dados de DevLake · GitHub · Jenkins · Jira. <a href="#" class="inline-link">Ver pipeline</a>.
+      </p>
+    </footer>
+
+  </main>
+
+  <!-- ============= DRAWER — TEAM DRILL-DOWN ============= -->
+  <aside
+    class="drawer"
+    id="drawer"
+    role="dialog"
+    aria-modal="false"
+    aria-labelledby="drawer-title"
+    hidden
+  >
+    <header class="drawer__head">
+      <div>
+        <p class="drawer__eyebrow" id="drawer-tribe">TRIBO</p>
+        <h2 class="drawer__title" id="drawer-title">Squad</h2>
+      </div>
+      <button type="button" class="btn-icon" id="drawer-close" aria-label="Fechar detalhe">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div class="drawer__body" id="drawer-body">
+      <!-- Populated on open: metric grid + distribution + evolution -->
+    </div>
+  </aside>
+
+  <!-- Global state containers (injected at runtime) -->
+  <div id="toast-region" aria-live="polite" class="sr-only"></div>
+
+</body>
+</html>

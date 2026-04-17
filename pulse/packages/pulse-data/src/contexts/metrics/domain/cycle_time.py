@@ -177,9 +177,12 @@ def breakdown_single_pr(pr: PullRequestCycleData) -> PrCycleBreakdown:
     review = _delta_hours(pr.approved_at, pr.merged_at)
     deploy = _delta_hours(pr.merged_at, pr.deployed_at)
 
-    # Total: first commit → deployed (fallback to merged)
-    end = pr.deployed_at if pr.deployed_at is not None else pr.merged_at
-    total = _delta_hours(pr.first_commit_at, end)
+    # INC-004: Cycle Time is canonically the dev-work window,
+    # first_commit_at → merged_at.  Using deployed_at here would collapse
+    # Cycle Time into DORA Lead Time for Changes once deployed_at is
+    # populated (they should remain distinct: the difference is the
+    # deploy queue time captured by the `deploy` phase above).
+    total = _delta_hours(pr.first_commit_at, pr.merged_at)
 
     return PrCycleBreakdown(
         pr_id=pr.pr_id,
