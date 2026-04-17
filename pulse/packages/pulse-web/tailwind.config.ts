@@ -48,6 +48,10 @@ const config: Config = {
           high: 'var(--color-dora-high)',
           medium: 'var(--color-dora-medium)',
           low: 'var(--color-dora-low)',
+          'elite-bg': 'var(--color-dora-elite-bg)',
+          'high-bg': 'var(--color-dora-high-bg)',
+          'medium-bg': 'var(--color-dora-medium-bg)',
+          'low-bg': 'var(--color-dora-low-bg)',
         },
         chart: {
           1: 'var(--chart-1)',

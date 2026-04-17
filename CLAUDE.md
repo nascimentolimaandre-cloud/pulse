@@ -42,37 +42,38 @@ PULSE is an Engineering Intelligence SaaS providing DORA, Lean/Agile, and Sprint
 
 **CRITICAL PATH RULE:** All code, configs, and application files MUST be created inside `pulse/`. Never write application files to the root or to `factory/`.
 
-## Team — 7 Specialized Agents
+## Team — 8 Specialized Agents
 
 ```
-                          ┌─────────────────────────┐
-                          │      ORCHESTRATOR        │
-                          │     (main session)       │
-                          │                          │
-                          │  Architecture decisions  │
-                          │  Task breakdown & plan   │
-                          │  Git & PR coordination   │
-                          │  Cross-agent conflicts   │
-                          └────────┬────────────────-┘
-           ┌───────────┬──────────┼──────────┬───────────┬──────────┐
-           ▼           ▼          ▼          ▼           ▼          ▼
-    ┌────────────┐┌──────────┐┌────────┐┌──────────┐┌──────────┐┌────────────┐
-    │  product-  ││ frontend ││engineer││  data-   ││  data-   ││   test-    │
-    │  director  ││          ││        ││ engineer ││scientist ││  engineer  │
-    │            ││HTML/CSS/ ││NestJS  ││Pipelines ││Analytics ││QA & auto-  │
-    │Strategy,   ││JS proto  ││FastAPI ││DevLake   ││ML models ││mation      │
-    │UX, specs   ││Chart.js  ││React   ││Kafka     ││Metrics   ││Playwright  │
-    │pricing     ││pulse-ui/ ││Docker  ││Schema    ││formulas  ││coverage    │
-    └────────────┘└──────────┘└────────┘└──────────┘└──────────┘└────────────┘
-                                                                       │
-                                                            ┌──────────┘
-                                                            ▼
-                                                     ┌────────────┐
-                                                     │    ciso     │
-                                                     │Security,   │
-                                                     │compliance, │
-                                                     │IAM, WAF    │
-                                                     └────────────┘
+                              ┌─────────────────────────┐
+                              │      ORCHESTRATOR        │
+                              │     (main session)       │
+                              │                          │
+                              │  Architecture decisions  │
+                              │  Task breakdown & plan   │
+                              │  Git & PR coordination   │
+                              │  Cross-agent conflicts   │
+                              └────────┬────────────────-┘
+           ┌───────────┬───────────┬───┼──────┬───────────┬──────────┐
+           ▼           ▼           ▼   ▼      ▼           ▼          ▼
+    ┌────────────┐┌──────────┐┌─────────┐┌────────┐┌──────────┐┌──────────┐┌────────────┐
+    │  product-  ││ frontend ││   ux-    ││engineer││  data-   ││  data-   ││   test-    │
+    │  director  ││          ││ reviewer ││        ││ engineer ││scientist ││  engineer  │
+    │            ││HTML/CSS/ ││          ││NestJS  ││Pipelines ││Analytics ││QA & auto-  │
+    │Strategy,   ││JS proto  ││Principal ││FastAPI ││DevLake   ││ML models ││mation      │
+    │UX, specs   ││Chart.js  ││designer  ││React   ││Kafka     ││Metrics   ││Playwright  │
+    │pricing     ││pulse-ui/ ││concepts+ ││Docker  ││Schema    ││formulas  ││coverage    │
+    │            ││          ││specs+FDD ││        ││          ││          ││            │
+    └────────────┘└──────────┘└─────────┘└────────┘└──────────┘└──────────┘└────────────┘
+                                                                                 │
+                                                                      ┌──────────┘
+                                                                      ▼
+                                                               ┌────────────┐
+                                                               │    ciso     │
+                                                               │Security,   │
+                                                               │compliance, │
+                                                               │IAM, WAF    │
+                                                               └────────────┘
 ```
 
 ## Routing Rules — FOLLOW STRICTLY
@@ -94,6 +95,18 @@ PULSE is an Engineering Intelligence SaaS providing DORA, Lean/Agile, and Sprint
 - Design tokens implementation (tokens.css), utilities, animations
 - Skeleton states, empty states, transitions in the prototype
 - Accessibility (WCAG AA) in the prototype
+
+### `pulse-ux-reviewer` — Principal designer / UX & UI review (global)
+- Review or redesign the UX/UI of any PULSE page, journey, component or state
+- Produces **three editorial concepts** + final recommendation with 3 pre-dev adjustments
+- Always delivers the three mandatory artefacts:
+  1. Runnable frontend code (HTML/CSS/JS) under `pulse/pulse-ui/`
+  2. Implementation spec at `pulse/docs/ux-specs/<page>-impl-spec.md` (hand-off to `pulse-engineer`)
+  3. FDD backlog at `pulse/docs/backlog/<page>-backlog.md` (hand-off to `pulse-product-director`)
+- Enforces: real-scale design (283 repos / 69 projects / 373k issues), WCAG AA,
+  anti-surveillance, all 6 states (loading / empty / healthy / degraded / error / partial),
+  responsive (desktop ≥1280 / tablet / mobile), PT-BR copy, tokens-only (no hardcoded hex)
+- Invoke via `/pulse-ux-review <page-or-journey>`
 
 ### `pulse-engineer` — Full-stack production code
 - Anything inside `pulse/packages/`
@@ -178,6 +191,15 @@ When delegating to ANY agent, include:
 1. `pulse-product-director` → Feature definition, persona, BDD criteria
 2. `pulse-data-scientist` → Analytics model, visualization recommendation
 3. Then implementation agents in sequence above
+
+### UX/UI review or redesign of a page/journey:
+1. `pulse-ux-reviewer` → 3 concepts + recommendation + runnable HTML/CSS/JS in
+   `pulse/pulse-ui/` + impl spec in `pulse/docs/ux-specs/` + FDD backlog in
+   `pulse/docs/backlog/`
+2. `pulse-product-director` → Prioritise the FDD backlog against the release plan
+3. `pulse-engineer` → Consume the impl spec, break HTML into design-system
+   components, implement in `pulse/packages/pulse-web/`
+4. `pulse-test-engineer` → a11y audit (axe-core), visual regression, E2E journey
 
 ### Security review:
 1. `pulse-ciso` → Review architecture, identify risks

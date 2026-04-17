@@ -90,3 +90,52 @@ export function useIntegrations() {
   });
 }
 
+/* ──────────────────────────────────────────────────────────
+ *  Dashboard redesign (Diagnostic-first) — per-team hooks.
+ *
+ *  TODO(pulse-data-engineer): these hooks currently derive data
+ *  deterministically from `GET /data/v1/pipeline/teams`. Replace
+ *  with real endpoints when ready:
+ *    - GET /data/v1/metrics/by-team?metric={}&period={}
+ *    - GET /data/v1/metrics/by-team/evolution?metric={}&period={}
+ *    - GET /data/v1/teams/{id}/detail?period={}
+ * ────────────────────────────────────────────────────────── */
+import { fetchPipelineTeams } from '@/lib/api/pipeline';
+import type { TeamHealth } from '@/types/pipeline';
+import type { DashboardMetric } from '@/stores/filterStore';
+import {
+  deriveRanking,
+  deriveEvolution,
+  deriveTeamDetail,
+  type TeamRankingRow,
+  type TeamEvolutionSeries,
+  type TeamDetailData,
+} from '@/lib/dashboard/mockDerive';
+
+export function usePipelineTeamsList() {
+  return useQuery<TeamHealth[]>({
+    queryKey: ['pipeline-teams'],
+    queryFn: fetchPipelineTeams,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useMetricsByTeam(metric: DashboardMetric) {
+  const { data: teams, isLoading, isError, error } = usePipelineTeamsList();
+  const rows: TeamRankingRow[] = teams ? deriveRanking(teams, metric) : [];
+  return { data: rows, isLoading, isError, error };
+}
+
+export function useMetricsByTeamEvolution(metric: DashboardMetric) {
+  const { data: teams, isLoading, isError, error } = usePipelineTeamsList();
+  const series: TeamEvolutionSeries[] = teams ? deriveEvolution(teams, metric) : [];
+  return { data: series, isLoading, isError, error };
+}
+
+export function useTeamDetail(teamId: string | null) {
+  const { data: teams } = usePipelineTeamsList();
+  const team = teamId && teams ? teams.find((t) => t.id === teamId) : null;
+  const detail: TeamDetailData | null = team ? deriveTeamDetail(team) : null;
+  return { data: detail };
+}
+

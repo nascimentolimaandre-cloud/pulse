@@ -1,61 +1,73 @@
-import { ChevronDown } from 'lucide-react';
+import { useRouterState } from '@tanstack/react-router';
 import { useFilterStore } from '@/stores/filterStore';
-import type { PeriodOption } from '@/stores/filterStore';
+import { useHomeMetrics, usePipelineTeamsList } from '@/hooks/useMetrics';
+import { TeamCombobox } from '@/components/dashboard/TeamCombobox';
+import { PeriodSegmented } from '@/components/dashboard/PeriodSegmented';
+import { DateRangeFilter } from '@/components/dashboard/DateRangeFilter';
 
-interface PeriodOptionConfig {
-  value: PeriodOption;
-  label: string;
+// Routes where global filters are not meaningful. Pipeline Monitor is
+// real-time pipeline status (no period concept), and Jira Settings is a
+// catalog management page (no time window). We hide the filter bar on those
+// routes rather than rendering disabled controls.
+const FILTER_EXEMPT_ROUTES = ['/pipeline-monitor', '/settings/integrations', '/integrations'];
+
+function isFilterExempt(pathname: string): boolean {
+  return FILTER_EXEMPT_ROUTES.some((prefix) => pathname.startsWith(prefix));
 }
 
-const PERIOD_OPTIONS: PeriodOptionConfig[] = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-  { value: '90d', label: 'Last 90 days' },
-];
-
 export function TopBar() {
-  const { teamId, period, setTeamId, setPeriod } = useFilterStore();
+  const {
+    teamId,
+    period,
+    startDate,
+    endDate,
+    setTeamId,
+    setPeriod,
+    setCustomRange,
+    reset,
+  } = useFilterStore();
+
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const showFilters = !isFilterExempt(pathname);
+
+  // Pipeline teams list — always fetched (same 60s stale time as elsewhere) so
+  // the TopBar has the 27 squads ready without a waterfall from the page body.
+  const teamsQ = usePipelineTeamsList();
+  const teams = teamsQ.data ?? [];
+
+  // Home metrics query — kept warm so we can pre-trigger the fetch in the
+  // background when the user navigates around. Cheap because TanStack Query
+  // dedupes by key.
+  useHomeMetrics();
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border-default bg-surface-primary px-page-padding">
-      {/* Left: Breadcrumb placeholder */}
-      <div className="text-sm text-content-secondary">
-        {/* Breadcrumb will be populated by route context */}
+    <header className="flex min-h-14 items-center justify-between gap-4 border-b border-border-default bg-surface-primary px-page-padding py-2">
+      {/* Left: Breadcrumb placeholder (populated by route context in future) */}
+      <div className="min-w-0 flex-shrink truncate text-sm text-content-secondary">
+        {/* Breadcrumb slot */}
       </div>
 
-      {/* Right: Global Filters */}
-      <div className="flex items-center gap-3">
-        {/* Team Dropdown */}
-        <div className="relative">
-          <select
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
-            className="appearance-none rounded-button border border-border-default bg-surface-primary py-1.5 pl-3 pr-8 text-sm text-content-primary transition-colors hover:border-content-tertiary focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary"
-            aria-label="Select team"
+      {/* Right: Global Filters (hidden on exempt routes) */}
+      {showFilters && (
+        <div className="flex flex-wrap items-end justify-end gap-3">
+          <TeamCombobox teams={teams} value={teamId} onChange={setTeamId} />
+          <PeriodSegmented value={period} onChange={setPeriod} />
+          {period === 'custom' && (
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              onSubmit={setCustomRange}
+            />
+          )}
+          <button
+            type="button"
+            onClick={reset}
+            className="h-9 rounded-button px-3 text-xs font-medium text-content-secondary hover:bg-surface-tertiary hover:text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
-            <option value="default">All Teams</option>
-            {/* Teams will be populated from API */}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-content-tertiary" />
+            Limpar
+          </button>
         </div>
-
-        {/* Period Dropdown */}
-        <div className="relative">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value as PeriodOption)}
-            className="appearance-none rounded-button border border-border-default bg-surface-primary py-1.5 pl-3 pr-8 text-sm text-content-primary transition-colors hover:border-content-tertiary focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary"
-            aria-label="Select period"
-          >
-            {PERIOD_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-content-tertiary" />
-        </div>
-      </div>
+      )}
     </header>
   );
 }

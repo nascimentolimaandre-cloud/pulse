@@ -193,6 +193,19 @@ class SprintResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class LeadTimeCoverage(BaseModel):
+    """Coverage info for the strict Lead Time card.
+
+    Surfaces how many PRs in the period have a deploy timestamp linked
+    versus the total. Frontend uses this to render a 'X / Y PRs' subtitle
+    so users can judge representativeness of the strict P50.
+    """
+
+    covered: int = 0
+    total: int = 0
+    pct: float = 0.0
+
+
 class HomeMetricCard(BaseModel):
     """A single metric card for the home dashboard."""
 
@@ -202,17 +215,28 @@ class HomeMetricCard(BaseModel):
     trend_direction: str | None = None  # "up" | "down" | "flat" | None
     trend_percentage: float | None = None  # % change vs previous period (null = no data)
     previous_value: float | None = None  # value from previous equivalent period
+    # Optional — populated only on lead_time_strict for the home dashboard.
+    coverage: LeadTimeCoverage | None = None
 
 
 class HomeMetricsData(BaseModel):
     """Summary metrics for the home dashboard."""
 
     deployment_frequency: HomeMetricCard = Field(default_factory=HomeMetricCard)
+    # `lead_time` is the LEGACY inclusive variant (uses merged_at fallback) —
+    # kept for backward compat with consumers that haven't migrated yet.
     lead_time: HomeMetricCard = Field(default_factory=HomeMetricCard)
+    # `lead_time_strict` is the canonical DORA variant (deployed_at only).
+    # Frontend should prefer this card. See FDD-DSH-082.
+    lead_time_strict: HomeMetricCard = Field(default_factory=HomeMetricCard)
     change_failure_rate: HomeMetricCard = Field(default_factory=HomeMetricCard)
     cycle_time: HomeMetricCard = Field(default_factory=HomeMetricCard)
+    cycle_time_p85: HomeMetricCard = Field(default_factory=HomeMetricCard)
     wip: HomeMetricCard = Field(default_factory=HomeMetricCard)
     throughput: HomeMetricCard = Field(default_factory=HomeMetricCard)
+    # MTTR/Time to Restore is roadmap R1 — requires incident ingestion pipeline.
+    # Card renders "—" with tooltip until backend calculates it (see backlog FDD-DSH-041).
+    time_to_restore: HomeMetricCard = Field(default_factory=HomeMetricCard)
     overall_dora_level: str | None = None
 
 

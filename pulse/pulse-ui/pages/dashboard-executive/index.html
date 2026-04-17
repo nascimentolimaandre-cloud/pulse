@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PULSE Dashboard — Executive-first (Concept A)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../tokens.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<style>
+.topbar{display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 24px;background:var(--color-bg-surface);border-bottom:1px solid var(--color-border-default);font-size:14px}
+.page{max-width:1440px;margin:0 auto;padding:32px 24px 80px}
+.page h1{font-size:24px;margin:0 0 4px 0;font-weight:600}
+.page .sub{font-size:14px;color:var(--color-text-secondary);margin:0 0 24px 0}
+.concept-tag{display:inline-block;margin-left:8px;padding:2px 8px;background:var(--color-brand-light);color:var(--color-brand-primary-hover);font-size:11px;border-radius:999px;font-weight:600;vertical-align:middle}
+.filters{display:flex;gap:12px;margin-bottom:24px;align-items:center;flex-wrap:wrap}
+.pill{height:34px;padding:0 14px;border:1px solid var(--color-border-default);border-radius:var(--radius-button);background:var(--color-bg-surface);font-size:13px;color:var(--color-text-primary)}
+.pill.is-active{background:var(--color-brand-light);border-color:var(--color-brand-primary);color:var(--color-brand-primary-hover);font-weight:500}
+
+/* Hero KPI strip */
+.hero{background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:var(--radius-card);padding:20px;margin-bottom:24px;box-shadow:var(--shadow-card)}
+.hero__groups{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.hero__group h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-tertiary);margin:0 0 12px 0}
+.hero__kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.hero-kpi{display:flex;flex-direction:column;gap:2px}
+.hero-kpi__label{font-size:11px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500}
+.hero-kpi__v{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.hero-kpi__u{font-size:12px;color:var(--color-text-secondary);margin-left:2px;font-weight:500}
+.hero-kpi__trend{font-size:12px;font-weight:500;margin-top:2px}
+.hero-kpi__trend.up{color:var(--color-success)}
+.hero-kpi__trend.down{color:var(--color-success)}
+.hero-kpi__trend.bad{color:var(--color-danger)}
+
+/* Leaderboard */
+.board{background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:var(--radius-card);padding:20px;margin-bottom:24px;box-shadow:var(--shadow-card)}
+.board h2{font-size:16px;margin:0 0 4px 0;font-weight:600}
+.board p.sub2{font-size:13px;color:var(--color-text-secondary);margin:0 0 16px 0}
+.board-table{width:100%;border-collapse:collapse}
+.board-table th,.board-table td{text-align:left;padding:8px 10px;font-size:13px;border-bottom:1px solid var(--color-border-subtle);white-space:nowrap}
+.board-table th{color:var(--color-text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;font-weight:500}
+.board-table td.num{font-family:var(--font-mono);text-align:right;font-variant-numeric:tabular-nums}
+.board-table tr:hover{background:var(--color-bg-secondary)}
+.mini-spark{width:80px;height:20px;vertical-align:middle}
+
+/* Small multiples grid */
+.sm-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:var(--radius-card);padding:20px}
+.sm{padding:10px;background:var(--color-bg-secondary);border-radius:8px;border:1px solid var(--color-border-subtle)}
+.sm__h{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px}
+.sm__name{font-weight:500;color:var(--color-text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.sm__tribe{color:var(--color-text-tertiary);font-size:9px;letter-spacing:0.06em;text-transform:uppercase}
+.sm__v{font-family:var(--font-mono);font-size:13px;font-weight:600;margin-top:4px}
+.section-h{font-size:16px;font-weight:600;margin:32px 0 12px 0}
+
+@media(max-width:900px){.hero__groups{grid-template-columns:1fr}.hero__kpis{grid-template-columns:repeat(2,1fr)}.sm-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header class="topbar"><strong>PULSE</strong> <span style="color:var(--color-text-tertiary)">/ Dashboard</span></header>
+<main class="page">
+  <h1>PULSE Dashboard <span class="concept-tag">Concept A · Executive-first</span></h1>
+  <p class="sub">Leitura em 10 segundos. KPIs em 2 pills (DORA + Flow), leaderboard, evolução por time.</p>
+
+  <div class="filters" role="search" aria-label="Filtros">
+    <select class="pill" aria-label="Squad">
+      <option>Todas as squads (27)</option>
+      <option>Tribo PF · 4 squads</option>
+      <option>Tribo TEC · 4 squads</option>
+      <option>Tribo SALES · 4 squads</option>
+    </select>
+    <div role="radiogroup" aria-label="Período" style="display:flex;gap:4px">
+      <button class="pill" role="radio" aria-checked="false">30d</button>
+      <button class="pill is-active" role="radio" aria-checked="true">60d</button>
+      <button class="pill" role="radio" aria-checked="false">90d</button>
+      <button class="pill" role="radio" aria-checked="false">120d</button>
+      <button class="pill" role="radio" aria-checked="false">Personalizado…</button>
+    </div>
+  </div>
+
+  <!-- HERO KPI STRIP -->
+  <section class="hero" aria-labelledby="hero-t">
+    <h2 id="hero-t" class="sr-only">Indicadores globais</h2>
+    <div class="hero__groups">
+      <div class="hero__group">
+        <h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-brand-primary);margin-right:6px;vertical-align:middle"></span>DORA Metrics</h3>
+        <div class="hero__kpis" id="dora-kpis"></div>
+      </div>
+      <div class="hero__group">
+        <h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-info);margin-right:6px;vertical-align:middle"></span>Flow &amp; Management</h3>
+        <div class="hero__kpis" id="flow-kpis"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEADERBOARD COMPACT -->
+  <section class="board" aria-labelledby="board-t">
+    <h2 id="board-t">Leaderboard — Top 10 squads</h2>
+    <p class="sub2">Ranking composto (DORA + Flow normalizados) · 12 semanas</p>
+    <table class="board-table">
+      <thead>
+        <tr><th>#</th><th>Squad</th><th>Tribo</th><th class="num">Deploy/dia</th><th class="num">Lead Time</th><th class="num">CFR</th><th class="num">Cycle P50</th><th>Trend</th></tr>
+      </thead>
+      <tbody id="board-body"></tbody>
+    </table>
+  </section>
+
+  <h2 class="section-h">Evolução por squad (12 semanas · Cycle Time P50)</h2>
+  <div class="sm-grid" id="sm-grid"></div>
+</main>
+
+<script type="module">
+import { GLOBAL_METRICS, TEAMS, fmtNumber, fmtTrend } from '../dashboard/mock-data.js';
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function kpi(m, lbl, lowerBetter, key){
+  const cls = m.trendPct>=0 ? (lowerBetter?'bad':'up') : (lowerBetter?'down':'bad');
+  return `<div class="hero-kpi"><span class="hero-kpi__label">${lbl}</span>
+    <span><span class="hero-kpi__v">${m.value}</span><span class="hero-kpi__u">${m.unit}</span></span>
+    <span class="hero-kpi__trend ${cls}">${fmtTrend(m.trendPct)}</span>
+    <canvas id="sp-${key}" width="60" height="16" aria-hidden="true"></canvas>
+  </div>`;
+}
+
+const d = GLOBAL_METRICS.dora, f = GLOBAL_METRICS.flow;
+document.getElementById('dora-kpis').innerHTML =
+  kpi(d.deploymentFrequency,'Deploy Freq',false,'df')+
+  kpi(d.leadTimeForChanges,'Lead Time',true,'lt')+
+  kpi(d.changeFailureRate,'Change Failure',true,'cfr')+
+  kpi(d.timeToRestore,'Time to Restore',true,'ttr');
+document.getElementById('flow-kpis').innerHTML =
+  kpi(f.cycleTimeP50,'Cycle Time P50',true,'c50')+
+  kpi(f.cycleTimeP85,'Cycle Time P85',true,'c85')+
+  kpi(f.wip,'WIP',true,'wip')+
+  kpi(f.throughput,'Throughput',false,'thr');
+
+// leaderboard top 10 by composite score (simple weighted)
+function score(t){return t.deployFreq*10 - t.leadTime*0.05 - t.cfr*0.5 - t.cycleTimeP50*2 + t.throughput*0.3}
+const top = [...TEAMS].sort((a,b)=>score(b)-score(a)).slice(0,10);
+document.getElementById('board-body').innerHTML = top.map((t,i)=>`
+  <tr>
+    <td class="num" style="color:var(--color-text-tertiary)">${i+1}</td>
+    <td style="font-weight:500">${t.name}</td>
+    <td style="color:var(--color-text-secondary)">${t.tribe}</td>
+    <td class="num">${fmtNumber(t.deployFreq)}</td>
+    <td class="num">${fmtNumber(t.leadTime)}h</td>
+    <td class="num">${fmtNumber(t.cfr)}%</td>
+    <td class="num">${fmtNumber(t.cycleTimeP50)}d</td>
+    <td><canvas class="mini-spark" id="mini-${t.id}" width="80" height="20"></canvas></td>
+  </tr>`).join('');
+
+// small multiples (all 27)
+document.getElementById('sm-grid').innerHTML = TEAMS.map(t=>`
+  <div class="sm">
+    <div class="sm__h"><span class="sm__name">${t.name}</span><span class="sm__tribe">${t.tribe}</span></div>
+    <canvas id="sm-${t.id}" height="36"></canvas>
+    <div class="sm__v">${fmtNumber(t.cycleTimeP50)} d</div>
+  </div>`).join('');
+
+function line(id, data, color){
+  const c = document.getElementById(id); if(!c) return;
+  new Chart(c,{type:'line',data:{labels:data.map((_,i)=>i),datasets:[{data,borderColor:color,borderWidth:1.5,fill:false,pointRadius:0,tension:0.3}]},
+    options:{responsive:false,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}},animation:false}});
+}
+const boot=()=>{ if(!window.Chart) return requestAnimationFrame(boot);
+  line('sp-df',d.deploymentFrequency.sparkline,css('--color-dora-elite'));
+  line('sp-lt',d.leadTimeForChanges.sparkline,css('--color-dora-elite'));
+  line('sp-cfr',d.changeFailureRate.sparkline,css('--color-dora-high'));
+  line('sp-ttr',d.timeToRestore.sparkline,css('--color-dora-elite'));
+  line('sp-c50',f.cycleTimeP50.sparkline,css('--color-brand-primary'));
+  line('sp-c85',f.cycleTimeP85.sparkline,css('--color-warning'));
+  line('sp-wip',f.wip.sparkline,css('--color-warning'));
+  line('sp-thr',f.throughput.sparkline,css('--color-brand-primary'));
+  top.forEach(t=>line('mini-'+t.id,t.evolution.cycleTimeP50,css('--color-brand-primary')));
+  TEAMS.forEach(t=>line('sm-'+t.id,t.evolution.cycleTimeP50,css('--color-brand-primary')));
+};
+boot();
+</script>
+</body></html>
