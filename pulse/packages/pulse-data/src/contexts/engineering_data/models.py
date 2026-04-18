@@ -92,6 +92,11 @@ class EngIssue(TenantModel):
     # to match title/branch references back to issues.
     issue_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    # Plain-text description extracted from Jira ADF (Atlassian Document
+    # Format) at ingestion. Capped at 4000 chars in the normalizer — see
+    # jira_connector._extract_description_text() + backfill service.
+    # NULL for legacy rows; API truncates to 300 chars before exposing.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     issue_type: Mapped[str] = mapped_column(String(64), nullable=False)  # bug | story | task | epic
     status: Mapped[str] = mapped_column(String(128), nullable=False)  # raw status from source
     normalized_status: Mapped[str] = mapped_column(String(32), nullable=False)  # todo | in_progress | done

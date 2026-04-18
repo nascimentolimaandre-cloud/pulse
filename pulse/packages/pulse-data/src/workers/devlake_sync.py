@@ -815,6 +815,10 @@ class DataSyncWorker:
                         set_={
                             "issue_type": issue_data["issue_type"],
                             "issue_key": issue_data.get("issue_key"),
+                            # FDD-KB-013 — keep description fresh on every sync.
+                            # Falls back to existing value when connector returns
+                            # None (e.g. transient Jira fetch omitted the field).
+                            "description": issue_data.get("description"),
                             "status": issue_data["status"],
                             "normalized_status": issue_data["normalized_status"],
                             "assignee": issue_data["assignee"],

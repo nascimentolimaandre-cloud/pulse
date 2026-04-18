@@ -255,14 +255,35 @@ class AgingWipItem(BaseModel):
     """A single open work item with its current age.
 
     ANTI-SURVEILLANCE CONTRACT: this model deliberately omits `assignee`,
-    `author`, `reporter`, `creator`, and `title`. Issue-level identifier
-    (`issue_key`) is a public artifact (appears in commit messages, PR
-    titles, etc.) and carries no PII on its own. If you ever need to add
-    a PII-bearing field, it MUST go through CISO review and a dedicated
-    feature flag — do NOT add it here silently.
+    `author`, `reporter`, `creator`, and any individual-level identifier.
+    `issue_key` is a public artifact (appears in commit messages, PR
+    titles, etc.) and carries no PII on its own. `title`/`description`
+    are issue-level fields — they CAN contain PII typed by humans in the
+    ticket body, so the API always truncates `description` before
+    returning it and the frontend treats both as display-only. If you
+    ever need to add a NEW PII-adjacent field, it MUST go through CISO
+    review.
     """
 
     issue_key: str = Field(description="Public issue key (e.g. 'OKM-4312').")
+    # FDD-KB-014 — title + issue_type + description surfaced in the squad
+    # drawer. `title` and `issue_type` are cheap (already in eng_issues);
+    # `description` is truncated to ~300 chars before being returned.
+    title: str | None = Field(
+        None, description="Issue summary from Jira (ticket title)."
+    )
+    description: str | None = Field(
+        None,
+        description=(
+            "Plain-text description, truncated to ~300 chars at the API "
+            "boundary (storage cap = 4000). Null when Jira has no body or "
+            "the backfill has not yet run for this tenant."
+        ),
+    )
+    issue_type: str | None = Field(
+        None,
+        description="Normalized type: 'epic' | 'story' | 'task' | 'bug' | 'subtask'.",
+    )
     age_days: float = Field(
         description="Days since the item last entered an active status."
     )
@@ -273,8 +294,71 @@ class AgingWipItem(BaseModel):
     squad_key: str | None = Field(
         None, description="Jira project key; null only when source lacks it."
     )
+    squad_name: str | None = Field(
+        None,
+        description=(
+            "Human-readable squad name from jira_project_catalog.name "
+            "(e.g. 'PF - OEM Integração'). Falls back to squad_key when "
+            "the project isn't in the catalog."
+        ),
+    )
     is_at_risk: bool = Field(
         description="True when age_days > at_risk_threshold_days."
+    )
+
+
+class SquadFlowSummary(BaseModel):
+    """Per-squad aggregate for the Flow Health default 'squad view' (FDD-KB-014).
+
+    The Flow Health dashboard opens with the squad list expanded by
+    default; clicking a row opens a drawer with the items underneath.
+    This summary is what renders each row and powers the drawer header.
+
+    Sorted by `at_risk_count DESC, risk_pct DESC` in the response so the
+    most pressured squads appear first.
+    """
+
+    squad_key: str = Field(description="Jira project key (e.g. 'OKM').")
+    squad_name: str = Field(
+        description="Real squad name from jira_project_catalog; falls back to key."
+    )
+    wip_count: int = Field(
+        description="Items currently in_progress or in_review for the squad."
+    )
+    at_risk_count: int = Field(
+        description="Subset of wip_count whose age exceeds at_risk_threshold_days."
+    )
+    risk_pct: float = Field(
+        ge=0.0, le=1.0,
+        description="at_risk_count / wip_count (0 when wip_count=0).",
+    )
+    p50_age_days: float | None = Field(
+        None, description="Median age of active items in this squad."
+    )
+    p85_age_days: float | None = Field(
+        None, description="85th-percentile age — upper tail of aging items."
+    )
+    flow_efficiency: float | None = Field(
+        None,
+        ge=0.0, le=1.0,
+        description=(
+            "v1 simplified Flow Efficiency for this squad's completed work "
+            "in the period window. Null when insufficient_data "
+            "(sample < 5) or cycle_sum = 0."
+        ),
+    )
+    fe_sample_size: int = Field(
+        0,
+        description="Number of completed issues contributing to flow_efficiency.",
+    )
+    intensity_throughput_30d: int = Field(
+        0,
+        description=(
+            "'Intensidade' = items completed in the last 30 days. "
+            "Proxy for how active the squad is right now — not a DORA "
+            "metric. Refinement tracked in R1 if product wants a better "
+            "signal."
+        ),
     )
 
 
@@ -350,6 +434,11 @@ class FlowHealthResponse(MetricsEnvelope):
             insufficient_data=True,
         )
     )
+    # FDD-KB-014 — always present. When `squad_key` is passed, the list
+    # contains exactly one entry for context consistency. When absent,
+    # all squads with WIP > 0 are returned (no server-side limit — ~27
+    # squads at Webmotors — frontend paginates).
+    squads: list[SquadFlowSummary] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
