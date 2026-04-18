@@ -40,7 +40,17 @@ SEARCH_FIELDS = [
     "summary", "status", "issuetype", "priority", "assignee",
     "created", "updated", "resolutiondate", "resolution",
     "parent", "labels", "components",
+    # FDD-KB-013 — description surfaced in Flow Health drawer. Jira API v3
+    # returns this as Atlassian Document Format (ADF) JSON; we flatten to
+    # plain text in _extract_description_text() and cap at 4000 chars.
+    "description",
 ]
+
+# Max characters kept in eng_issues.description. Oversize descriptions
+# are rare (>99% of Jira tickets are <2k chars) and storing 50k blobs
+# across 400k+ issues would explode table size. Chose 4000 for parity
+# with Varchar-style 4K limits — plenty of context for a drawer preview.
+DESCRIPTION_MAX_CHARS = 4000
 
 # Fallback custom-field IDs tried if discovery fails — these are the most
 # common defaults on Jira Cloud instances.
@@ -390,11 +400,15 @@ class JiraConnector(BaseConnector):
         if changelogs:
             self._last_changelogs[internal_id] = changelogs
 
+        # FDD-KB-013 — extract plain-text description (handles ADF JSON + v2 str).
+        description_text = self._extract_description_text(fields.get("description"))
+
         return {
             "id": internal_id,
             "url": f"{self._base_url}/browse/{key}",
             "issue_key": key,
             "title": fields.get("summary", ""),
+            "description": description_text,
             "status": status_name,
             "original_status": status_name,
             "story_point": story_points,
@@ -540,6 +554,72 @@ class JiraConnector(BaseConnector):
         if not raw_id:
             return None
         return f"jira:JiraSprint:{self._connection_id}:{raw_id}"
+
+    @staticmethod
+    def _extract_description_text(raw: Any) -> str | None:
+        """Flatten a Jira description into plain text, capped at DESCRIPTION_MAX_CHARS.
+
+        Jira Cloud REST API v3 returns `fields.description` as Atlassian
+        Document Format (ADF) — nested JSON with `content[].content[].text`.
+        REST API v2 returns a plain string. Legacy issues or explicit blanks
+        return None.
+
+        Implementation is intentionally simple (not a full ADF parser): walk
+        the tree, collect every `text` leaf, join paragraphs with blank
+        lines. Good enough for a drawer preview; R1 can swap in a proper
+        ADF→Markdown converter if product wants formatted output.
+
+        Anti-surveillance note: we never log the extracted text. Description
+        bodies may contain PII typed by humans; treat as sensitive.
+        """
+        if raw is None:
+            return None
+
+        # REST API v2 or legacy string — use directly.
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            return text[:DESCRIPTION_MAX_CHARS] + ("..." if len(text) > DESCRIPTION_MAX_CHARS else "")
+
+        # ADF — walk the tree and collect text leaves per block.
+        if not isinstance(raw, dict):
+            return None
+
+        # Each top-level block (paragraph, heading, bulletList, ...) becomes
+        # a line; joined with double newlines to preserve visual separation.
+        block_texts: list[str] = []
+
+        def _collect_leaf_texts(node: Any) -> list[str]:
+            """DFS: return every `text` leaf under this node."""
+            leaves: list[str] = []
+            if isinstance(node, dict):
+                # ADF text node
+                if node.get("type") == "text" and isinstance(node.get("text"), str):
+                    leaves.append(node["text"])
+                # ADF hardBreak inside paragraphs — preserve as newline
+                elif node.get("type") == "hardBreak":
+                    leaves.append("\n")
+                # Recurse
+                for child in node.get("content") or []:
+                    leaves.extend(_collect_leaf_texts(child))
+            elif isinstance(node, list):
+                for child in node:
+                    leaves.extend(_collect_leaf_texts(child))
+            return leaves
+
+        for block in raw.get("content") or []:
+            leaves = _collect_leaf_texts(block)
+            if leaves:
+                block_texts.append("".join(leaves).strip())
+
+        flat = "\n\n".join(t for t in block_texts if t).strip()
+        if not flat:
+            return None
+
+        if len(flat) > DESCRIPTION_MAX_CHARS:
+            return flat[:DESCRIPTION_MAX_CHARS].rstrip() + "..."
+        return flat
 
     def _extract_story_points(self, fields: dict[str, Any]) -> float | None:
         """Extract story points, preferring the discovered custom field."""
