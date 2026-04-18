@@ -16,6 +16,7 @@ import { FreshnessBanner } from '@/components/dashboard/FreshnessBanner';
 import { TeamRankingSection } from '@/components/dashboard/TeamRankingSection';
 import { MetricEvolutionGrid } from '@/components/dashboard/MetricEvolutionGrid';
 import { TeamDetailDrawer } from '@/components/dashboard/TeamDetailDrawer';
+import { FlowHealthSection } from '@/components/dashboard/FlowHealth';
 import { formatDuration } from '@/lib/dashboard/formatDuration';
 import type { DashboardMetric } from '@/stores/filterStore';
 
@@ -373,6 +374,9 @@ function HomePage() {
                 )}
               </KpiGroup>
             </div>
+
+            {/* Flow Health section — Aging WIP + Flow Efficiency (FDD-KB-003/004) */}
+            <FlowHealthSection />
 
             {/* Ranking section */}
             <TeamRankingSection

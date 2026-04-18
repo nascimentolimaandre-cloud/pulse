@@ -47,6 +47,7 @@ from src.contexts.metrics.schemas import (
     AgingWipSummary,
     FlowEfficiencyData,
     FlowHealthResponse,
+    SquadFlowSummary,
 )
 from src.database import get_session
 
@@ -69,6 +70,14 @@ _STATEMENT_TIMEOUT_MS = 3000
 # Baseline window for squad P85 cycle time (days).
 _BASELINE_WINDOW_DAYS = 90
 
+# FDD-KB-014 — API-side truncation for description field. Storage cap is
+# 4000 chars; 300 keeps the payload light for the drawer preview.
+_DESCRIPTION_API_MAX = 300
+
+# FDD-KB-014 — "Intensidade" window: throughput over last 30d as a
+# proxy for per-squad activity. Refinement tracked for R1.
+_INTENSITY_WINDOW_DAYS = 30
+
 _FORMULA_DISCLAIMER_PT_BR = (
     "Fluxo de Eficiência calculado como tempo ativo (touch time) dividido pelo "
     "tempo total de ciclo. Versão simplificada — ainda não distingue filas "
@@ -83,13 +92,18 @@ _FORMULA_DISCLAIMER_PT_BR = (
 # ---------------------------------------------------------------------------
 
 # Aging WIP — list of open items with age (in days) derived from JSONB.
+# FDD-KB-014 — joined with jira_project_catalog for real squad name and
+# enriched with title / issue_type / description for the drawer view.
 _SQL_AGING_WIP_ITEMS = """
 SELECT
     i.issue_key,
+    i.title,
+    i.description,
+    i.issue_type,
     i.project_key                                   AS squad_key,
+    COALESCE(c.name, i.project_key)                 AS squad_name,
     i.normalized_status,
     i.status                                        AS raw_status,
-    i.issue_type,
     GREATEST(
         0.0,
         COALESCE(
@@ -105,12 +119,180 @@ SELECT
         )
     )::numeric(10,1)                                AS age_days
 FROM eng_issues i
+LEFT JOIN jira_project_catalog c
+    ON c.tenant_id = i.tenant_id
+   AND c.project_key = i.project_key
 WHERE
     i.tenant_id = :tenant_id
     AND i.normalized_status IN ('in_progress', 'in_review')
     AND ((:squad_key)::text IS NULL OR i.project_key = :squad_key)
 ORDER BY age_days DESC
 LIMIT :item_limit;
+"""
+
+
+# FDD-KB-014 — Per-squad Flow Health aggregate. Single CTE-heavy query so
+# we pay one round-trip for all squads instead of N. Returns:
+#   - WIP count + at-risk count (computed against `:at_risk_threshold` which
+#     is the tenant-wide 2×P85 baseline passed from the caller, keeping the
+#     threshold consistent with the summary block the frontend already sees)
+#   - p50/p85 age of active items per squad
+#   - Per-squad Flow Efficiency over the period window
+#   - Throughput 30d (Intensidade)
+#   - Squad name from jira_project_catalog
+# A squad appears in the result iff it has WIP > 0 today OR resolved work
+# in the intensity window OR a catalog entry — ensures the list is never
+# empty just because a squad is temporarily idle.
+_SQL_SQUADS_SUMMARY = """
+WITH active AS (
+    SELECT
+        project_key,
+        COUNT(*)                                      AS wip_count,
+        COUNT(*) FILTER (
+            WHERE GREATEST(
+                0.0,
+                COALESCE(
+                    EXTRACT(EPOCH FROM (NOW() - (
+                        SELECT MAX((t->>'entered_at')::timestamptz)
+                        FROM jsonb_array_elements(
+                            COALESCE(status_transitions, '[]'::jsonb)
+                        ) AS t
+                        WHERE t->>'status' IN ('in_progress', 'in_review')
+                    ))) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - started_at)) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0
+                )
+            ) > :at_risk_threshold
+        )                                             AS at_risk_count,
+        PERCENTILE_CONT(0.50) WITHIN GROUP (
+            ORDER BY GREATEST(
+                0.0,
+                COALESCE(
+                    EXTRACT(EPOCH FROM (NOW() - (
+                        SELECT MAX((t->>'entered_at')::timestamptz)
+                        FROM jsonb_array_elements(
+                            COALESCE(status_transitions, '[]'::jsonb)
+                        ) AS t
+                        WHERE t->>'status' IN ('in_progress', 'in_review')
+                    ))) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - started_at)) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0
+                )
+            )
+        )                                             AS p50_age_days,
+        PERCENTILE_CONT(0.85) WITHIN GROUP (
+            ORDER BY GREATEST(
+                0.0,
+                COALESCE(
+                    EXTRACT(EPOCH FROM (NOW() - (
+                        SELECT MAX((t->>'entered_at')::timestamptz)
+                        FROM jsonb_array_elements(
+                            COALESCE(status_transitions, '[]'::jsonb)
+                        ) AS t
+                        WHERE t->>'status' IN ('in_progress', 'in_review')
+                    ))) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - started_at)) / 86400.0,
+                    EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0
+                )
+            )
+        )                                             AS p85_age_days
+    FROM eng_issues
+    WHERE
+        tenant_id = :tenant_id
+        AND normalized_status IN ('in_progress', 'in_review')
+        AND ((:squad_key)::text IS NULL OR project_key = :squad_key)
+    GROUP BY project_key
+),
+fe AS (
+    SELECT
+        project_key,
+        COUNT(*)                                                   AS sample_size,
+        COALESCE(SUM(LEAST(touch_seconds, cycle_seconds)), 0)      AS touch_total_sec,
+        COALESCE(SUM(cycle_seconds), 0)                            AS cycle_total_sec
+    FROM (
+        SELECT
+            i.project_key,
+            EXTRACT(EPOCH FROM (i.completed_at - i.started_at)) AS cycle_seconds,
+            COALESCE((
+                SELECT SUM(
+                    CASE WHEN (t->>'exited_at') IS NOT NULL THEN
+                        EXTRACT(EPOCH FROM (
+                            (t->>'exited_at')::timestamptz -
+                            (t->>'entered_at')::timestamptz
+                        ))
+                    ELSE 0 END
+                )
+                FROM jsonb_array_elements(
+                    COALESCE(i.status_transitions, '[]'::jsonb)
+                ) AS t
+                WHERE
+                    t->>'status' IN ('in_progress', 'in_review')
+                    AND (t->>'entered_at') IS NOT NULL
+                    AND (
+                        (t->>'exited_at') IS NULL
+                        OR (t->>'exited_at')::timestamptz >
+                           (t->>'entered_at')::timestamptz
+                    )
+            ), 0)                                             AS touch_seconds
+        FROM eng_issues i
+        WHERE
+            i.tenant_id = :tenant_id
+            AND i.normalized_status = 'done'
+            AND i.completed_at IS NOT NULL
+            AND i.started_at IS NOT NULL
+            AND i.completed_at > i.started_at
+            AND i.completed_at >= NOW() - INTERVAL '1 day' * :period_days
+            AND EXTRACT(EPOCH FROM (i.completed_at - i.started_at)) >= 3600
+            AND ((:squad_key)::text IS NULL OR i.project_key = :squad_key)
+    ) inner_fe
+    GROUP BY project_key
+),
+intensity AS (
+    SELECT
+        project_key,
+        COUNT(*)                                             AS throughput_30d
+    FROM eng_issues
+    WHERE
+        tenant_id = :tenant_id
+        AND normalized_status = 'done'
+        AND completed_at IS NOT NULL
+        AND completed_at >= NOW() - INTERVAL '1 day' * :intensity_days
+        AND ((:squad_key)::text IS NULL OR project_key = :squad_key)
+    GROUP BY project_key
+),
+-- Union of all squads that show up anywhere, so we can LEFT JOIN metrics.
+keys AS (
+    SELECT project_key FROM active
+    UNION
+    SELECT project_key FROM intensity
+),
+catalog AS (
+    SELECT project_key, name
+    FROM jira_project_catalog
+    WHERE tenant_id = :tenant_id
+)
+SELECT
+    k.project_key                                              AS squad_key,
+    COALESCE(c.name, k.project_key)                            AS squad_name,
+    COALESCE(a.wip_count, 0)                                   AS wip_count,
+    COALESCE(a.at_risk_count, 0)                               AS at_risk_count,
+    a.p50_age_days,
+    a.p85_age_days,
+    COALESCE(f.sample_size, 0)                                 AS fe_sample_size,
+    f.touch_total_sec,
+    f.cycle_total_sec,
+    COALESCE(i.throughput_30d, 0)                              AS throughput_30d
+FROM keys k
+LEFT JOIN active   a ON a.project_key = k.project_key
+LEFT JOIN fe       f ON f.project_key = k.project_key
+LEFT JOIN intensity i ON i.project_key = k.project_key
+LEFT JOIN catalog  c ON c.project_key = k.project_key
+ORDER BY
+    COALESCE(a.at_risk_count, 0) DESC,
+    CASE WHEN COALESCE(a.wip_count, 0) = 0 THEN 0
+         ELSE COALESCE(a.at_risk_count, 0)::float / a.wip_count END DESC,
+    COALESCE(a.wip_count, 0) DESC,
+    k.project_key ASC;
 """
 
 # Baseline — P85 cycle time for a squad (or tenant-wide fallback).
@@ -253,6 +435,7 @@ async def compute_flow_health(
         baseline_source="absolute_fallback",
     )
     aging_items: list[AgingWipItem] = []
+    squads: list[SquadFlowSummary] = []
     fe = FlowEfficiencyData(
         value=None,
         sample_size=0,
@@ -352,10 +535,14 @@ async def compute_flow_health(
                 aging_items.append(
                     AgingWipItem(
                         issue_key=row.issue_key or "",
+                        title=row.title or None,
+                        description=_truncate_description(row.description),
+                        issue_type=row.issue_type or None,
                         age_days=age,
                         status=row.raw_status or "",
                         status_category=row.normalized_status or "",
                         squad_key=row.squad_key,
+                        squad_name=row.squad_name or row.squad_key,
                         is_at_risk=is_at_risk,
                     )
                 )
@@ -424,6 +611,74 @@ async def compute_flow_health(
                 tenant_id, squad_key_norm,
             )
 
+        # --- 4. Per-squad flow summary (FDD-KB-014) ---
+        # Shares the same at_risk threshold computed above so the per-squad
+        # row counts reconcile with the summary block the UI already shows.
+        try:
+            squad_rows = (
+                await session.execute(
+                    text(_SQL_SQUADS_SUMMARY),
+                    {
+                        "tenant_id": str(tenant_id),
+                        "squad_key": squad_key_norm,
+                        "period_days": period_days,
+                        "intensity_days": _INTENSITY_WINDOW_DAYS,
+                        # Use a very large number when we have no threshold
+                        # (absolute_fallback squads with < 10 completed items
+                        # and no tenant baseline). This keeps at_risk_count=0
+                        # rather than flagging every in-flight item.
+                        "at_risk_threshold": (
+                            at_risk_threshold_days
+                            if at_risk_threshold_days is not None
+                            else 10**9
+                        ),
+                    },
+                )
+            ).fetchall()
+
+            for row in squad_rows:
+                wip = int(row.wip_count or 0)
+                at_risk = int(row.at_risk_count or 0)
+                risk_pct = round(at_risk / wip, 4) if wip > 0 else 0.0
+
+                sample = int(row.fe_sample_size or 0)
+                touch_sec = float(row.touch_total_sec or 0)
+                cycle_sec = float(row.cycle_total_sec or 0)
+                if sample >= _FE_MIN_SAMPLE and cycle_sec > 0:
+                    fe_val: float | None = round(
+                        min(max(touch_sec / cycle_sec, 0.0), 1.0), 4,
+                    )
+                else:
+                    fe_val = None
+
+                squads.append(
+                    SquadFlowSummary(
+                        squad_key=row.squad_key,
+                        squad_name=row.squad_name or row.squad_key,
+                        wip_count=wip,
+                        at_risk_count=at_risk,
+                        risk_pct=risk_pct,
+                        p50_age_days=(
+                            round(float(row.p50_age_days), 1)
+                            if row.p50_age_days is not None
+                            else None
+                        ),
+                        p85_age_days=(
+                            round(float(row.p85_age_days), 1)
+                            if row.p85_age_days is not None
+                            else None
+                        ),
+                        flow_efficiency=fe_val,
+                        fe_sample_size=sample,
+                        intensity_throughput_30d=int(row.throughput_30d or 0),
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "[flow_health] squads summary query failed tenant=%s squad=%s",
+                tenant_id, squad_key_norm,
+            )
+
     return FlowHealthResponse(
         period=f"{period_days}d",
         period_start=None,
@@ -435,12 +690,40 @@ async def compute_flow_health(
         aging_wip=aging_summary,
         aging_wip_items=aging_items,
         flow_efficiency=fe,
+        squads=squads,
     )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _truncate_description(
+    desc: str | None,
+    max_chars: int = _DESCRIPTION_API_MAX,
+) -> str | None:
+    """Truncate description to `max_chars` at a word boundary.
+
+    Storage cap is 4000 chars (see jira_connector.DESCRIPTION_MAX_CHARS).
+    The API trims further to keep the Flow Health payload small and
+    nudge the frontend toward "preview, not full render". Appends "..."
+    when truncated.
+
+    FDD-KB-014.
+    """
+    if not desc:
+        return None
+    stripped = desc.strip()
+    if not stripped:
+        return None
+    if len(stripped) <= max_chars:
+        return stripped
+    cut = stripped[:max_chars]
+    # Respect word boundary to avoid mid-word truncation.
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip() + "..."
 
 
 def _percentile(values: list[float], q: float) -> float | None:

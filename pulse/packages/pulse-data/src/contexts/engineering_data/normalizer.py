@@ -361,6 +361,15 @@ def normalize_issue(
     sprint_id_raw = devlake_issue.get("sprint_id")
     sprint_id = str(sprint_id_raw) if sprint_id_raw else None
 
+    # FDD-KB-013 — description (plain text) for Flow Health drawer. The Jira
+    # connector already flattened ADF → text and capped at 4000 chars; legacy
+    # DevLake rows or other sources just pass through as None.
+    description_raw = devlake_issue.get("description")
+    description = (
+        description_raw.strip() if isinstance(description_raw, str) and description_raw.strip()
+        else None
+    )
+
     return {
         "external_id": str(devlake_issue["id"]),
         "tenant_id": tenant_id,
@@ -368,6 +377,7 @@ def normalize_issue(
         "project_key": project_key,
         "issue_key": (issue_key or None),
         "title": devlake_issue.get("title", ""),
+        "description": description,
         "issue_type": issue_type,
         "status": raw_status,
         "normalized_status": normalized,

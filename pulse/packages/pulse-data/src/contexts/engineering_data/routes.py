@@ -36,6 +36,9 @@ from src.contexts.engineering_data.services.backfill_first_commits import (
 from src.contexts.engineering_data.services.backfill_deployed_at import (
     run_backfill as _run_deployed_at_backfill,
 )
+from src.contexts.engineering_data.services.backfill_descriptions import (
+    run_backfill as _run_descriptions_backfill,
+)
 from src.database import get_session
 from src.shared.tenant import get_tenant_id
 
@@ -487,5 +490,81 @@ async def admin_refresh_deployed_at(
         "strategy_breakdown": result.strategy_breakdown,
         "duration_sec": result.duration_sec,
         "sample_matches": result.sample_matches,
+        "errors": result.errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin — FDD-KB-013 backfill `eng_issues.description`
+# ---------------------------------------------------------------------------
+#
+# Separate router prefix (`/data/v1/admin/issues`) since the existing
+# `admin_router` is scoped to `/prs`. Both share the same admin token check.
+
+issues_admin_router = APIRouter(
+    prefix="/data/v1/admin/issues",
+    tags=["engineering-data-admin"],
+)
+
+
+@issues_admin_router.post("/refresh-descriptions")
+async def admin_refresh_descriptions(
+    scope: str = Query(
+        "stale",
+        description="stale|last-90d|all — which issues to refresh",
+    ),
+    dry_run: bool = Query(False, description="Count without writing"),
+    max_issues: int | None = Query(
+        None, description="Cap processed issues (smoke tests / rate-limit budgeting)",
+    ),
+    tenant_id: UUID = Depends(get_tenant_id),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    """Backfill `eng_issues.description` with plain-text content from Jira
+    (FDD-KB-013).
+
+    scope:
+      - `stale` (default): description IS NULL AND issue updated in the last 180d
+      - `last-90d`: every issue updated in the last 90 days (refresh changed bodies)
+      - `all`: entire tenant — expensive, cap with max_issues
+
+    READ-ONLY on Jira — issues GET /rest/api/3/issue/{key} only.
+    """
+    _check_admin_token(x_admin_token)
+
+    if scope not in {"stale", "last-90d", "all"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid scope. Use: stale | last-90d | all",
+        )
+    if max_issues is not None and max_issues <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="max_issues must be a positive integer when provided",
+        )
+
+    logger.warning(
+        "[admin] refresh-descriptions tenant=%s scope=%s dry_run=%s max_issues=%s",
+        tenant_id, scope, dry_run, max_issues,
+    )
+
+    result = await _run_descriptions_backfill(
+        tenant_id=tenant_id,
+        scope=scope,  # type: ignore[arg-type]
+        dry_run=dry_run,
+        max_issues=max_issues,
+    )
+
+    return {
+        "status": "completed" if not result.errors else "completed_with_errors",
+        "scope": result.scope,
+        "dry_run": result.dry_run,
+        "tenant_id": str(tenant_id),
+        "processed": result.processed,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "skipped": result.skipped,
+        "duration_sec": result.duration_sec,
+        "sample": result.sample,
         "errors": result.errors,
     }
