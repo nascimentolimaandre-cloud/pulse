@@ -102,10 +102,18 @@ jobs:
         run: cd packages/pulse-api && npm run test -- --coverage --ci
         continue-on-error: false
 
-      - name: Pytest — pulse-data
+      - name: Pytest — pulse-data (unit + contract, platform only)
         run: |
           cd packages/pulse-data
-          python -m pytest tests/unit -v --junitxml=reports/pytest-unit.xml --cov=src --cov-report=xml:reports/coverage.xml
+          python -m pytest tests/unit tests/contract -v \
+            --junitxml=reports/pytest-unit.xml \
+            --cov=src --cov-report=xml:reports/coverage-platform.xml
+        continue-on-error: false
+
+      - name: Pytest — pulse-data (anti-surveillance gate, must pass)
+        run: |
+          cd packages/pulse-data
+          python -m pytest tests/contract/test_anti_surveillance_schemas.py -v
         continue-on-error: false
 
       - name: Vitest — pulse-web
