@@ -511,7 +511,7 @@ issues_admin_router = APIRouter(
 async def admin_refresh_descriptions(
     scope: str = Query(
         "stale",
-        description="stale|last-90d|all — which issues to refresh",
+        description="stale|last-90d|last-180d|in_progress|all — which issues to refresh",
     ),
     dry_run: bool = Query(False, description="Count without writing"),
     max_issues: int | None = Query(
@@ -532,10 +532,10 @@ async def admin_refresh_descriptions(
     """
     _check_admin_token(x_admin_token)
 
-    if scope not in {"stale", "last-90d", "all"}:
+    if scope not in {"stale", "last-90d", "last-180d", "in_progress", "all"}:
         raise HTTPException(
             status_code=400,
-            detail="Invalid scope. Use: stale | last-90d | all",
+            detail="Invalid scope. Use: stale | last-90d | last-180d | in_progress | all",
         )
     if max_issues is not None and max_issues <= 0:
         raise HTTPException(
