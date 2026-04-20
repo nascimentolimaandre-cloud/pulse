@@ -130,3 +130,87 @@ Linha 4: S 2h). Pode ser entregue em 4 PRs separados ou 1 big PR.
    as 3 primeiras falham
 
 ---
+
+## FDD-OPS-002 · Completar backfill histórico de descriptions Jira
+
+**Epic:** Data Quality · **Release:** R1 (quando quiser melhorar cobertura)
+**Priority:** P2 · **Persona:** Operacional (Lucas — Data Platform)
+**Owner class:** `pulse-data-engineer` (ou ops user rodando curl)
+
+### Contexto
+
+Em 2026-04-20 reescrevemos `backfill_descriptions.py` pra usar bulk JQL
+(100 issues/request) ganhando 65× em throughput (7.300 issues/min vs
+113 issues/min da versão REST per-issue). Rodamos:
+
+- `scope='in_progress'`: 2.230 issues processadas, 1.028 atualizadas
+- `scope='stale'` (description is EMPTY no Jira): 74.260 processadas, 0
+  atualizadas (esperado — são tickets genuinamente vazios no Jira)
+- `scope='last-180d'`: 171.125 processadas, 390 atualizadas
+
+**Cobertura final**: 163.223 / 374.688 issues com description (**43,56%**)
+
+### O que falta
+
+~211.465 issues ainda não processadas — majoritariamente tickets com
+`updated_at` anterior a 180 dias. Esperamos que ~60% delas tenham
+description populável no Jira (mesma proporção observada no sample), ou
+seja, ganho potencial de +125k issues chegando a ~75% de cobertura
+total.
+
+### Por que NÃO é urgente
+
+Na UI do Flow Health (drawer de squad), itens mostrados são os **em
+progresso** (normalized_status='in_progress' OR 'in_review'). Esses
+já têm cobertura de 49,65%. Tickets Done/Fechados antigos não
+aparecem na UI, então a cobertura histórica é nice-to-have.
+
+### Como rodar quando quiser
+
+```bash
+TOKEN=$(grep INTERNAL_API_TOKEN pulse/.env | cut -d= -f2-)
+
+# Opção A: rápido (~30 min, full scope)
+curl -X POST -H "X-Admin-Token: $TOKEN" \
+  "http://localhost:8000/data/v1/admin/issues/refresh-descriptions?scope=all"
+
+# Opção B: conservador (meio-termo, ~20 min)
+curl -X POST -H "X-Admin-Token: $TOKEN" \
+  "http://localhost:8000/data/v1/admin/issues/refresh-descriptions?scope=last-365d"
+```
+
+### Acceptance Criteria
+
+```
+Given the admin runs scope='all' on a pulse-data instance with Jira
+  connectivity
+ When the endpoint completes
+ Then description coverage for eng_issues (source='jira') is ≥ 70%
+  AND the remaining issues are verified as `description is EMPTY`
+      in Jira itself (not a bug — genuine empty tickets)
+  AND the run completes in under 45 minutes at current Webmotors scale
+      (~374k issues total)
+```
+
+### Estimate
+**XS (0 hours coding)** — endpoint existe e funciona. Só rodar curl e
+aguardar. Se quiser automatizar via cron semanal, S (~2h).
+
+### Dependências
+Nenhuma — endpoint já está LIVE desde testing-foundation-v1.0.
+
+### Riscos
+
+- Nenhum. Backfill é idempotente, READ-ONLY em Jira, UPSERT no PULSE.
+- Pode coexistir com sync normal sem conflito.
+- Rate limit: 10 req/s soft cap respeitado via pacing interno.
+
+### Notas de produto
+
+Issues genuinamente sem description no Jira (~74k hoje confirmadas)
+**nunca serão populadas** por esse backfill — a descrição não existe
+no source. Se quiser aumentar essa cobertura, é conversa com
+processo de ticket/compliance na Webmotors, não infra PULSE.
+
+---
+
