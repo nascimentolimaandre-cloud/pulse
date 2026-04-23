@@ -77,4 +77,8 @@ regexes = [
   # GitHub/Jira "ghp_xxxxxxxx" or "ATATT_xxx" placeholders
   '''ghp_[x]{10,}''',
   '''ATATT[x]{5,}''',
+  # Shell / Makefile variable references inside curl -u / auth headers — these
+  # are NOT secrets, just variable expansions. Patterns:
+  #   $VAR, ${VAR}, $$VAR (Make double-dollar escape)
+  '''\$\$?\{?[A-Z][A-Z0-9_]+\}?''',
 ]
