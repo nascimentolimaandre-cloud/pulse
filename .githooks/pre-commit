@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# PULSE pre-commit hook
+# --------------------------------------------------------------------------
+# Runs secret-scanning on the staged diff before every commit.
+# If a secret is detected, the commit is rejected and the offending
+# finding is printed to stderr.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# Bypass (only if you are ABSOLUTELY sure it is a false positive and you
+# cannot add an allowlist entry in time):
+#     git commit --no-verify
+# (Prefer fixing .gitleaks.toml over bypassing the hook.)
+# --------------------------------------------------------------------------
+
+set -euo pipefail
+
+# ------------------------------------------------------------------ colors
+if [ -t 2 ]; then
+  RED=$'\033[31m'; YEL=$'\033[33m'; GRN=$'\033[32m'; DIM=$'\033[2m'; RST=$'\033[0m'
+else
+  RED=""; YEL=""; GRN=""; DIM=""; RST=""
+fi
+
+# ------------------------------------------------------------------ gitleaks
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "${YEL}[pre-commit]${RST} gitleaks not installed — skipping secret scan."
+  echo "             Install: ${DIM}brew install gitleaks${RST}"
+  echo "             Without it, nothing prevents an API key from entering git history."
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CONFIG="${REPO_ROOT}/.gitleaks.toml"
+
+CONFIG_ARGS=()
+if [ ! -f "${CONFIG}" ]; then
+  echo "${YEL}[pre-commit]${RST} .gitleaks.toml not found at repo root — running with defaults."
+else
+  CONFIG_ARGS=(--config "${CONFIG}")
+fi
+
+echo "${DIM}[pre-commit] scanning staged changes with gitleaks...${RST}"
+
+# `protect --staged` only scans what is in the staged diff — fast and
+# scoped to what is about to be committed.
+if ! gitleaks protect --staged --redact "${CONFIG_ARGS[@]}" --verbose 2>&1; then
+  echo ""
+  echo "${RED}✖ gitleaks found one or more secrets in your staged changes.${RST}"
+  echo ""
+  echo "Options:"
+  echo "  1. Remove the secret from the staged files and rotate it if it was real."
+  echo "  2. If it is a false positive, add an allowlist entry in .gitleaks.toml"
+  echo "     and commit the config change first."
+  echo "  3. As a last resort (e.g. offline work, CI will catch it): commit with"
+  echo "     ${DIM}git commit --no-verify${RST} — but you are on the hook if it leaks."
+  echo ""
+  exit 1
+fi
+
+echo "${GRN}✓ no secrets detected${RST}"

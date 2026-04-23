@@ -1,0 +1,80 @@
+# Gitleaks configuration for PULSE
+# https://github.com/gitleaks/gitleaks
+#
+# Purpose: block secrets (API tokens, keys, passwords) from entering the repo.
+# Runs in two modes:
+#   - pre-commit hook:  `gitleaks protect --staged` (scans staged diff)
+#   - CI / periodic:    `gitleaks detect` (scans full history)
+#
+# Add a new custom rule here when introducing a new token format specific to
+# PULSE/Webmotors. Add a path/regex to [allowlist] only when a finding is a
+# verified false positive (e.g. fixture token in a test file).
+
+# Inherit the built-in ruleset (AWS, GitHub, Atlassian, Slack, Stripe, etc.)
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# PULSE-specific rules
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "pulse-internal-api-token"
+description = "PULSE internal admin API token (INTERNAL_API_TOKEN)"
+# Matches assignments like INTERNAL_API_TOKEN=abc123 / "INTERNAL_API_TOKEN": "abc123"
+regex = '''(?i)internal[_-]?api[_-]?token['"]?\s*[:=]\s*['"]?([A-Za-z0-9_\-]{20,})'''
+secretGroup = 1
+keywords = ["internal_api_token", "internal-api-token", "internalapitoken"]
+
+[[rules]]
+id = "pulse-devlake-db-password"
+description = "DevLake/PostgreSQL password assignment"
+regex = '''(?i)(DEVLAKE_DB_URL|POSTGRES_PASSWORD|DB_PASSWORD)\s*=\s*['"]?([^'"\s]{8,})'''
+secretGroup = 2
+keywords = ["devlake_db_url", "postgres_password", "db_password"]
+
+# ---------------------------------------------------------------------------
+# Allowlist — false positives and intentionally checked-in samples
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Files and paths that legitimately contain secret-like patterns"
+
+# Files that are .gitignored but may still be scanned in full-repo mode.
+# These are local-only artifacts — they cannot enter git regardless.
+paths = [
+  '''(.*/)?\.env$''',
+  '''(.*/)?\.env\..*''',
+  '''\.claude/settings\.local\.json''',
+  '''\.claude/scheduled_tasks\.lock''',
+  '''pulse/postgres-data/''',
+  '''pulse/redis-data/''',
+  '''pulse/devlake-data/''',
+  '''node_modules/''',
+  '''\.venv/''',
+  '''dist/''',
+  '''coverage/''',
+  # Test fixtures can contain obviously-fake tokens
+  '''(.*/)?(tests|test|__tests__|fixtures|mocks)/.*''',
+  '''(.*/)?\.snap$''',
+  # Lockfiles often carry integrity hashes that look like secrets
+  '''(.*/)?package-lock\.json$''',
+  '''(.*/)?pnpm-lock\.yaml$''',
+  '''(.*/)?yarn\.lock$''',
+  '''(.*/)?poetry\.lock$''',
+  '''(.*/)?uv\.lock$''',
+  # Documentation may contain example tokens (always fake)
+  '''(.*/)?\.env\.example$''',
+  '''(.*/)?testing-playbook\.md$''',
+]
+
+# Regexes that match known-safe patterns (example tokens in docs, UUIDs used as tenant IDs, etc.)
+regexes = [
+  # Example/placeholder tokens commonly used in docs
+  '''(?i)(example|sample|placeholder|fake|dummy|xxx+|your[-_]token|changeme)''',
+  # Standard tenant UUID used across dev fixtures
+  '''00000000-0000-0000-0000-000000000001''',
+  # GitHub/Jira "ghp_xxxxxxxx" or "ATATT_xxx" placeholders
+  '''ghp_[x]{10,}''',
+  '''ATATT[x]{5,}''',
+]

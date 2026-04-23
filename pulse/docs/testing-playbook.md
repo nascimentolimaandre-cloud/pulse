@@ -507,6 +507,117 @@ npm run test:e2e -- --project=chromium   # só chromium (mais rápido)
 
 ---
 
+## 8.6 Secret scanning (Gitleaks pre-commit — Sprint 1.2 passo 5)
+
+### O que é
+
+Hook pre-commit que bloqueia qualquer commit contendo secrets (API tokens,
+chaves AWS/GCP, senhas hardcoded, connection strings com senha, etc.).
+Usa [gitleaks](https://github.com/gitleaks/gitleaks) com o ruleset default
+(AWS, GitHub, Atlassian, Slack, Stripe, JWT...) + regras PULSE-específicas
+(`INTERNAL_API_TOKEN`, `DEVLAKE_DB_URL`...).
+
+**Por que importa**: uma vez que um token entra em `git push`, já vazou
+— revogar não apaga do histórico do GitHub. O hook bloqueia antes de sair
+da máquina.
+
+### Setup (uma vez por clone)
+
+```bash
+# 1. Instalar gitleaks
+brew install gitleaks          # macOS
+# ou: docker pull zricethezav/gitleaks
+
+# 2. Ativar o hook (aponta git pro diretório versionado .githooks/)
+git config core.hooksPath .githooks
+```
+
+Depois disso todo `git commit` roda `gitleaks protect --staged` antes de
+finalizar. Se detectar um secret, o commit é rejeitado com a linha/regra
+identificada (secret redigido no output).
+
+### Arquivos envolvidos
+
+- `.githooks/pre-commit` — shell script executado por git (versionado)
+- `.gitleaks.toml` — config: `[extend] useDefault = true` + regras PULSE
+  + `[allowlist]` paths (`.env`, `.claude/settings.local.json`, lockfiles,
+  `tests/fixtures/`...)
+
+### Como adicionar nova regra ou allowlist
+
+**Regra nova** (novo formato de token interno):
+
+```toml
+[[rules]]
+id = "pulse-novo-token"
+description = "Descrição curta"
+regex = '''(?i)novo[_-]?token\s*=\s*['"]?([A-Za-z0-9_\-]{20,})'''
+secretGroup = 1
+keywords = ["novo_token", "novo-token"]
+```
+
+**Allowlist** (false positive confirmado):
+
+```toml
+# Em .gitleaks.toml, seção [allowlist]:
+paths = [
+  ...existentes...,
+  '''pulse/packages/pulse-web/tests/fixtures/fake-secrets\.json''',
+]
+
+# Ou por regex de conteúdo:
+regexes = [
+  ...existentes...,
+  '''TOKEN_OBVIAMENTE_FALSO_123''',
+]
+```
+
+Sempre commit o `.gitleaks.toml` **antes** do arquivo com o false positive,
+senão o hook do próprio commit da allowlist vai falhar.
+
+### Como testar localmente
+
+```bash
+# Simular finding:
+printf 'GITHUB_TOKEN=ghp_K8JdnS82mQrX94HaL3P7vYtZ2wBcDfEg6NmQ\n' > /tmp/t.txt
+git add /tmp/t.txt
+./.githooks/pre-commit   # deve sair com código 1
+
+# Limpar
+git reset HEAD /tmp/t.txt && rm /tmp/t.txt
+```
+
+Full-repo scan (fora do hook, útil para CI ou auditoria periódica):
+
+```bash
+gitleaks detect --no-git --source . --config .gitleaks.toml --verbose
+```
+
+### Bypass (emergência)
+
+```bash
+git commit --no-verify
+```
+
+Só use se:
+1. Você confirmou que é false positive **e** não dá tempo de atualizar
+   allowlist agora, OU
+2. Você está offline e o finding é num arquivo que nunca vai pra remote.
+
+Regra informal: se usar `--no-verify`, abra issue explicando o motivo
+na mesma hora. O CI (passo 6) vai re-scanear de qualquer jeito.
+
+### Limitações conhecidas
+
+- **Entropia baixa passa**: tokens sequenciais (`abcd...xyz`) ficam abaixo
+  do threshold e não são detectados. Isso é bom — reduz false positives
+  em docs/exemplos — mas significa que tokens "test" muito óbvios não
+  bloqueiam. CI scan completo pega, hook local não.
+- **History antiga**: hook só olha staged diff. Para auditar history
+  toda, rode `gitleaks detect` (sem `--no-git`) no CI periodicamente.
+
+---
+
 ## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:
