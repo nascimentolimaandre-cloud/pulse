@@ -988,3 +988,74 @@ async def retry_entity(source_id: str, entity_type: str, response: Response) -> 
     See docs/backlog.md for roadmap.
     """
     return {"detail": "Retry feature is in backlog -- see docs/backlog.md"}
+
+
+# ---------------------------------------------------------------------------
+# 8. GET /schema-drift — FDD-OPS-001 Line 3
+# ---------------------------------------------------------------------------
+
+
+@router.get("/schema-drift")
+async def get_schema_drift(
+    hours: int = Query(24, ge=1, le=168, description="Look-back window in hours (max 168 = 7d)"),
+) -> dict[str, Any]:
+    """Return snapshots written with schema drift in the last N hours.
+
+    Surfaces cases where a Python worker wrote a snapshot missing fields
+    declared on the current domain dataclass — the signature pattern of
+    worker bytecode being out of sync with code on disk. Consumed by the
+    Pipeline Monitor banner so operators see drift without digging
+    through logs.
+
+    Drift is annotated inside `metrics_snapshots.value->>'_schema_drift'`
+    by `snapshot_writer._detect_schema_drift`.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=hours)
+
+    by_metric: list[dict[str, Any]] = []
+    total_affected = 0
+
+    try:
+        async with get_session(_TENANT_ID) as session:
+            rows = await session.execute(text("""
+                SELECT
+                    metric_type,
+                    metric_name,
+                    value->'_schema_drift'->'missing_fields' AS missing_fields,
+                    COUNT(*) AS cnt,
+                    MIN(updated_at) AS first_seen,
+                    MAX(updated_at) AS last_seen
+                FROM metrics_snapshots
+                WHERE updated_at >= :window_start
+                  AND value ? '_schema_drift'
+                GROUP BY metric_type, metric_name, value->'_schema_drift'->'missing_fields'
+                ORDER BY last_seen DESC
+            """), {"window_start": window_start})
+
+            for row in rows.fetchall():
+                # missing_fields is a JSONB array — psycopg returns a Python list.
+                missing = row.missing_fields if isinstance(row.missing_fields, list) else []
+                total_affected += row.cnt or 0
+                by_metric.append({
+                    "metric_type": row.metric_type,
+                    "metric_name": row.metric_name,
+                    "missing_fields": missing,
+                    "first_seen": row.first_seen,
+                    "last_seen": row.last_seen,
+                    "count": row.cnt or 0,
+                    "remedy": (
+                        "Stale worker bytecode — `docker compose restart "
+                        "metrics-worker pulse-data` or POST /admin/metrics/recalculate"
+                    ),
+                })
+
+    except Exception:
+        logger.warning("Error querying schema drift", exc_info=True)
+
+    return {
+        "detected_at": now,
+        "window_hours": hours,
+        "total_affected_snapshots": total_affected,
+        "by_metric": by_metric,
+    }

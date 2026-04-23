@@ -60,18 +60,33 @@ Endpoint `/admin/metrics/recalculate` já existente deve chamar
 idempotente: mesmo se o worker em background estiver com código velho, o
 recalc manual sempre usa código atualizado.
 
-**Linha 3 — Snapshot contract monitor (P1, S)**
+**Linha 3 — Snapshot contract monitor (SHIPPED 2026-04-23)**
 
-Pós-write, validar que o snapshot tem todos os campos **obrigatórios** do
-schema Pydantic mais recente. Se faltar campo → log WARN + métrica Prometheus
-`snapshot_schema_drift_total{metric_type, missing_field}`. Alerta em
-Pipeline Monitor: "Snapshot desatualizado — worker precisa restart".
+Pós-write, valida que o snapshot tem todos os campos do **domain dataclass**
+mais recente (fonte da verdade do payload persistido, não do Pydantic
+de resposta). Campo faltando → log WARN estruturado com tag
+`FDD-OPS-001/L3` + contador Prometheus `pulse_snapshot_schema_drift_total
+{metric_type, metric_name}` (no-op se `prometheus_client` ausente) + anota
+`_schema_drift` no JSONB do snapshot. Pipeline Monitor consome via
+`GET /data/v1/pipeline/schema-drift?hours=N` (≤168h), agrupado por
+`(metric_type, metric_name, missing_fields)`. Registrados na v1:
+`dora/all`, `cycle_time/breakdown`, `lean/lead_time_distribution`,
+`throughput/pr_analytics` (os quatro payloads que fazem `asdict(dataclass)`
+direto — wrappers `{"points": [...]}` não são validados). 20 testes
+unitários cobrem o registry e a detecção.
 
-**Linha 4 — CI/CD force-restart on deploy (P0, S)**
+**Linha 4 — CI/CD force-restart on deploy (SHIPPED 2026-04-23 — TEMPLATE)**
 
-Quando pipeline fizer deploy de código Python, o step de deploy **obrigatoriamente**
-restarta todos os workers (`docker compose restart metrics-worker sync-worker
-discovery-worker`). Sem exceção. Tempo de deploy aumenta ~15s, vale o seguro.
+Novo workflow `pulse/.github/workflows/deploy.yml` (gatilho
+`workflow_dispatch` com input `environment`). Após build/rollout, força
+restart dos 4 workers Python (`pulse-data metrics-worker sync-worker
+discovery-worker`), espera ficarem healthy, roda um dry-run de recalc
+(Linha 2 força reload de módulos), e consulta `/pipeline/schema-drift`
+(Linha 3) pós-deploy. `concurrency.cancel-in-progress=false` para nunca
+derrubar rollout em curso. Passos `Build/push` e `Roll out` estão como
+`# TODO:` porque deploy hoje é manual no Webmotors — quando automatizarmos,
+é trocar comandos docker pelo `kubectl`/`aws ecs` equivalentes.
+`actionlint` passa limpo.
 
 ### Acceptance Criteria (BDD)
 

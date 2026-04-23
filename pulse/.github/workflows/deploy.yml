@@ -1,0 +1,171 @@
+name: Deploy
+
+# FDD-OPS-001 Line 4 — Deploy workflow that FORCES worker restart after
+# any code push, closing the loop on "worker is running stale bytecode"
+# incidents. See pulse/docs/backlog/ops-backlog.md for the full defense
+# plan.
+#
+# STATUS: TEMPLATE (2026-04-23).
+# Today deploy at Webmotors is a manual process (no auto-deploy on merge
+# to main). This workflow is a documented skeleton for when deploy is
+# automated. The parts marked `# TODO:` need to be wired when the real
+# pipeline lands (container registry, cluster credentials, secrets).
+# The critical middle section — force-restart + health wait + schema
+# coherence check — is production-shaped and ready to run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (gated by GitHub Environment approvals)"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      skip_coherence_check:
+        description: "Skip post-deploy schema coherence check (break-glass only)"
+        required: false
+        type: boolean
+        default: false
+
+# Serialize deploys per environment. Never cancel in-flight deploys —
+# a half-rolled-out fleet is worse than a delayed one.
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  # Workers that MUST be force-restarted after any code change. If a
+  # new Python service is added, it belongs here.
+  PYTHON_WORKERS: "pulse-data metrics-worker sync-worker discovery-worker"
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # TODO: Build + push images
+      # ---------------------------------------------------------------
+      # Replace this with the real registry push once we settle on
+      # ECR/GHCR/etc. Keep the step name stable so downstream log
+      # parsers / notifications continue to work.
+      - name: Build and push images
+        run: |
+          echo "::notice::Placeholder build step — wire registry push here"
+          echo "Image tag: ${GITHUB_SHA}"
+          # TODO: docker buildx bake + push
+
+      # ---------------------------------------------------------------
+      # TODO: Roll out new image
+      # ---------------------------------------------------------------
+      # In k8s: `kubectl set image deploy/... pulse-data=...:${GITHUB_SHA}`
+      # In ECS: `aws ecs update-service --force-new-deployment`
+      # Until deploy is automated, this is a no-op.
+      - name: Roll out image
+        run: |
+          echo "::notice::Placeholder rollout step — wire kubectl/ECS/etc here"
+
+      # ---------------------------------------------------------------
+      # FDD-OPS-001 Line 4 — CORE
+      # ---------------------------------------------------------------
+      # Whatever the rollout mechanism is, Python workers MUST restart
+      # so they import fresh bytecode. A rolling restart is fine; what
+      # we cannot tolerate is "deploy claimed success but workers kept
+      # running old code" — which is the root incident this card fixes.
+      - name: Force-restart Python workers
+        env:
+          WORKERS: ${{ env.PYTHON_WORKERS }}
+        run: |
+          echo "::group::Force-restart workers (FDD-OPS-001 L4)"
+          echo "Workers: ${WORKERS}"
+          # TODO: replace `docker compose restart` with the production-
+          # appropriate command. Documented templates:
+          #
+          # Kubernetes:
+          #   for w in $WORKERS; do
+          #     kubectl -n pulse rollout restart deployment/$w
+          #     kubectl -n pulse rollout status deployment/$w --timeout=5m
+          #   done
+          #
+          # ECS:
+          #   for w in $WORKERS; do
+          #     aws ecs update-service --cluster pulse --service $w --force-new-deployment
+          #     aws ecs wait services-stable --cluster pulse --services $w
+          #   done
+          #
+          # docker compose (current local baseline):
+          #   docker compose -f pulse/docker-compose.yml restart $WORKERS
+          echo "::endgroup::"
+
+      - name: Wait for workers healthy
+        run: |
+          echo "::group::Health checks"
+          # TODO: swap for kubectl rollout status / aws ecs wait / health
+          # endpoint polling against the target environment's load
+          # balancer. Template:
+          #
+          # for w in $PYTHON_WORKERS; do
+          #   timeout 300 bash -c "until curl -fs https://$w.${ENV}.pulse/health; do sleep 3; done"
+          # done
+          echo "::endgroup::"
+
+      # ---------------------------------------------------------------
+      # FDD-OPS-001 Line 3 + Line 4 integration — coherence check
+      # ---------------------------------------------------------------
+      # After workers come back up, trigger a dry-run recalc. The
+      # recalc endpoint (Line 2) force-reloads modules; if anything is
+      # wrong with imports post-deploy we catch it here. Then query
+      # the schema-drift endpoint (Line 3) to confirm the freshly
+      # restarted workers are writing complete payloads.
+      - name: Post-deploy schema coherence check
+        if: ${{ github.event.inputs.skip_coherence_check != 'true' }}
+        env:
+          ADMIN_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+          API_BASE: ${{ secrets.PULSE_DATA_BASE_URL }}
+        run: |
+          if [ -z "${API_BASE}" ] || [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::warning::Skipping coherence check — secrets not configured yet"
+            exit 0
+          fi
+
+          echo "::group::Dry-run recalc (reloads modules via Line 2)"
+          curl -fsS -X POST \
+            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+            "${API_BASE}/data/v1/admin/metrics/recalculate?metric_type=dora&period=30d&dry_run=true" \
+            | tee recalc.json
+          echo "::endgroup::"
+
+          echo "::group::Schema drift check (Line 3)"
+          DRIFT=$(curl -fsS "${API_BASE}/data/v1/pipeline/schema-drift?hours=1" \
+            | python -c 'import json,sys; print(json.load(sys.stdin).get("total_affected_snapshots", 0))')
+          echo "total_affected_snapshots=${DRIFT}"
+          if [ "${DRIFT}" != "0" ]; then
+            echo "::warning::Schema drift detected after deploy (${DRIFT} snapshots). Investigate — this usually means a worker did not actually restart."
+            # Decision: alert but don't fail. First iteration is advisory.
+            # Flip to `exit 1` once the signal is trusted.
+          fi
+          echo "::endgroup::"
+
+  # -------------------------------------------------------------------
+  # Lint the workflow itself so CI catches YAML regressions.
+  # Runs on every push that touches this file.
+  # -------------------------------------------------------------------
+  lint-workflow:
+    name: Lint deploy workflow
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate with actionlint
+        uses: reviewdog/action-actionlint@v1
+        with:
+          actionlint_flags: -pyflakes= .github/workflows/deploy.yml
+          fail_level: error

@@ -13,9 +13,76 @@ from uuid import UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.contexts.metrics.infrastructure.models import MetricsSnapshot
+from src.contexts.metrics.infrastructure.schema_registry import expected_fields
 from src.database import get_session
+from src.shared.metrics import snapshot_schema_drift_total
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_schema_drift(
+    metric_type: str,
+    metric_name: str,
+    value: dict[str, Any] | Any,
+) -> list[str]:
+    """Compare payload keys against registered schema; mutate payload on drift.
+
+    When the payload is a dict AND the (metric_type, metric_name) pair is
+    registered, compute the set of fields declared on the current
+    dataclass but missing from the payload. If any are missing:
+
+    1. Log a structured warning (picked up by json log shipping).
+    2. Increment the Prometheus counter (best-effort; no-op when the
+       client is absent).
+    3. Annotate the payload with `_schema_drift` so the Pipeline Monitor
+       can surface affected rows via GET /pipeline/schema-drift.
+
+    Drift is NEVER a hard error — the snapshot still gets written. A
+    partial record is strictly better than no record (or an exception).
+
+    Returns the sorted list of missing fields (empty when no drift).
+    """
+    if not isinstance(value, dict):
+        return []
+
+    expected = expected_fields(metric_type, metric_name)
+    if expected is None:
+        return []
+
+    actual = set(value.keys())
+    # Ignore our own annotation — it's appended by this very function.
+    actual.discard("_schema_drift")
+    missing = sorted(expected - actual)
+    if not missing:
+        return []
+
+    logger.warning(
+        "snapshot_schema_drift",
+        extra={
+            "metric_type": metric_type,
+            "metric_name": metric_name,
+            "missing_fields": missing,
+            "remedy": (
+                "Worker bytecode out of sync — "
+                "`docker compose restart <worker>` or POST /admin/metrics/recalculate"
+            ),
+            "tag": "FDD-OPS-001/L3",
+        },
+    )
+    try:
+        snapshot_schema_drift_total.labels(
+            metric_type=metric_type,
+            metric_name=metric_name,
+        ).inc()
+    except Exception:  # noqa: BLE001 — metrics must never raise
+        pass
+
+    # Annotate in-place so downstream readers (Pipeline Monitor) can find it.
+    value["_schema_drift"] = {
+        "missing_fields": missing,
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return missing
 
 
 def _json_safe(obj: Any) -> Any:
@@ -55,6 +122,9 @@ async def write_snapshot(
         period_end: End of the measurement period.
     """
     now = datetime.now(timezone.utc)
+    # FDD-OPS-001 L3: detect drift BEFORE serializing. Mutates `value`
+    # in-place to add the `_schema_drift` annotation when applicable.
+    _detect_schema_drift(metric_type, metric_name, value)
     safe_value = _json_safe(value)
 
     async with get_session(tenant_id) as session:
@@ -123,6 +193,8 @@ async def write_snapshots_batch(
     for tenant_id, tenant_snaps in by_tenant.items():
         async with get_session(tenant_id) as session:
             for snap in tenant_snaps:
+                # FDD-OPS-001 L3: same drift check as write_snapshot.
+                _detect_schema_drift(snap["metric_type"], snap["metric_name"], snap["value"])
                 safe_value = _json_safe(snap["value"])
                 stmt = (
                     pg_insert(MetricsSnapshot)
