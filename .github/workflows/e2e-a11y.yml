@@ -1,0 +1,109 @@
+name: E2E + A11y (manual)
+
+# Playwright E2E smoke + axe-core a11y gate. These tests need a live
+# backend (docker compose) and are heavier to run, so they're NOT wired
+# as blocking PR gates yet — promote to ci.yml once the backend-in-CI
+# infrastructure is ready (docker compose up, migrations, DevLake seed,
+# secret plumbing).
+#
+# Triggered:
+#   - workflow_dispatch  (manually from the Actions tab)
+#   - schedule           (nightly at 03:00 UTC — proves the suite stays green)
+#
+# When green, the specs under tests/e2e/ exercise:
+#   - home-dashboard-smoke.spec.ts      (1 smoke E2E)
+#   - a11y/{home,dora,cycle-time}.spec.ts (WCAG 2.1 AA gate, 3 pages)
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which suite to run"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - smoke
+          - a11y
+  schedule:
+    # 03:00 UTC daily — off-hours for the ops team.
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: e2e-a11y-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    name: Playwright (${{ github.event.inputs.suite || 'all' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: pulse/packages/pulse-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: pulse/packages/pulse-web/package-lock.json
+
+      - name: Install pulse-shared
+        working-directory: pulse/packages/pulse-shared
+        run: npm ci
+
+      - name: Install pulse-web
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pulse/packages/pulse-web/package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium firefox
+
+      # TODO: start backend (docker compose up -d) once CI-backend infra is wired.
+      # Until then, the specs detect an unreachable dev server and skip gracefully
+      # (see devServerIsDown helper). The run still "passes" but effectively
+      # no-ops — surfacing a warning in the summary below keeps it honest.
+      - name: Skip notice (backend not yet provisioned in CI)
+        run: |
+          echo "::warning ::E2E + a11y specs will skip because no backend is running in this CI context."
+          echo "::warning ::Promote this workflow once docker compose is wired. See testing-playbook.md §8.8."
+
+      - name: Playwright — smoke
+        if: github.event.inputs.suite == 'smoke' || github.event.inputs.suite == 'all' || github.event.inputs.suite == ''
+        run: npx playwright test tests/e2e/platform --project=chromium
+
+      - name: Playwright — a11y
+        if: github.event.inputs.suite == 'a11y' || github.event.inputs.suite == 'all' || github.event.inputs.suite == ''
+        run: npm run test:a11y
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: pulse/packages/pulse-web/playwright-report/
+          retention-days: 14
+
+      - name: Upload test-results (traces, screenshots)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: pulse/packages/pulse-web/test-results/
+          retention-days: 7
