@@ -738,6 +738,111 @@ violação — `exclude` é último recurso.
 
 ---
 
+## 8.8 CI pipeline (GitHub Actions — Sprint 1.2 passo 6)
+
+### O que é
+
+Workflow GitHub Actions que roda automaticamente a cada PR / push em
+`main` e `develop`, executando os gates que o Sprint 1.2 estabeleceu
+localmente. Fecha o ciclo: testes + linters + scanner de secrets deixam
+de ser "opcional, se lembrar" e viram **regra**.
+
+### Layout dos workflows
+
+Ver `.github/workflows/README.md` no root do repo pro split
+root-vs-`pulse/`. Resumo:
+
+- **`/.github/workflows/ci.yml`** — ATIVO. Roda em PR/push.
+- **`/.github/workflows/e2e-a11y.yml`** — ATIVO mas manual/scheduled
+  (precisa de backend CI pra ser útil).
+- **`/pulse/.github/workflows/*.yml`** — DORMANTE, pronto pra quando
+  `pulse/` virar repo próprio.
+
+### Jobs do `ci.yml`
+
+| Job | Bloqueia merge? | Duração esperada | Cobre |
+|---|---|---|---|
+| `Secrets scan (gitleaks)` | sim | ~1min | full repo + history |
+| `Lint & typecheck (pulse-web)` | sim | ~3min | ESLint + `tsc -b --noEmit` |
+| `Unit tests (pulse-web Vitest)` | sim | ~2min | 139+ tests (component, hook, contract, anti-surveillance) |
+| `Build (pulse-web Vite)` | sim | ~2min | `npm run build` catches type errors que só aparecem no build |
+
+Total end-to-end: ~5-7min em cold-cache, ~3min em warm.
+
+### Gotchas resolvidos no design
+
+- **pulse-shared como sibling dep**: `pulse-web` importa
+  `@pulse/shared` que está em `pulse/packages/pulse-shared/`. Cada
+  job instala `pulse-shared` antes de `pulse-web`, e o build job
+  roda `npm run build` em `pulse-shared` pra gerar `dist/` (pulse-web
+  importa da source em dev via vitest alias, mas no build precisa do
+  artifact).
+- **Cache dedicado por job**: `actions/setup-node@v4` usa
+  `cache-dependency-path: pulse/packages/pulse-web/package-lock.json`
+  — cache invalidado só quando lockfile muda.
+- **`concurrency.cancel-in-progress`**: true pra branches feature
+  (economiza minutos), **false** pra `main`/`develop` (sinaliza
+  deploy — não queremos cancelar).
+- **`timeout-minutes` em cada job**: evita jobs pendurados de consumir
+  runner-minutes quando algo trava.
+- **`permissions: contents: read`**: não dá write; gitleaks-action
+  usa `secrets.GITHUB_TOKEN` só pra comentar em PR se achar leak.
+
+### Ativar branch protection (uma vez, no GitHub UI)
+
+```
+Settings → Branches → Branch protection rules → Add rule
+  Branch name pattern: main
+  ☑ Require status checks to pass before merging
+    Required checks:
+      - Secrets scan (gitleaks)
+      - Lint & typecheck (pulse-web)
+      - Unit tests (pulse-web Vitest)
+      - Build (pulse-web Vite)
+  ☑ Require branches to be up to date before merging
+  ☑ Include administrators
+```
+
+Sem isso, o CI roda mas não bloqueia merge. **Fazer imediatamente
+após o primeiro CI verde em `main`.**
+
+### E2E + a11y em CI (ainda não wired)
+
+O workflow `e2e-a11y.yml` existe mas hoje **no-op**: ele detecta que
+não há backend rodando, emite warning, e os specs pulam graciosamente
+via `devServerIsDown()`.
+
+Pra transformar em gate real precisa:
+1. Docker compose do backend no runner (`docker compose up -d`
+   pulse-api + pulse-data + postgres + redis)
+2. Seed mínimo de dados (ou fixture HTTP mock via MSW server-side)
+3. Wait-for-healthy loop antes de rodar Playwright
+4. Secrets de teste no GitHub (INTERNAL_API_TOKEN, Jira fake creds)
+
+Estimativa: S-M (2-4h). Não bloqueia Sprint 1.2 — fica como
+backlog `FDD-OPS-004` (a criar).
+
+### Como extender
+
+**Adicionar gate de outro package** (ex: pulse-api Jest):
+
+Copiar o job `test-unit-web`, trocar `working-directory` e `npm run test`
+command. Lembrar de adicionar à lista de required status checks no
+branch protection.
+
+**Adicionar caching mais agressivo** (ex: Playwright browsers):
+
+Já feito no `e2e-a11y.yml` via `actions/cache@v4` com key derivada do
+lockfile hash. Padrão para copiar.
+
+**Badge de build no README**:
+
+```markdown
+![CI](https://github.com/nascimentolimaandre-cloud/pulse/actions/workflows/ci.yml/badge.svg)
+```
+
+---
+
 ## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:
