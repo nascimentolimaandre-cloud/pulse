@@ -1,0 +1,173 @@
+name: CI
+
+# Root-level GitHub Actions workflow. Runs on every PR and push to
+# main/develop. Matches the Sprint 1.2 quality gates established locally
+# (Vitest unit + contract, ESLint, Gitleaks secrets scan) so regressions
+# are caught before merge.
+#
+# Scope note: THIS workflow is frontend + repo-wide only. Backend CI
+# (pulse-api Jest, pulse-data Pytest, anti-surveillance gate, Docker builds)
+# lives at pulse/.github/workflows/ci.yml and runs when pulse/ is extracted
+# into its own repo. See .github/workflows/README.md in the commit message
+# for the divided-ownership rationale.
+#
+# E2E + a11y specs need a live backend (docker compose) and are triggered
+# manually via the separate `.github/workflows/e2e-a11y.yml` workflow
+# (workflow_dispatch). Once backend CI infra is ready, they'll join this
+# pipeline.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  # Cancel in-progress runs for the same branch on new pushes, but NEVER
+  # cancel runs on main/develop (they produce artifacts and deploy signals).
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
+
+env:
+  NODE_VERSION: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Secrets scanning — runs first, fast, against full repo (not just diff)
+  # --------------------------------------------------------------------------
+  secrets-scan:
+    name: Secrets scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan all commits, not just the shallow diff.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        # Pinned to a major tag for reproducibility. The action uses the
+        # .gitleaks.toml at repo root (our config with PULSE-specific rules
+        # and allowlist for .env / lockfiles / tests/fixtures).
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # GITHUB_TOKEN is used only to comment on PRs if findings exist —
+          # no write permissions needed beyond that.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ./.gitleaks.toml
+
+  # --------------------------------------------------------------------------
+  # Frontend lint (ESLint + TypeScript)
+  # --------------------------------------------------------------------------
+  lint-web:
+    name: Lint & typecheck (pulse-web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: pulse/packages/pulse-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: pulse/packages/pulse-web/package-lock.json
+
+      - name: Install pulse-shared (sibling dep)
+        working-directory: pulse/packages/pulse-shared
+        run: npm ci
+
+      - name: Install pulse-web
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript (strict, no emit)
+        # `tsc -b` validates the project references tree.
+        run: npx tsc -b --noEmit
+
+  # --------------------------------------------------------------------------
+  # Frontend unit tests (Vitest) — includes component + hook + contract +
+  # anti-surveillance meta-test. 139+ tests as of Sprint 1.2 step 3.
+  # --------------------------------------------------------------------------
+  test-unit-web:
+    name: Unit tests (pulse-web Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: pulse/packages/pulse-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: pulse/packages/pulse-web/package-lock.json
+
+      - name: Install pulse-shared (sibling dep)
+        working-directory: pulse/packages/pulse-shared
+        run: npm ci
+
+      - name: Install pulse-web
+        run: npm ci
+
+      - name: Vitest (run mode, coverage)
+        # `--run` = no watch, `--coverage` = v8 coverage, output to coverage/.
+        # Contract tests skip cleanly when backend is offline (CI has none).
+        run: npm run test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pulse-web
+          path: pulse/packages/pulse-web/coverage/
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # Frontend build (Vite) — catches type errors that only surface at build time
+  # --------------------------------------------------------------------------
+  build-web:
+    name: Build (pulse-web Vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint-web, test-unit-web]
+    defaults:
+      run:
+        working-directory: pulse/packages/pulse-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: pulse/packages/pulse-web/package-lock.json
+
+      - name: Install pulse-shared + build (generates dist/ used by pulse-web)
+        working-directory: pulse/packages/pulse-shared
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install pulse-web
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-web-dist
+          path: pulse/packages/pulse-web/dist/
+          retention-days: 3
