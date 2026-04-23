@@ -19,5 +19,10 @@ export default defineConfig({
       'src/**/*.{test,spec}.{ts,tsx}',
       'tests/**/*.{test,spec}.{ts,tsx}',
     ],
+    exclude: [
+      'node_modules',
+      'dist',
+      'tests/e2e/**',
+    ],
   },
 });
