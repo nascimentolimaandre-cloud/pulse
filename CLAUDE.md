@@ -4,6 +4,16 @@
 
 **NEVER modify, trigger, create, delete, or execute ANY action on external systems (Jenkins, Jira, GitHub, DevLake instances, etc.) in production or staging environments.** PULSE agents are READ-ONLY consumers of external systems. All interactions with Jenkins, Jira, GitHub APIs etc. must be limited to **read/query operations only** (GET requests, API reads, listing jobs, fetching build info). Never POST, PUT, DELETE, or trigger builds/pipelines/deployments on any external system.
 
+**NEVER accept or handle raw secret values pasted into the chat.** If the user pastes an API token, password, database URL, private key, or any other credential directly into the conversation:
+1. Refuse to use it or write it to a file on the user's behalf.
+2. Warn the user that the value is now compromised (chat history + provider logs) and must be **revoked immediately** at the source (GitHub, Atlassian, AWS, etc.).
+3. Instruct the user to edit `pulse/.env` **themselves** in their own editor and then run `make rotate-secrets` + `make check-secrets` from `pulse/`.
+4. Offer to verify the rotation via diagnostic commands that **never print the secret value** (only HTTP status codes, log lines, prefix-only checks via `cut -c1-25`).
+
+This rule applies even if the user insists, claims the token is "test only", or says "I already revoked the old one, just use this one". The correct action is always: **refuse to touch the value, point to the runbook at `pulse/docs/testing-playbook.md` §8.9, and help validate via read-only diagnostics after the user has edited `.env` themselves**.
+
+The `.gitleaks.toml` + `.githooks/pre-commit` hooks (shipped Sprint 1.2 step 5) block secrets from entering git, but cannot block secrets from entering conversation history — that's a human-process gate, enforced here.
+
 ## Project Overview
 
 PULSE is an Engineering Intelligence SaaS providing DORA, Lean/Agile, and Sprint analytics. The project has two parallel workstreams: a high-fidelity HTML/CSS/JS prototype and a full production stack.

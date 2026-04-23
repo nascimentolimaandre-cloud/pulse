@@ -7,7 +7,8 @@ COMPOSE_TEST := docker compose -f docker-compose.test.yml
 
 .PHONY: help up down dev logs clean setup \
         test test-unit test-integration \
-        migrate seed lint fmt build
+        migrate seed lint fmt build \
+        rotate-secrets check-secrets
 
 # --------------------------------------------------------------------------
 # Help
@@ -91,6 +92,55 @@ build: ## Build all packages
 	cd packages/pulse-api && npm run build
 	cd packages/pulse-web && npm run build
 	$(COMPOSE) build
+
+# --------------------------------------------------------------------------
+# Secret rotation
+#
+# `docker compose restart` reinicia o PROCESSO no container existente e
+# NÃO relê o .env. Depois de trocar um secret no .env você precisa
+# recriar o container. Este target faz o passo certo:
+#   docker compose up -d --force-recreate <serviços-que-usam-secrets>
+# que destrói o container e recria lendo o .env do disco.
+#
+# Lista de serviços: workers Python que fazem chamadas autenticadas a
+# source systems (GitHub, Jira, Jenkins, etc.). Se adicionar um novo
+# worker/serviço que lê secrets do .env, adicione ele aqui também.
+#
+# Ver runbook completo em: docs/testing-playbook.md §8.9
+# --------------------------------------------------------------------------
+rotate-secrets: ## Re-create containers that consume .env after a secret rotation
+	@echo "=== Recriando containers que leem .env ==="
+	$(COMPOSE) up -d --force-recreate sync-worker discovery-worker metrics-worker pulse-data pulse-api
+	@echo ""
+	@echo "=== Pronto. Verifique autenticação com: ==="
+	@echo "  make check-secrets"
+
+check-secrets: ## Validate auth to external sources (GitHub, Jira) without exposing the token
+	@echo "=== Verificando autenticação ==="
+	@if [ ! -f .env ]; then echo "ERROR: pulse/.env não existe"; exit 1; fi
+	@TOKEN=$$(grep ^GITHUB_TOKEN .env | cut -d= -f2-); \
+	if [ -z "$$TOKEN" ]; then \
+		echo "GITHUB_TOKEN: não configurado em .env (skip)"; \
+	else \
+		printf "GITHUB /user:                  HTTP "; \
+		curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $$TOKEN" https://api.github.com/user; \
+		ORG=$$(grep ^GITHUB_ORG .env | cut -d= -f2- | tr -d '"'); \
+		if [ -n "$$ORG" ]; then \
+			printf "GITHUB /orgs/%s/repos:  HTTP " "$$ORG"; \
+			curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $$TOKEN" "https://api.github.com/orgs/$$ORG/repos?per_page=1"; \
+		fi; \
+	fi
+	@JIRA_URL=$$(grep ^JIRA_BASE_URL .env 2>/dev/null | cut -d= -f2- | tr -d '"'); \
+	JIRA_USER=$$(grep ^JIRA_EMAIL .env 2>/dev/null | cut -d= -f2- | tr -d '"'); \
+	JIRA_TOKEN=$$(grep ^JIRA_API_TOKEN .env 2>/dev/null | cut -d= -f2-); \
+	if [ -n "$$JIRA_URL" ] && [ -n "$$JIRA_USER" ] && [ -n "$$JIRA_TOKEN" ]; then \
+		printf "JIRA /myself:                  HTTP "; \
+		curl -s -o /dev/null -w "%{http_code}\n" -u "$$JIRA_USER:$$JIRA_TOKEN" "$$JIRA_URL/rest/api/3/myself"; \
+	else \
+		echo "JIRA: credenciais incompletas em .env (skip)"; \
+	fi
+	@echo ""
+	@echo "Esperado: 200 em todos os checks ativos. 401/403 = problema de scope/aprovação."
 
 # --------------------------------------------------------------------------
 # First-time Setup
