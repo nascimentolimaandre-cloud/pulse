@@ -78,25 +78,19 @@ class TestSquadKeyFilter:
             f"empty/null data, because squad_key is a filter not a resource path."
         )
 
-    @pytest.mark.xfail(
-        reason=(
-            "FDD-SEC-001: /metrics/home does NOT reject squad_key with special "
-            "chars like 'FID;DROP' — returns 200 because no regex validation on "
-            "the query param. The backend IS safe from SQL injection (sqlalchemy "
-            "uses bindparams) but should reject malformed input upfront. See "
-            "pulse/contexts/pipeline/routes.py for the correct regex pattern: "
-            "r'^[A-Za-z][A-Za-z0-9]*$'. Sprint 5 (security hardening) will fix."
-        ),
-        strict=True,
-    )
     def test_squad_key_with_invalid_chars_rejected(self):
-        """Squad key with SQL-injection-like chars must be rejected."""
+        """Squad key with SQL-injection-like chars must be rejected.
+
+        FDD-SEC-001 fix: added pattern `^[A-Za-z][A-Za-z0-9]{1,31}$` to the
+        squad_key Query param on ALL metrics endpoints. FastAPI rejects
+        malformed input with HTTP 422 before any SQL path.
+        """
         r = httpx.get(
             f"{API}/metrics/home?period=60d&squad_key=FID%3BDROP", timeout=60.0
         )
-        assert r.status_code in (400, 422), (
-            f"Squad key 'FID;DROP' returned {r.status_code} — must be 400/422 "
-            f"(injection protection)."
+        assert r.status_code == 422, (
+            f"Squad key 'FID;DROP' returned {r.status_code} — must be 422 "
+            f"(FDD-SEC-001 regex validation)."
         )
 
 

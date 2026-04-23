@@ -62,6 +62,14 @@ _PERIOD_RE = re.compile(r"^(\d+)d$")
 _VALID_PERIODS = {"7d", "14d", "30d", "60d", "90d", "120d", "custom"}
 _MAX_CUSTOM_DAYS = 365
 
+# FDD-SEC-001 — squad_key must be alphanumeric (Jira project key convention).
+# Rejects injection attempts like "FID;DROP" at the FastAPI validation layer
+# BEFORE reaching any SQL query. Mirrors the pattern already used in
+# pipeline/routes.py — same convention across contexts.
+# Regex allows 2-32 chars starting with a letter, rest alphanumeric. Covers
+# all real Jira project keys (min 2 chars per Atlassian convention).
+_SQUAD_KEY_PATTERN = r"^[A-Za-z][A-Za-z0-9]{1,31}$"
+
 
 def _parse_period(
     period: str,
@@ -261,6 +269,7 @@ async def get_dora_metrics(
         None,
         description="(Accepted for URL compat; squad scoping not yet wired here — see FDD-DSH-060)",
         max_length=32,
+        pattern=_SQUAD_KEY_PATTERN,
     ),
     period: str = Query("30d", description="Time period (7d|14d|30d|60d|90d|120d|custom)"),
     start_date: str | None = Query(None),
@@ -333,7 +342,7 @@ async def get_dora_metrics(
 async def get_lean_metrics(
     tenant_id: UUID = Depends(get_tenant_id),
     team_id: UUID | None = Query(None, description="Filter by team"),
-    squad_key: str | None = Query(None, max_length=32),
+    squad_key: str | None = Query(None, max_length=32, pattern=_SQUAD_KEY_PATTERN),
     period: str = Query("30d", description="Time period (7d|14d|30d|60d|90d|120d|custom)"),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
@@ -410,7 +419,7 @@ async def get_lean_metrics(
 async def get_cycle_time_metrics(
     tenant_id: UUID = Depends(get_tenant_id),
     team_id: UUID | None = Query(None, description="Filter by team"),
-    squad_key: str | None = Query(None, max_length=32),
+    squad_key: str | None = Query(None, max_length=32, pattern=_SQUAD_KEY_PATTERN),
     period: str = Query("30d", description="Time period (7d|14d|30d|60d|90d|120d|custom)"),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
@@ -482,7 +491,7 @@ async def get_cycle_time_metrics(
 async def get_throughput_metrics(
     tenant_id: UUID = Depends(get_tenant_id),
     team_id: UUID | None = Query(None, description="Filter by team"),
-    squad_key: str | None = Query(None, max_length=32),
+    squad_key: str | None = Query(None, max_length=32, pattern=_SQUAD_KEY_PATTERN),
     period: str = Query("30d", description="Time period (7d|14d|30d|60d|90d|120d|custom)"),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
@@ -551,7 +560,7 @@ async def get_throughput_metrics(
 async def get_sprint_metrics(
     tenant_id: UUID = Depends(get_tenant_id),
     team_id: UUID | None = Query(None, description="Filter by team"),
-    squad_key: str | None = Query(None, max_length=32),
+    squad_key: str | None = Query(None, max_length=32, pattern=_SQUAD_KEY_PATTERN),
     sprint_id: UUID | None = Query(None, description="Specific sprint"),
     period: str | None = Query(None, description="Accepted for URL compat; ignored"),
     start_date: str | None = Query(None),
@@ -800,6 +809,7 @@ async def get_home_metrics(
         None,
         description="Filter by squad project key (e.g. 'OKM'). Uses on-demand computation.",
         max_length=32,
+        pattern=_SQUAD_KEY_PATTERN,
     ),
     period: str = Query("30d", description="Time period (7d|14d|30d|60d|90d|120d|custom)"),
     start_date: str | None = Query(None, description="ISO date (required if period=custom)"),
@@ -1040,10 +1050,9 @@ async def get_flow_health(
     tenant_id: UUID = Depends(get_tenant_id),
     squad_key: str | None = Query(
         None,
-        min_length=1,
-        max_length=10,
-        pattern=r"^[A-Za-z][A-Za-z0-9]*$",
-        description="Jira project key (e.g. 'OKM'). Alphanumeric only — SQL-injection safe.",
+        max_length=32,
+        pattern=_SQUAD_KEY_PATTERN,
+        description="Jira project key (e.g. 'OKM'). Alphanumeric only — SQL-injection safe (FDD-SEC-001).",
     ),
     period: str = Query(
         "60d",
