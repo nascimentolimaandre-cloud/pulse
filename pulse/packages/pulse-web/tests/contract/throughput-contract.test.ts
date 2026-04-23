@@ -95,7 +95,7 @@ describe('ThroughputResponse contract (Zod)', () => {
   });
 
   it('B: rejects response missing the required `data` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { data: _removed, ...withoutData } = VALID_THROUGHPUT_RESPONSE;
     const result = ThroughputResponseSchema.safeParse(withoutData);
     expect(result.success).toBe(false);

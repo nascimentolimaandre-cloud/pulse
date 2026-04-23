@@ -161,7 +161,7 @@ describe('FlowHealthResponse contract (Zod)', () => {
   });
 
   it('B: rejects response missing the required `aging_wip` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { aging_wip: _removed, ...withoutAgingWip } = VALID_FLOW_HEALTH_RESPONSE;
     const result = FlowHealthResponseSchema.safeParse(withoutAgingWip);
     expect(result.success).toBe(false);
@@ -172,7 +172,7 @@ describe('FlowHealthResponse contract (Zod)', () => {
   });
 
   it('B2: rejects response missing required `flow_efficiency` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { flow_efficiency: _removed, ...withoutFE } = VALID_FLOW_HEALTH_RESPONSE;
     const result = FlowHealthResponseSchema.safeParse(withoutFE);
     expect(result.success).toBe(false);

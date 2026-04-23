@@ -23,7 +23,6 @@ test.describe('a11y — Cycle Time page', () => {
     });
 
     // Same 3s settle window as dora.spec.ts — see comment there.
-    // eslint-disable-next-line playwright/no-wait-for-timeout
     await page.waitForTimeout(3_000);
 
     await runA11yAudit(page, testInfo, {

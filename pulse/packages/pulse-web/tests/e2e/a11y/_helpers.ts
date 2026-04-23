@@ -109,14 +109,14 @@ export async function runA11yAudit(
   // Log warn-level findings to stderr so they surface in the test output
   // without failing the run. Format is greppable for CI log parsing later.
   for (const v of [...buckets.moderate, ...buckets.minor]) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[a11y/${context}] WARN ${v.impact}/${v.id}: ${v.help} (${v.nodes.length} nodes) — ${v.helpUrl}`,
     );
   }
 
   // Pretty summary in the test log, regardless of outcome.
-  // eslint-disable-next-line no-console
+   
   console.log(
     `[a11y/${context}] critical=${buckets.critical.length} serious=${buckets.serious.length} moderate=${buckets.moderate.length} minor=${buckets.minor.length} passes=${results.passes.length}`,
   );
