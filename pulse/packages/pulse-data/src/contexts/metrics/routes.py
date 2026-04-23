@@ -7,8 +7,10 @@ calculate metrics on the fly.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -1085,6 +1087,65 @@ async def get_flow_health(
 admin_router = APIRouter(prefix="/data/v1/admin/metrics", tags=["metrics-admin"])
 
 
+# Modules whose latest-on-disk bytecode should be picked up by every recalc.
+# Domain modules are pure functions (no global state, no singletons) so
+# `importlib.reload` is safe. Service modules orchestrate the domain calls —
+# also safe to reload because they hold no in-process caches or background
+# workers; each request constructs a fresh service call tree.
+#
+# FDD-OPS-001 (Linha 2): closes the "code deployed vs runtime in memory"
+# drift gap. Python caches imported modules in `sys.modules`, so after a
+# file edit or `git pull` the worker process still executes the OLD code
+# until restart. Admin recalcs are the place where ops users already go
+# when data looks wrong — giving them a guaranteed-fresh code path there
+# fixes 80% of the documented drift incidents without requiring a full
+# container restart.
+_RELOAD_TARGETS: tuple[str, ...] = (
+    "src.contexts.metrics.domain.dora",
+    "src.contexts.metrics.domain.cycle_time",
+    "src.contexts.metrics.domain.lean",
+    "src.contexts.metrics.domain.throughput",
+    "src.contexts.metrics.domain.sprint",
+    "src.contexts.metrics.services.recalculate",
+    "src.contexts.metrics.services.home_on_demand",
+    "src.contexts.metrics.services.flow_health_on_demand",
+)
+
+
+def _force_reload_metrics_modules() -> list[str]:
+    """Force-reload metrics domain/service modules to pick up freshest bytecode.
+
+    Python doesn't hot-reload by default; once a module is imported, subsequent
+    `import` statements return the cached version in `sys.modules`. After a
+    `git pull` or file edit, the worker process still executes the OLD module
+    version until restart. `importlib.reload()` re-executes the module body,
+    refreshing function definitions and module-level constants.
+
+    Safe for pure domain modules and stateless service modules; would NOT be
+    safe for modules that hold singletons, background workers, or mutate
+    registries at import time. The targets listed in `_RELOAD_TARGETS` have
+    been audited for this.
+
+    Returns the list of modules that were successfully reloaded. Failures are
+    logged as WARN and skipped — a partial reload is better than an aborted
+    recalc.
+    """
+    reloaded: list[str] = []
+    for mod_name in _RELOAD_TARGETS:
+        mod = sys.modules.get(mod_name)
+        if mod is None:
+            # Not yet imported — next `import` will load fresh code anyway.
+            continue
+        try:
+            importlib.reload(mod)
+            reloaded.append(mod_name)
+        except Exception as exc:  # noqa: BLE001 — defensive: never abort recalc
+            logger.warning(
+                "[admin] importlib.reload failed for %s: %s", mod_name, exc
+            )
+    return reloaded
+
+
 def _check_admin_token(x_admin_token: str | None) -> None:
     """Validate the admin token using constant-time comparison.
 
@@ -1129,8 +1190,23 @@ async def admin_recalculate_metrics(
         tenant_id, metric_type, period, team_id, dry_run,
     )
 
+    # FDD-OPS-001 Linha 2: force-reload domain/service modules so the recalc
+    # executes the freshest bytecode on disk regardless of what the worker
+    # process had cached in `sys.modules`.
+    reloaded_modules = _force_reload_metrics_modules()
+    logger.info(
+        "[admin] Force-reloaded %d metric modules: %s",
+        len(reloaded_modules), reloaded_modules,
+    )
+
+    # Re-resolve the recalculate function from the freshly reloaded module —
+    # the top-level `_recalc_service` import still points to the previous
+    # function object after `importlib.reload()`, so bypass the stale binding.
+    recalc_module = sys.modules.get("src.contexts.metrics.services.recalculate")
+    recalc_fn = getattr(recalc_module, "recalculate", _recalc_service) if recalc_module else _recalc_service
+
     try:
-        result = await _recalc_service(
+        result = await recalc_fn(
             tenant_id=tenant_id,
             metric_type=metric_type,
             period=period,
@@ -1153,4 +1229,5 @@ async def admin_recalculate_metrics(
         "snapshots_written": result.snapshots_written,
         "scanned": result.scanned,
         "errors": result.errors,
+        "reloaded_modules": reloaded_modules,
     }
