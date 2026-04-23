@@ -40,6 +40,12 @@ coverage/
 .nyc_output/
 htmlcov/
 
+# === Playwright artifacts ===
+pulse/packages/pulse-web/playwright-report/
+pulse/packages/pulse-web/test-results/
+pulse/packages/pulse-web/blob-report/
+pulse/packages/pulse-web/playwright/.cache/
+
 # === Logs ===
 *.log
 npm-debug.log*
