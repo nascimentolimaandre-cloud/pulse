@@ -10,7 +10,7 @@ export type AnalyticsPayload = Record<string, unknown>;
 
 export function trackEvent(name: string, payload: AnalyticsPayload = {}): void {
   if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
+     
     console.debug('[analytics]', name, payload);
   }
   // TODO: forward to vendor SDK (PostHog/Mixpanel) behind a runtime flag.

@@ -28,8 +28,8 @@ test.describe('a11y — DORA page', () => {
     // Small settle window to let React commit post-heading renders (sidebar,
     // topbar, skeleton→content transition on visible elements). 3s is a
     // compromise: long enough for first paint, short enough to keep the
-    // suite <2min total.
-    // eslint-disable-next-line playwright/no-wait-for-timeout
+    // suite <2min total. (eslint-plugin-playwright would flag this — we
+    // don't have that plugin installed; this is a deliberate exception.)
     await page.waitForTimeout(3_000);
 
     await runA11yAudit(page, testInfo, {

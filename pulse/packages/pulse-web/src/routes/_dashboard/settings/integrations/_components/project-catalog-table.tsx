@@ -565,7 +565,7 @@ function ProjectRow({
       <td className="py-2.5 px-2 font-mono text-xs font-semibold text-content-primary">
         <span className="inline-flex items-center gap-1">
           {project.projectKey}
-          {project.metadata?.pii_flag && (
+          {Boolean(project.metadata?.pii_flag) && (
             <span className="group/pii relative" aria-label="Nome sensivel detectado - revisao manual necessaria">
               <ShieldAlert className="h-4 w-4 text-status-warning" aria-hidden="true" />
               <span
@@ -631,7 +631,7 @@ function ProjectCard({
           />
           <span className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-content-primary">
             {project.projectKey}
-            {project.metadata?.pii_flag && (
+            {Boolean(project.metadata?.pii_flag) && (
               <ShieldAlert
                 className="h-4 w-4 text-status-warning"
                 aria-label="Nome sensivel detectado - revisao manual necessaria"

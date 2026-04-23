@@ -120,7 +120,7 @@ describe('LeanResponse contract (Zod)', () => {
   });
 
   it('B: rejects response missing the required `data` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { data: _removed, ...withoutData } = VALID_LEAN_RESPONSE;
     const result = LeanResponseSchema.safeParse(withoutData);
     expect(result.success).toBe(false);
