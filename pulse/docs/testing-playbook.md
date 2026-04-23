@@ -618,6 +618,126 @@ na mesma hora. O CI (passo 6) vai re-scanear de qualquer jeito.
 
 ---
 
+## 8.7 A11y gate (axe-core + Playwright — Sprint 1.2 passo 4)
+
+### O que é
+
+Audit automatizado de acessibilidade rodado via [axe-core](https://github.com/dequelabs/axe-core)
+dentro do Playwright. Cada spec navega pra uma página, espera o estado estável,
+e chama `runA11yAudit(page, testInfo, { context: 'home' })`. Qualquer violação
+de severidade **critical** ou **serious** contra WCAG 2.1 AA bloqueia o teste.
+
+**Por que importa**: WCAG AA é compromisso do design-doc. Sem gate automatizado,
+regressão de contraste/teclado/labels passa sem ninguém ver até um cliente
+reportar — e aí é retrabalho mais caro que prevenir.
+
+### Layout
+
+```
+tests/e2e/a11y/
+  _helpers.ts        ← runA11yAudit + devServerIsDown helpers (compartilhados)
+  home.spec.ts       ← audit /
+  dora.spec.ts       ← audit /metrics/dora
+  cycle-time.spec.ts ← audit /metrics/cycle-time
+  # Adicione novos specs conforme o template abaixo.
+```
+
+### Política de gate
+
+| Severidade axe-core | Comportamento |
+|---|---|
+| `critical`          | **Fail** — bloqueia merge |
+| `serious`           | **Fail** — bloqueia merge |
+| `moderate`          | Warn no log, anexa JSON, **não** falha |
+| `minor`             | Warn no log, anexa JSON, **não** falha |
+| tag `best-practice` | Excluído do ruleset (advisory, não é WCAG) |
+
+`moderate`/`minor` são logados para construir baseline e apertar o gate
+depois sem "big-bang fix session".
+
+### Como rodar
+
+```bash
+# Requer vite dev server em http://localhost:5173 (Playwright auto-inicia se preciso)
+npm run test:a11y              # chromium apenas, rápido
+# ou:
+npm run test:e2e -- tests/e2e/a11y   # todos browsers configurados
+```
+
+Reports: `playwright-report/` contém HTML interativo; cada violação vem com
+URL do Deque University explicando a regra + como consertar. JSON completo
+é attachment em cada teste (`a11y-<context>.json`) para triagem.
+
+### Como adicionar audit de uma página nova (template)
+
+```typescript
+// tests/e2e/a11y/minha-pagina.spec.ts
+import { test, expect } from '@playwright/test';
+import { runA11yAudit, devServerIsDown } from './_helpers';
+
+test.setTimeout(60_000);
+
+test.describe('a11y — Minha Página', () => {
+  test('no critical/serious WCAG AA violations on first render', async ({ page }, testInfo) => {
+    const offline = await devServerIsDown(page);
+    test.skip(offline, 'Vite dev server não está respondendo');
+
+    await page.goto('/minha-pagina', { waitUntil: 'load', timeout: 20_000 });
+
+    // Espere o estado estável. Padrão pragmático: h1 visível + 3s de settle.
+    // Páginas com skeleton precisam esperar que resolva (pode usar toPass
+    // em um seletor de "conteúdo carregado").
+    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    // eslint-disable-next-line playwright/no-wait-for-timeout
+    await page.waitForTimeout(3_000);
+
+    await runA11yAudit(page, testInfo, {
+      context: 'minha-pagina',
+      // TEMP: enquanto FDD-OPS-003 (design-system contrast) não ship, essa regra fica off.
+      disableRules: ['color-contrast'],
+    });
+  });
+});
+```
+
+### Como allowlistar uma violação específica
+
+**Regra global** (um bug conhecido do design system, válido em todas as páginas):
+
+Passe `disableRules: ['nome-da-regra']` no `runA11yAudit` E documente inline
+com link pro FDD que vai consertar. Revisar a lista a cada sprint — não
+deixar drift.
+
+**Nó específico** (terceiro que não controlamos, ex: chart lib):
+
+Passe `exclude: ['.meu-seletor']` no `runA11yAudit`. Prefira fixar a
+violação — `exclude` é último recurso.
+
+### Débito técnico atual
+
+- **`color-contrast` desabilitado em todas as specs** → **FDD-OPS-003**
+  (design-system contrast review, P1). 172 nós impactados na home — é
+  problema sistêmico de tokens, não de componente individual.
+- `best-practice` tags fora do ruleset por design (heading-order,
+  landmark-one-main etc. são advisory, gerariam ruído sem ganho claro
+  para WCAG). Revisar em Sprint 3.
+
+### Gotchas
+
+- **Não audite skeleton state**: espere o conteúdo real renderizar. axe-core
+  testa o DOM vivo — se o card ainda está em `animate-pulse`, você audita
+  o skeleton, não o conteúdo.
+- **`<dl>` só aceita `<dt>`/`<dd>` ou `<div>` como filhos diretos**.
+  Wrapping com `<span>` quebra a regra `definition-list`. Trocar pra `<div
+  className="inline-flex">` mantém o layout e fica válido.
+- **SVG de charts precisa de `<title>` + `role="img"`** ou `aria-label`
+  descrevendo o dado. Recharts/Chart.js não adicionam automaticamente —
+  configure via props do componente.
+
+---
+
 ## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:
