@@ -334,6 +334,60 @@ Regras:
   qualquer crash em produção — é a função principal dessa camada.
 - Os schemas Zod de contract devem estar em `tests/contract/`, não em `src/`.
 
+### 8.5 Como adicionar um E2E platform test (Playwright)
+
+Instalado em Sprint 1.2 passo 2. Playwright 1.59 com Chromium + Firefox.
+
+**Pre-requisitos antes de rodar:**
+
+```bash
+# Backend (API + DB)
+cd pulse && docker compose up -d
+
+# Rodar smoke (Vite sobe automaticamente via webServer no playwright.config.ts)
+cd packages/pulse-web
+npm run test:e2e
+```
+
+**Criar uma nova jornada:**
+
+```
+tests/e2e/platform/<pagina>-<acao>.spec.ts
+```
+
+Exemplo mínimo:
+
+```ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Minha jornada', () => {
+  test('usuário consegue completar X', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'PULSE Dashboard' })).toBeVisible();
+    // ... demais steps
+  });
+});
+```
+
+**Regras:**
+
+- E2E valida **jornadas de usuário ponta a ponta** — não lógica de negócio (isso é unit/integration).
+- Ordem de preferência de seletores: `getByRole` > `getByLabel` > `getByText` > `locator('#id-estável')` > `getByTestId`.
+- Se o teste depende de backend, adicione guard: `test.skip(backendOffline, 'reason')`.
+- Timeout padrão: 30s por teste, `expect` timeout: 15s. Para renders pesados, passe `{ timeout: 15_000 }` no `toBeVisible`.
+- Nenhum teste de E2E deve verificar ranking de desenvolvedor individual (anti-surveillance).
+- Arquivo de configuração: `pulse/packages/pulse-web/playwright.config.ts`.
+- Docs da pasta: `tests/e2e/platform/README.md`.
+
+**Comandos disponíveis:**
+
+```bash
+npm run test:e2e              # todos os E2E (headless, chromium + firefox)
+npm run test:e2e:ui           # modo UI interativo (debug local)
+npm run test:e2e:debug        # inspector passo a passo
+npm run test:e2e -- --project=chromium   # só chromium (mais rápido)
+```
+
 ---
 
 ## 9. Próximos clientes (roadmap)
