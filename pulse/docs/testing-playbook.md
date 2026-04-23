@@ -843,6 +843,176 @@ lockfile hash. Padrão para copiar.
 
 ---
 
+## 8.9 Secret rotation runbook
+
+Passo-a-passo pra rotacionar um secret (GitHub PAT, Jira API token,
+senha de DB, etc.) no ambiente local sem quebrar nada e sem vazar o
+valor novo.
+
+Este runbook **é a referência** quando acontecer qualquer uma dessas
+situações:
+- Token expirou (GitHub Fine-grained PAT tem validade de 7 a 365 dias).
+- Suspeita de comprometimento (token foi exposto em log, screenshot,
+  Slack, email, chat de AI, etc. → rotacionar **imediatamente**).
+- Rotação agendada de compliance (a cada 90 dias como best practice).
+- Mudança de pessoa responsável pelo secret.
+
+### Regra #0 (inegociável)
+
+**NUNCA cole o valor do secret em chat com AI** (incluindo Claude Code,
+ChatGPT, Copilot chat). Mesmo que seja "só pra atualizar o arquivo",
+o valor acaba em:
+- Histórico da conversa (indexado, buscável)
+- Logs do provider do AI
+- Possivelmente OneDrive/Google Drive sync de transcripts
+- Snapshots de trace se tiver algum APM local
+
+O secret está queimado a partir do momento que entra num canal que
+você não controla. Se colou: rotacione. Sem "talvez", sem "vou só
+checar".
+
+### Passo 1 — Revogar o secret antigo
+
+**Sempre antes de substituir.** Revogar invalida imediatamente; se
+alguém tiver copiado em background, o janela de uso zera.
+
+- **GitHub PAT**: https://github.com/settings/tokens → Delete
+- **Jira API token**: https://id.atlassian.com/manage-profile/security/api-tokens
+  → Revoke
+- **AWS access key**: IAM → Users → <seu-user> → Security credentials
+  → Deactivate → Delete
+
+### Passo 2 — Gerar o secret novo
+
+Com o **mínimo de scopes** necessários. "Fine-grained PAT com repo:all"
+é equivalente a "classic PAT com tudo" — só vira mais granular quando
+você lista explicitamente os scopes.
+
+**GitHub (Fine-grained PAT)** — scopes que o PULSE precisa:
+
+| Categoria | Permission | Level |
+|---|---|---|
+| Repository | Contents | Read |
+| Repository | Metadata | Read |
+| Repository | Pull requests | Read |
+| Repository | Deployments | Read |
+| Organization | Metadata | Read |
+
+**Resource owner**: a organização (ex: `webmotors-private`), não seu
+usuário pessoal — senão endpoints `/orgs/.../repos` retornam 404.
+
+Se a org bloqueia Fine-grained PATs, o token fica em "pending" até
+um admin da org aprovar na lista de PATs pendentes. Veja 401 nos logs
+do worker? É isso.
+
+### Passo 3 — Atualizar o `.env` (você mesmo, sem AI)
+
+Edite `pulse/.env` no **seu** editor de preferência e substitua a linha
+do secret. Exemplo pra GitHub:
+
+```bash
+# GITHUB_TOKEN=github_pat_<antigo>
+GITHUB_TOKEN=github_pat_<novo>
+```
+
+**Não cole o valor num chat.** Se precisar que o Claude ajude a validar
+depois, ele vai ler do disco — ele não precisa ver o valor.
+
+### Passo 4 — Recriar containers (NÃO `restart`)
+
+Gotcha importante: `docker compose restart` reinicia o **processo**
+dentro do container existente e **não relê o `.env`**. Env vars são
+injetadas no `docker compose up` (create), não no restart.
+
+**Certo** (o target foi desenhado pra isso):
+
+```bash
+cd pulse
+make rotate-secrets
+```
+
+Que expande para:
+
+```bash
+docker compose up -d --force-recreate sync-worker discovery-worker metrics-worker pulse-data pulse-api
+```
+
+Isso **destrói** os containers dos workers/APIs e os recria lendo o
+`.env` do disco.
+
+**Errado** (não funciona, vai continuar usando o secret antigo):
+
+```bash
+docker compose restart sync-worker
+```
+
+### Passo 5 — Validar sem expor o secret
+
+```bash
+cd pulse
+make check-secrets
+```
+
+Saída esperada (quando tudo ok):
+
+```
+=== Verificando autenticação ===
+GITHUB /user:                          HTTP 200
+GITHUB /orgs/webmotors-private/repos:  HTTP 200
+JIRA /myself:                          HTTP 200
+```
+
+Interpretação de falhas:
+
+| Código | Causa provável | Fix |
+|---|---|---|
+| 401 `/user` | Token inválido, revogado ou malformado | Passo 2 de novo |
+| 200 `/user`, 404 `/orgs/...` | Token não tem acesso à org | Passo 2 com "Resource owner" = org |
+| 200 `/user`, 403 `/orgs/.../repos` | Org bloqueia e exige aprovação de admin | Pedir pro admin do GitHub aprovar o PAT |
+| 401 `/myself` (Jira) | Email ou API token errados | Conferir credenciais, email precisa ser o que loga no Atlassian |
+
+O `check-secrets` **nunca imprime o valor do secret** — só o código HTTP.
+Por isso é seguro rodar e compartilhar o output.
+
+### Passo 6 — Confirmar no worker
+
+Depois de 60s, cheque que o sync-worker está fazendo fetches reais
+(não só bootando):
+
+```bash
+cd pulse
+docker compose logs --since 2m sync-worker 2>&1 | grep -E "api\.github.*200|github.*[Ff]etched" | head -5
+```
+
+Se aparecer linhas com `HTTP/1.1 200 OK` ou `Fetched N ... from github`
+→ tudo verde. Se aparecer `401 Unauthorized` → passo 4/5 não pegou.
+
+### Passo 7 — Registrar no runbook interno (se for produção)
+
+Não se aplica ao dev local, mas **em produção** (R1 SaaS):
+- Data e hora da rotação
+- Quem fez
+- Motivo (expiry / compromise / scheduled / people change)
+- Se foi detectada em scan (gitleaks, AWS GuardDuty, etc.) ou
+  proativa
+
+Cada secret em produção vai pro AWS Secrets Manager; o `.env`
+desaparece. Mas a disciplina do runbook fica igual.
+
+### Checklist resumido
+
+```
+[ ] Revoguei o secret antigo no source
+[ ] Gerei o novo com scopes mínimos
+[ ] Atualizei pulse/.env no meu editor (sem colar em chat)
+[ ] make rotate-secrets
+[ ] make check-secrets → tudo 200
+[ ] Logs do worker mostrando fetches reais
+[ ] (prod) Registrado no runbook interno
+```
+
+---
+
 ## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:
