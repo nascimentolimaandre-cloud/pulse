@@ -53,6 +53,16 @@ const EVENT_TYPE_META: Record<JiraAuditEventType, EventTypeMeta> = {
     label: 'Cap aplicado',
     color: 'text-status-danger',
   },
+  project_pii_flagged: {
+    icon: ShieldAlert,
+    label: 'Nome sensível detectado',
+    color: 'text-status-warning',
+  },
+  project_pii_gated: {
+    icon: Ban,
+    label: 'Ativação bloqueada (PII)',
+    color: 'text-status-danger',
+  },
 };
 
 const EVENT_TYPE_OPTIONS: JiraAuditEventType[] = [
@@ -64,6 +74,8 @@ const EVENT_TYPE_OPTIONS: JiraAuditEventType[] = [
   'project_resumed',
   'project_auto_paused',
   'project_cap_enforced',
+  'project_pii_flagged',
+  'project_pii_gated',
 ];
 
 // ---------------------------------------------------------------------------

@@ -120,7 +120,7 @@ describe('CycleTimeResponse contract (Zod)', () => {
   });
 
   it('B: rejects response missing the required `data` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { data: _removed, ...withoutData } = VALID_CYCLE_TIME_RESPONSE;
     const result = CycleTimeResponseSchema.safeParse(withoutData);
     expect(result.success).toBe(false);

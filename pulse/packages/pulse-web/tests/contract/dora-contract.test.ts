@@ -95,7 +95,7 @@ describe('DoraResponse contract (Zod)', () => {
   });
 
   it('B: rejects response missing the required `data` field', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const { data: _removed, ...withoutData } = VALID_DORA_RESPONSE;
     const result = DoraResponseSchema.safeParse(withoutData);
     expect(result.success).toBe(false);

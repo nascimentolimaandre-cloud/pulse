@@ -33,7 +33,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { FORBIDDEN_FIELD_PATTERNS, extractAllKeys, isForbiddenFieldName } from './schemas/_common';
+import { extractAllKeys, isForbiddenFieldName } from './schemas/_common';
 import { DoraResponseSchema } from './schemas/dora.schema';
 import { CycleTimeResponseSchema } from './schemas/cycle-time.schema';
 import { ThroughputResponseSchema } from './schemas/throughput.schema';
