@@ -146,24 +146,58 @@ Linha 4: S 2h). Pode ser entregue em 4 PRs separados ou 1 big PR.
 
 ---
 
-## FDD-OPS-002 · Completar backfill histórico de descriptions Jira
+## FDD-OPS-002 · Completar backfill histórico de descriptions Jira ✅ DONE 2026-04-23
 
-**Epic:** Data Quality · **Release:** R1 (quando quiser melhorar cobertura)
+**Epic:** Data Quality · **Release:** Shipped
 **Priority:** P2 · **Persona:** Operacional (Lucas — Data Platform)
-**Owner class:** `pulse-data-engineer` (ou ops user rodando curl)
+**Owner class:** `pulse-data-engineer` (executado via curl admin)
 
-### Contexto
+### Resultado final (execução de 2026-04-23)
+
+Rodamos `scope=all` via endpoint admin existente:
+
+```bash
+POST /data/v1/admin/issues/refresh-descriptions?scope=all
+```
+
+Resultado:
+- **260.088 issues processadas** em 43min39s
+- **72.102 issues atualizadas** com descrição nova
+- **187.986 unchanged** (já tinham description OU vazias no Jira)
+- 1 erro transient (search project=BG page=780, Server disconnected)
+- Throughput observado: **5.960 issues/min**
+- Recalc automático de todas as métricas (81 snapshots em 5,7s)
+
+**Cobertura final**: **231.694 / 375.297** issues com description (**61,74%**)
+
+### Histórico de execuções (contexto)
 
 Em 2026-04-20 reescrevemos `backfill_descriptions.py` pra usar bulk JQL
 (100 issues/request) ganhando 65× em throughput (7.300 issues/min vs
-113 issues/min da versão REST per-issue). Rodamos:
+113 issues/min da versão REST per-issue). Três primeiras runs:
 
 - `scope='in_progress'`: 2.230 issues processadas, 1.028 atualizadas
 - `scope='stale'` (description is EMPTY no Jira): 74.260 processadas, 0
-  atualizadas (esperado — são tickets genuinamente vazios no Jira)
+  atualizadas (esperado — tickets genuinamente vazios no Jira)
 - `scope='last-180d'`: 171.125 processadas, 390 atualizadas
+- `scope='all'` (2026-04-23): 260.088 processadas, 72.102 atualizadas ← fechamento
 
-**Cobertura final**: 163.223 / 374.688 issues com description (**43,56%**)
+**Cobertura anterior**: 163.223 / 374.688 (43,56%)
+**Cobertura final**: 231.694 / 375.297 (61,74%)
+
+### Teto realista alcançado
+
+Os ~38% restantes (143k issues) são tickets que **não têm description
+no próprio Jira** — sub-tasks, automação (release tickets), tickets
+antigos minimais, bots. Não há o que popular; o backfill não pode
+melhorar isso. A cobertura-teto estimada em 70% foi corretamente
+projetada; ficamos em 61,74% porque: (a) tickets Jira reais da
+Webmotors têm descrições ausentes em proporção maior que o sample
+inicial de 60d sugeria, (b) projeto BG teve 1 página perdida no
+transient.
+
+Se quiser ir além, requer **processo de ticket-hygiene** na Webmotors
+(template Jira obrigatório de description), não código PULSE.
 
 ### O que falta
 
