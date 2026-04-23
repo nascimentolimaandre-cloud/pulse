@@ -311,8 +311,12 @@ function MetricPair({
   suffix?: string;
   emphasis?: 'danger';
 }) {
+  // Use <div> (not <span>) so we are a valid direct child of <dl> per HTML5
+  // spec. axe-core `definition-list` rule requires <dl> to contain only
+  // <dt>/<dd> groups or <div> wrappers. `inline-flex` keeps the visual
+  // baseline layout identical.
   return (
-    <span className="inline-flex items-baseline gap-1">
+    <div className="inline-flex items-baseline gap-1">
       <dt className="text-[10px] font-medium uppercase tracking-wider text-content-tertiary">
         {label}
       </dt>
@@ -326,6 +330,6 @@ function MetricPair({
           <span className="ml-1 text-[10px] font-normal text-content-tertiary">{suffix}</span>
         )}
       </dd>
-    </span>
+    </div>
   );
 }

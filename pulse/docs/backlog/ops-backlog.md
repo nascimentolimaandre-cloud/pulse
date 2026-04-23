@@ -263,3 +263,49 @@ processo de ticket/compliance na Webmotors, não infra PULSE.
 
 ---
 
+## FDD-OPS-003 · A11y design-system contrast review (rule `color-contrast`)
+
+**Epic:** Accessibility · **Release:** R1
+**Priority:** **P1** · **Persona:** Todos os usuários (WCAG AA é compromisso)
+**Owner class:** `pulse-frontend` + `pulse-ux-reviewer`
+
+### Problema
+
+A gate de a11y (Sprint 1.2 passo 4) detectou **172 nós** violando `color-contrast`
+na home do dashboard quando rodada contra WCAG 2.1 AA. Os nós atingidos envolvem
+tokens do design system (ex. `.text-brand-primary`), radio buttons do period
+selector e outros componentes recorrentes — ou seja, é um problema sistêmico
+do design system, não de uma página específica.
+
+Por isso a regra `color-contrast` está **temporariamente desabilitada** em
+`tests/e2e/a11y/_helpers.ts` / specs. Todas as outras regras WCAG AA continuam
+ativas e bloqueando merge. Fixar manualmente 172 nós sem uma passada de design
+review é contraprodutivo.
+
+### Solução
+
+1. **Audit dos tokens de contraste** do design system (tokens.css) — especialmente:
+   - `text-brand-primary` sobre `surface-primary` / `surface-secondary`
+   - `text-content-tertiary` sobre todos os surfaces
+   - Estados `hover`/`selected` em controles (period selector, botões fantasma)
+2. **Ajustar tokens** para atingir ≥4.5:1 (texto normal) ou ≥3:1 (texto grande / UI).
+3. Re-habilitar a regra `color-contrast` removendo o `disableRules(['color-contrast'])`
+   dos specs em `tests/e2e/a11y/`.
+4. Rodar `npm run test:a11y` — deve passar em 0 críticos + 0 serious.
+
+### Acceptance Criteria
+
+```
+Given the a11y gate runs against /, /metrics/dora, /metrics/cycle-time
+ When the color-contrast rule is re-enabled
+ Then zero violations of severity critical or serious are reported
+  And all tokens in tokens.css meet WCAG 2.1 AA contrast ratios
+```
+
+**Estimate:** M (4-6h — audit + token adjustments + visual QA).
+**Dependencies:** nenhuma.
+**Riscos de não fazer:** usuários com baixa visão não conseguem ler KPIs e
+labels; bloqueia posicionamento "acessível por padrão" no mercado.
+
+---
+
