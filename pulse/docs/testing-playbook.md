@@ -334,6 +334,123 @@ Regras:
   qualquer crash em produção — é a função principal dessa camada.
 - Os schemas Zod de contract devem estar em `tests/contract/`, não em `src/`.
 
+### 8.4 Como adicionar contract test para novo endpoint (Sprint 1.2 passo 3+)
+
+A partir do Sprint 1.2 passo 3 os schemas Zod estão organizados em `tests/contract/schemas/`.
+Ao adicionar cobertura para um novo endpoint `/metrics/*`, siga este template.
+
+**Estrutura de arquivos**
+
+```
+tests/contract/
+├── schemas/
+│   ├── _common.ts               ← envelope + FORBIDDEN_FIELD_PATTERNS + extractAllKeys
+│   ├── <endpoint>.schema.ts     ← NOVO: defina o schema aqui
+│   └── ...
+├── anti-surveillance-schemas.test.ts  ← adicionar novo schema no SCHEMA_REGISTRY
+└── <endpoint>-contract.test.ts        ← NOVO: testes A/B/C/D/E
+```
+
+**1. Criar o schema em `tests/contract/schemas/<endpoint>.schema.ts`**
+
+```ts
+import { z } from 'zod';
+import { MetricsEnvelopeSchema } from './_common';
+
+// Espelhe o shape EXATO do que o backend retorna (snake_case, wire format).
+// Consulte pulse/packages/pulse-data/src/contexts/metrics/schemas.py
+
+const MyEndpointDataSchema = z.object({
+  some_value: z.number().nullable().optional(),
+  some_count: z.number().int(),
+  // ...
+});
+
+export const MyEndpointResponseSchema = MetricsEnvelopeSchema.extend({
+  data: MyEndpointDataSchema,
+});
+```
+
+Observações:
+- Use `MetricsEnvelopeSchema.extend({})` para endpoints padrão (que herdam `period`, `period_start`, etc.)
+- Para endpoints sem envelope (ex: `/metrics/sprints`), use `z.object({})` diretamente
+- Marque todos os campos nullable com `.nullable()` e opcionais com `.optional()`
+- Campos `list[dict]` do Python viram `z.array(z.record(z.unknown()))` (opaque)
+- Campos `dict[str, Any]` viram `z.record(z.unknown())` (opaque)
+
+**2. Criar os testes em `tests/contract/<endpoint>-contract.test.ts`**
+
+Cinco testes mínimos:
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { MyEndpointResponseSchema } from './schemas/<endpoint>.schema';
+
+// Fixture mínima válida
+const VALID_RESPONSE = { /* ... */ };
+
+describe('MyEndpointResponse contract (Zod)', () => {
+  // A — fixture válida parseia sem erro
+  it('A: validates a well-formed response', () => {
+    expect(MyEndpointResponseSchema.safeParse(VALID_RESPONSE).success).toBe(true);
+  });
+
+  // B — campo obrigatório ausente é rejeitado
+  it('B: rejects response missing `data` field', () => {
+    const { data: _, ...noData } = VALID_RESPONSE;
+    expect(MyEndpointResponseSchema.safeParse(noData).success).toBe(false);
+  });
+
+  // C — tipo errado é rejeitado
+  it('C: rejects string where number expected', () => {
+    const bad = { ...VALID_RESPONSE, data: { ...VALID_RESPONSE.data, some_value: 'nope' } };
+    expect(MyEndpointResponseSchema.safeParse(bad).success).toBe(false);
+  });
+
+  // D — anti-surveillance: campo proibido é stripped (Zod default = strip mode)
+  it('D: anti-surveillance — assignee injected into data is stripped', () => {
+    const withAssignee = { ...VALID_RESPONSE, data: { ...VALID_RESPONSE.data, assignee: 'x' } };
+    const result = MyEndpointResponseSchema.safeParse(withAssignee);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(Object.keys(result.data.data)).not.toContain('assignee');
+    }
+  });
+
+  // E — (skip se backend offline) parseia resposta real
+  it('E: (skip if backend offline) parses real API response', async () => {
+    let ok = false;
+    try { ok = (await fetch('http://localhost:8000/data/v1/metrics/<endpoint>', { signal: AbortSignal.timeout(2000) })).ok; } catch {}
+    if (!ok) { console.info('Backend offline — skipping'); return; }
+    const json = await (await fetch('http://localhost:8000/data/v1/metrics/<endpoint>')).json();
+    const result = MyEndpointResponseSchema.safeParse(json);
+    if (!result.success) console.error(result.error.issues);
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+**3. Registrar no meta-test anti-surveillance**
+
+Em `tests/contract/anti-surveillance-schemas.test.ts`, adicionar à lista `SCHEMA_REGISTRY`:
+
+```ts
+import { MyEndpointResponseSchema } from './schemas/<endpoint>.schema';
+
+const SCHEMA_REGISTRY = [
+  // ...existentes...
+  { name: 'MyEndpointResponse', schema: MyEndpointResponseSchema },
+];
+```
+
+**4. Rodar**
+
+```bash
+cd pulse/packages/pulse-web
+npm test -- --run tests/contract/
+# Esperado: N+6 tests passing (onde N = testes anteriores)
+```
+
 ### 8.5 Como adicionar um E2E platform test (Playwright)
 
 Instalado em Sprint 1.2 passo 2. Playwright 1.59 com Chromium + Firefox.
