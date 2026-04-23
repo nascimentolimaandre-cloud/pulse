@@ -74,6 +74,17 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # FDD-OPS-001 Linha 1: auto-reload the FastAPI container when Python
+    # source changes. The pulse-data Dockerfile does NOT launch uvicorn with
+    # `--reload`, so without this block a `git pull` or file edit leaves the
+    # HTTP process running stale code until a manual `docker compose restart`.
+    # `sync+restart` rewrites the files inside the container and then restarts
+    # the container so Python reimports from disk.
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./packages/pulse-data/src
+          target: /app/src
 
   # --------------------------------------------------------------------------
   # Workers
@@ -116,6 +127,12 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # FDD-OPS-001 Linha 1: hot-reload — see pulse-data block above.
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./packages/pulse-data/src
+          target: /app/src
 
   metrics-worker:
     build:
@@ -141,6 +158,12 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # FDD-OPS-001 Linha 1: hot-reload — see pulse-data block above.
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./packages/pulse-data/src
+          target: /app/src
 
   discovery-worker:
     build:
@@ -167,6 +190,12 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # FDD-OPS-001 Linha 1: hot-reload — see pulse-data block above.
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./packages/pulse-data/src
+          target: /app/src
 
   # --------------------------------------------------------------------------
   # Infrastructure
