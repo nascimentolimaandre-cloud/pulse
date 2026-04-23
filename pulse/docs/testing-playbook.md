@@ -219,7 +219,124 @@ Sempre `SKIP` com razão.
 
 ---
 
-## 8. Próximos clientes (roadmap)
+## 8. Frontend: como adicionar testes de component, hook e contract
+
+### Infra instalada (Sprint 1.2 passo 1)
+
+- `@testing-library/react@^16` + `@testing-library/user-event@^14` — render e interação
+- `@testing-library/jest-dom@^6` — matchers (`toBeInTheDocument`, `toBeVisible`, etc.)
+- `msw@^2` — interceptor de rede para hooks TanStack Query
+- `zod@^3` — validação de schema para contract tests
+- `jsdom@^25` — ambiente DOM no Vitest
+- Entrypoints: `tests/setup.ts` (lifecycle MSW) + `tests/msw-server.ts` (instância shared)
+- Vitest configurado em `vitest.config.ts` com `include: ['src/**', 'tests/**']`
+
+### Como adicionar um component test
+
+Crie o arquivo em `tests/component/<ComponentName>.test.tsx`.
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MyComponent } from '@/components/path/MyComponent';
+
+describe('MyComponent', () => {
+  it('renders expected text', () => {
+    render(<MyComponent label="Foo" value={42} />);
+    expect(screen.getByText('42')).toBeInTheDocument();
+  });
+
+  it('responds to user interaction', async () => {
+    const user = userEvent.setup();
+    render(<MyComponent label="Foo" value={42} />);
+    await user.click(screen.getByRole('button', { name: /foo/i }));
+    expect(screen.getByText('clicked')).toBeVisible();
+  });
+});
+```
+
+Regras:
+- Use `screen.getByRole` / `getByText` / `getByLabelText` — nunca `getByTestId` como primeira opção.
+- Envolva o componente nos providers que ele precisa (`QueryClientProvider`, router, etc.).
+- Props sintéticas — sem valores mágicos de produção (ex: `value={5044}` é aceitável aqui porque testa lógica de render, não dado real).
+
+### Como adicionar um hook test com MSW
+
+Crie o arquivo em `tests/hook/<hookName>.test.tsx`.
+
+```tsx
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { http, HttpResponse } from 'msw';
+import { server } from '../msw-server';
+import { useMyHook } from '@/hooks/useMyHook';
+
+function makeWrapper() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+}
+
+describe('useMyHook', () => {
+  it('returns data on success', async () => {
+    server.use(
+      http.get('/data/v1/some-endpoint', () =>
+        HttpResponse.json({ value: 99 }),
+      ),
+    );
+    const { result } = renderHook(() => useMyHook(), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.value).toBe(99);
+  });
+});
+```
+
+Regras:
+- O padrão de URL do MSW é **relativo** (`'/data/v1/...'`), não absoluto.
+  Isso porque axios em jsdom resolve relative baseURLs e o MSW node interceptor
+  vê o path sem `http://localhost`.
+- `retry: false` no QueryClient — sem retry, os erros surfaceiam imediatamente.
+- `server.use()` dentro do teste: o `afterEach` em `tests/setup.ts` faz `resetHandlers()` automaticamente.
+- Para capturar query params: use `new URL(request.url).searchParams` dentro do handler.
+
+### Como adicionar um contract test com Zod
+
+Crie o arquivo em `tests/contract/<schema-name>-contract.test.ts`.
+
+```ts
+import { z } from 'zod';
+
+const MyResponseSchema = z.object({
+  value: z.number().nullable(),
+  unit: z.string(),
+  // adicione apenas os campos que o frontend LÊ
+});
+
+describe('MyResponse contract', () => {
+  it('validates a structurally correct payload', () => {
+    const result = MyResponseSchema.safeParse({ value: 42, unit: 'hours' });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects payload missing required field', () => {
+    const result = MyResponseSchema.safeParse({ value: 42 }); // unit ausente
+    expect(result.success).toBe(false);
+  });
+});
+```
+
+Regras:
+- O schema Zod aqui é do FRONTEND — só lista os campos que quebram a UI se ausentes.
+  Campos extras que o backend retorna (e o frontend ignora) não precisam constar.
+- Não fazer chamada real ao backend. O contrato é validado localmente.
+- Quando o backend alterar um campo obrigatório, esse teste deve falhar ANTES de
+  qualquer crash em produção — é a função principal dessa camada.
+- Os schemas Zod de contract devem estar em `tests/contract/`, não em `src/`.
+
+---
+
+## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:
 
