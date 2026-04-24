@@ -8,7 +8,8 @@ COMPOSE_TEST := docker compose -f docker-compose.test.yml
 .PHONY: help up down dev logs clean setup \
         test test-unit test-integration \
         migrate seed lint fmt build \
-        rotate-secrets check-secrets
+        rotate-secrets check-secrets \
+        doctor verify-dev
 
 # --------------------------------------------------------------------------
 # Help
@@ -141,6 +142,24 @@ check-secrets: ## Validate auth to external sources (GitHub, Jira) without expos
 	fi
 	@echo ""
 	@echo "Esperado: 200 em todos os checks ativos. 401/403 = problema de scope/aprovação."
+
+# --------------------------------------------------------------------------
+# Dev environment health
+#
+# `doctor` runs BEFORE onboard to validate the host machine has every tool
+# and free port PULSE needs. `verify-dev` runs AFTER onboard to confirm the
+# stack is actually serving data, not just that containers are "up".
+#
+# Both are deliberately shell (not python) so they work on a fresh clone
+# with only docker + bash installed.
+#
+# Ver runbook: docs/onboarding.md
+# --------------------------------------------------------------------------
+doctor: ## Validate host machine (tools, versions, free ports, disk, memory)
+	@./scripts/doctor.sh
+
+verify-dev: ## Post-onboard smoke: API + data API + content + UI healthy
+	@./scripts/verify-dev.sh
 
 # --------------------------------------------------------------------------
 # First-time Setup
