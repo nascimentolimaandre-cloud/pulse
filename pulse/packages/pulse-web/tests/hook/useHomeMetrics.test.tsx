@@ -198,4 +198,59 @@ describe('useHomeMetrics', () => {
     expect(capturedUrl!.searchParams.get('squad_key')).toBe('FID');
     expect(capturedUrl!.searchParams.get('period')).toBe('60d');
   });
+
+  // FDD-DSH-070: regression for the exact production bug that triggered
+  // FDD-DSH-060. Before the fix, the frontend sent `team_id=fid` (a non-UUID
+  // squad key masquerading as a UUID field). The backend validated team_id
+  // as UUID and responded 422 Unprocessable Entity. This simulates that
+  // backend behavior and asserts the hook never triggers it.
+  it('never sends team_id for non-UUID squad keys (backend returns 422 on violation)', async () => {
+    let receivedTeamId: string | null = null;
+    let receivedSquadKey: string | null = null;
+
+    server.use(
+      http.get('/data/v1/metrics/home', ({ request }) => {
+        const url = new URL(request.url);
+        receivedTeamId = url.searchParams.get('team_id');
+        receivedSquadKey = url.searchParams.get('squad_key');
+
+        // Simulate the backend's UUID validator: any non-UUID value in
+        // team_id yields 422. If the frontend ever regresses, this handler
+        // returns an error and the test fails loudly.
+        const UUID_RE =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (receivedTeamId && !UUID_RE.test(receivedTeamId)) {
+          return HttpResponse.json(
+            {
+              detail: [
+                {
+                  type: 'uuid_parsing',
+                  loc: ['query', 'team_id'],
+                  msg: 'Input should be a valid UUID',
+                  input: receivedTeamId,
+                },
+              ],
+            },
+            { status: 422 },
+          );
+        }
+        return HttpResponse.json(MOCK_HOME_RESPONSE);
+      }),
+    );
+
+    useFilterStore.getState().setTeamId('ancr');
+
+    const { result } = renderHook(() => useHomeMetrics(), {
+      wrapper: makeWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Must have routed to squad_key, not team_id.
+    expect(receivedTeamId).toBeNull();
+    expect(receivedSquadKey).toBe('ANCR');
+    // And the hook actually succeeded (didn't hit the 422 trap).
+    expect(result.current.isError).toBe(false);
+    expect(result.current.data?.deploymentFrequency.value).toBe(3.2);
+  });
 });

@@ -27,7 +27,17 @@ export interface MetricsQueryParams {
 // Matches canonical UUID v1–v5 (with hyphens). Case-insensitive.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function buildParams(params: MetricsQueryParams): Record<string, string> {
+/**
+ * Build the query params the backend expects for any /metrics/* endpoint.
+ *
+ * Exported for direct unit testing (see tests/unit/buildParams.test.ts) —
+ * this is the function that regressed in FDD-DSH-060 when it briefly sent
+ * `team_id=<non-uuid-squad-key>` and triggered HTTP 422 on the backend.
+ * Pure function, safe to unit-test in isolation.
+ *
+ * @internal — consumers should call fetch* helpers below, not buildParams directly.
+ */
+export function buildParams(params: MetricsQueryParams): Record<string, string> {
   const result: Record<string, string> = {
     period: params.period,
   };

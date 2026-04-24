@@ -1013,6 +1013,111 @@ desaparece. Mas a disciplina do runbook fica igual.
 
 ---
 
+## 8.10 Coverage thresholds (regression gate — FDD-DSH-070 fechamento)
+
+### O que é
+
+Vitest roda com thresholds de coverage configurados em `vitest.config.ts`.
+Se qualquer métrica de coverage cair abaixo do valor definido, o comando
+`npm run test:coverage` falha com exit code 1 — e o CI bloqueia o merge.
+
+**Objetivo: bloquear regressão, não forçar perfeição.** Coverage é
+indicador, não fim em si.
+
+### Baseline atual (2026-04-24, pós-Sprint 1.2 + FDD-DSH-070 fechamento)
+
+| Métrica | Baseline | Threshold | Buffer |
+|---|---|---|---|
+| Statements | 11.97% | 10% | -1.97% |
+| Branches | 59.52% | 55% | -4.52% |
+| Functions | 23.73% | 20% | -3.73% |
+| Lines | 11.97% | 10% | -1.97% |
+
+Baseline baixo em statements/lines porque muitas **rotas e componentes
+ainda não têm testes** (páginas `/metrics/sprints`, `/metrics/throughput`,
+stores, `jira.audit.tsx`, etc.). Branches são altas porque o que tem
+teste (buildParams, KpiCard, filterStore) cobre a maioria dos caminhos
+condicionais.
+
+### Target por release
+
+| Marco | Stmts | Branches | Funcs | Lines |
+|---|---|---|---|---|
+| 2026-04-24 (hoje) | 10 | 55 | 20 | 10 |
+| Fim do sprint corrente | 15 | 60 | 30 | 15 |
+| Fim de R1 | 60 | 80 | 70 | 60 |
+| Fim de R2 | 80 | 85 | 80 | 80 |
+
+Ratchet up por sprint em 2–5 pontos por métrica. Quando o valor real
+subir bem acima do threshold, atualiza o threshold no mesmo PR (commit
+message: `chore(test): ratchet coverage threshold stmts 10→15 after
+<ticket>`).
+
+### Per-file thresholds (mais agressivos em código bem testado)
+
+```js
+// vitest.config.ts
+thresholds: {
+  // Global gates (no-regression).
+  statements: 10, branches: 55, functions: 20, lines: 10,
+
+  // Per-file — mais alto para garantir que testes existentes não quebram.
+  'src/lib/dashboard/formatDuration.ts': {  // 18 testes unitários
+    statements: 95, branches: 95, functions: 95, lines: 95,
+  },
+  'src/lib/api/metrics.ts': {               // buildParams coberto por 10 testes
+    statements: 35, branches: 75, functions: 15, lines: 35,
+  },
+}
+```
+
+Adicione novo arquivo aqui quando ele ganhar cobertura razoável (>60%
+em alguma métrica) — evita que alguém remova testes e passe na CI só
+porque o global threshold baixo não detecta.
+
+### Como rodar localmente
+
+```bash
+cd pulse/packages/pulse-web
+
+# Suite completa com coverage (a mesma que o CI roda):
+npm run test:coverage
+
+# Só um arquivo específico com coverage:
+npx vitest run tests/unit/buildParams.test.ts --coverage
+
+# HTML report interativo (fica em coverage/index.html):
+npm run test:coverage && open coverage/index.html
+```
+
+### Como agir quando o gate falhar
+
+**1. Regressão real — alguém removeu testes ou adicionou código sem tests.**
+Opção A: escreva o teste que falta. Opção B: reverta a mudança.
+**Nunca** baixe o threshold pra encobrir — isso vira buraco.
+
+**2. Refactor legítimo — movi código testado pra outro arquivo.**
+Atualize o per-file threshold do arquivo novo e remova (ou ajuste) o
+antigo, no MESMO commit do refactor.
+
+**3. Falso positivo por exclude incorreto.**
+Ajuste `coverage.exclude` em `vitest.config.ts` (ex: arquivo gerado,
+.d.ts, dead code marcado pra remoção).
+
+### Gotchas
+
+- **`--coverage` precisa do pacote `@vitest/coverage-v8`**. Se der
+  "Cannot find dependency", reinstala com a versão major do Vitest
+  (ex: vitest@2.x → coverage-v8@^2.x).
+- **Paths no `thresholds` são relativos à raiz do projeto** (`pulse-web/`),
+  não ao `vitest.config.ts`.
+- **v8 coverage não mede type-only modules**. Exclua `src/types/**` e
+  `*.d.ts` — senão eles puxam o % pra baixo artificialmente.
+- **Routes gerados (`routeTree.gen.ts`)** sempre excluídos — são saída
+  de build, não código humano.
+
+---
+
 ## 9. Próximos clientes (roadmap)
 
 Quando o segundo cliente SaaS chegar, esperamos:

@@ -472,9 +472,28 @@ Given the user selects squad "okm" in the home combobox
 
 ---
 
-### FDD-DSH-070 · Pirâmide de testes do dashboard (dívida técnica crítica)
+### FDD-DSH-070 · Pirâmide de testes do dashboard (dívida técnica crítica) — ✅ DONE 2026-04-24
 **Release:** MVP (retroativo) · **Priority:** P0 · **Persona:** Toda a equipe (quality gate)
 **Owner:** Test Engineer (principal) + Frontend + Backend (contract tests)
+**Status:** ✅ Shipped — Sprint 1.2 (steps 1-6) + FDD-DSH-070 fechamento (2026-04-24)
+
+**Delivered:**
+- ✅ Unit tests (Vitest): `formatDuration` (18), `buildParams` (10) + component tests
+- ✅ Component tests (@testing-library/react): `KpiCard`, `ModeSelector`, `ProjectCatalogTable`, `ProjectRowActions`
+- ✅ Hook/integration tests (MSW): `useHomeMetrics` incl. 422-regression
+- ✅ Contract tests (Zod): 6 endpoints + anti-surveillance meta-test (74 tests)
+- ✅ E2E smoke (Playwright): home dashboard journey
+- ✅ A11y tests (axe-core): home + DORA + cycle-time, WCAG 2.1 AA gate
+- ✅ CI quality gates: 4 jobs root-level, all blocking (gitleaks, lint+tsc, vitest, build)
+- ✅ Coverage thresholds: no-regression gate in vitest.config.ts (see playbook §8.10)
+- ✅ Retroactive regression tests:
+  - `buildParams omits team_id for non-UUID squad keys` (covers DSH-060 fix)
+  - `useHomeMetrics never sends team_id for non-UUID — backend returns 422` (covers reported bug)
+  - `test_pipeline_fontes_integrity.py` (backend, covers Pipeline Monitor repo-name bug)
+
+Total: 150 Vitest tests + 1 E2E smoke + 3 a11y specs, ~40s CI wall-clock.
+
+See: `pulse/docs/testing-playbook.md` (sections 1-8) for the full strategy.
 
 **Contexto:** O redesign do dashboard (DSH-001..033) foi entregue **sem testes
 automatizados**. Dois bugs passaram despercebidos em produção local:
