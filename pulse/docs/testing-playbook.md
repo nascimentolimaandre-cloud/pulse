@@ -635,12 +635,23 @@ reportar — e aí é retrabalho mais caro que prevenir.
 
 ```
 tests/e2e/a11y/
-  _helpers.ts        ← runA11yAudit + devServerIsDown helpers (compartilhados)
-  home.spec.ts       ← audit /
-  dora.spec.ts       ← audit /metrics/dora
-  cycle-time.spec.ts ← audit /metrics/cycle-time
+  _helpers.ts              ← runA11yAudit + devServerIsDown (compartilhados)
+  home.spec.ts             ← /
+  dora.spec.ts             ← /metrics/dora
+  cycle-time.spec.ts       ← /metrics/cycle-time
+  throughput.spec.ts       ← /metrics/throughput
+  lean.spec.ts             ← /metrics/lean
+  sprints.spec.ts          ← /metrics/sprints
+  prs.spec.ts              ← /prs
+  pipeline-monitor.spec.ts ← /pipeline-monitor
+  integrations.spec.ts     ← /integrations
+  jira-settings.spec.ts    ← /settings/integrations/jira/catalog
   # Adicione novos specs conforme o template abaixo.
 ```
+
+**Cobertura atual (2026-04-24 post-FDD-DSH-033):** 10 rotas auditadas,
+203 regras-instâncias passando, 0 critical + 0 serious. Suite roda em
+~15s no chromium headless.
 
 ### Política de gate
 

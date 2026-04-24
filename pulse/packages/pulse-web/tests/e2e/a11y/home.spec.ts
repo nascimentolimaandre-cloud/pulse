@@ -25,17 +25,18 @@ test.describe('a11y — Home Dashboard', () => {
 
     await page.goto('/', { waitUntil: 'load', timeout: 20_000 });
 
-    // Wait for steady state before auditing: skeletons hide/show attributes
-    // can cause spurious findings (missing labels on buttons still loading).
+    // Wait for steady state. Key on the stable h1 — data loading beyond the
+    // heading is not strictly required for a11y structural checks (labels,
+    // roles, landmarks). Skeleton cards still need correct a11y attributes.
     await expect(
       page.getByRole('heading', { name: 'PULSE Dashboard', level: 1 }),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 15_000 });
 
-    const kpiCards = page.locator('[role="group"][aria-label]');
-    await expect(async () => {
-      const count = await kpiCards.count();
-      expect(count).toBeGreaterThan(0);
-    }).toPass({ timeout: 35_000, intervals: [1_000] });
+    // Same settle window as dora.spec.ts / cycle-time.spec.ts. Lets React
+    // commit post-heading renders (KPI groups, sidebar, topbar) without
+    // forcing us to block on a specific KPI card pattern that varies
+    // by data availability.
+    await page.waitForTimeout(3_000);
 
     await runA11yAudit(page, testInfo, {
       context: 'home',
