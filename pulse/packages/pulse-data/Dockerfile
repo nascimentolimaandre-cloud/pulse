@@ -22,9 +22,6 @@ COPY --from=builder /build/deps /usr/local/lib/python3.12/site-packages/
 COPY pyproject.toml .
 COPY alembic/ alembic/
 COPY src/ src/
-# scripts/ is dev/admin tooling (seed_dev, jenkins discovery, relink helpers).
-# Lean by design: just bash + python with no extra packaging surface.
-COPY scripts/ scripts/
 
 # Own files by appuser
 RUN chown -R appuser:appuser /app
