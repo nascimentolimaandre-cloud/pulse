@@ -9,7 +9,8 @@ COMPOSE_TEST := docker compose -f docker-compose.test.yml
         test test-unit test-integration \
         migrate seed lint fmt build \
         rotate-secrets check-secrets \
-        doctor verify-dev
+        doctor verify-dev \
+        seed-dev seed-reset
 
 # --------------------------------------------------------------------------
 # Help
@@ -160,6 +161,27 @@ doctor: ## Validate host machine (tools, versions, free ports, disk, memory)
 
 verify-dev: ## Post-onboard smoke: API + data API + content + UI healthy
 	@./scripts/verify-dev.sh
+
+# --------------------------------------------------------------------------
+# Dev fixture seed (PR #2)
+#
+# Populates a CLEAN dev DB with realistic fake data so the dashboard
+# renders fast on first load. Refuses to run against non-local DBs,
+# non-dev tenants, or non-empty tenants without --reset (5 layers of
+# safety guards inside seed_dev.py).
+#
+# `seed-dev`: only succeeds against an empty dev tenant
+# `seed-reset`: wipes the dev tenant first, then seeds (destructive)
+#
+# Ver runbook: docs/onboarding.md
+# --------------------------------------------------------------------------
+seed-dev: ## Populate a clean dev DB with deterministic fake data (15 squads, 2k PRs, 5k issues)
+	$(COMPOSE) exec -T pulse-data python -m scripts.seed_dev --confirm-local
+
+seed-reset: ## Wipe dev tenant data and re-seed (destructive — requires confirmation)
+	@printf "This will DELETE all data in the dev tenant. Type YES to confirm: " && \
+	read CONFIRM && [ "$$CONFIRM" = "YES" ] || (echo "Aborted." && exit 1)
+	$(COMPOSE) exec -T pulse-data python -m scripts.seed_dev --confirm-local --reset
 
 # --------------------------------------------------------------------------
 # First-time Setup
