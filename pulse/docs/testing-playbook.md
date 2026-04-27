@@ -1140,3 +1140,102 @@ Quando o segundo cliente SaaS chegar, esperamos:
 
 Se algum teste de plataforma precisar de condicionais por cliente, é sinal de que o
 código de produção também tem esse acoplamento — escale pro pulse-engineer refatorar.
+
+---
+
+## 10. Testes que NÃO temos (ainda) — a fronteira da pirâmide
+
+> Esta seção é deliberadamente honesta sobre **o que a pirâmide atual NÃO
+> cobre**. É mais útil do que documentar só o que cobrimos: ajuda devs
+> novos a entender que **passar nos testes ≠ funciona em produção**, e
+> força revisitar a lacuna a cada incidente.
+
+### Origem (caso real)
+
+2026-04-24: dashboard caiu por **50× perf regression** em `/metrics/home`.
+Causa raiz: índice ausente em `metrics_snapshots` quando a tabela cresceu
+de 2M → 7M rows. Smoke E2E existia mas:
+
+1. Não rodava no CI (gate manual/nightly)
+2. Não tinha asserts de tempo (só de render correto)
+3. Quando rodava local, rodava com cache quente — query retornava em 200ms
+   mesmo com seq scan, porque buffer pool tinha as páginas carregadas
+
+A pirâmide está otimizada para **correção lógica** (input válido →
+output esperado). O bug acima vive numa classe diferente: **emergente
+da interação código + dados em escala + tempo + cache state**.
+
+### Categorias do que temos × do que falta
+
+| Categoria | Cobertura atual | Bug de 2026-04-24 cairia aqui? |
+|---|---|---|
+| Unit / lógica pura | 18+ testes (`formatDuration`, classifiers, ...) | ❌ |
+| Component (RTL) | 4 testes (KpiCard, etc.) | ❌ |
+| Hook + MSW | 3 testes (useHomeMetrics) | ❌ (MSW mock retorna instant) |
+| Contract (Zod) | 6 endpoints, 74 testes | ❌ (testa shape, não tempo) |
+| Anti-surveillance | 13 testes meta | ❌ |
+| A11y (axe) | 10 páginas, 203 regras | ❌ |
+| Smoke E2E | 1 spec, MANUAL/nightly | ⚠️ pegaria SE rodasse em CI bloqueante |
+| **Performance budget** | **❌ NÃO TEMOS** | ✅ teria pego (54s >> 8s budget) |
+| **DB query plan regression** | **❌ NÃO TEMOS** | ✅ teria pego (Seq Scan acusada) |
+| **Real-data scale tests** | **❌ NÃO TEMOS** | ✅ teria pego (só aparece >5M rows) |
+| **Cold-cache mode** | **❌ NÃO TEMOS** | ✅ teria pego (warm = 200ms, cold = 10s) |
+| **Frontend timeout resilience** | **❌ NÃO TEMOS** | ⚠️ pegaria sintoma (UI quebra) |
+| **Synthetic monitoring (prod)** | **❌ NÃO TEMOS** | ✅ pegaria em runtime real |
+
+### Backlog de fechamento da lacuna
+
+Cada categoria faltante é uma FDD em `docs/backlog/ops-backlog.md`:
+
+| FDD | Categoria | Tier | Priority |
+|---|---|---|---|
+| FDD-OPS-004 | Backend-in-CI + smoke gate | 1 | P0 |
+| FDD-OPS-006 | Performance budget assertions no smoke | 1 | P0 |
+| FDD-OPS-007 | Cold-cache test mode | 1 | P1 |
+| FDD-OPS-008 | Per-endpoint perf contract suite | 2 | P1 |
+| FDD-OPS-009 | DB query plan regression tests | 2 | P1 |
+| FDD-OPS-010 | Scale fixtures (`seed_dev --scale=large`) | 2 | P2 |
+| FDD-OPS-011 | Synthetic monitoring em produção | 3 | P0 (antes de prod) |
+
+### Princípios pra adicionar uma nova categoria de teste
+
+Toda vez que um incidente passa pelo CI sem ser detectado:
+
+1. **Atribua à categoria correta** (correção lógica? perf? scale? cache?
+   integração externa? infra de runtime? produção live?)
+2. **Verifique se a categoria já existe na pirâmide**. Se sim, por que
+   não pegou? Cobertura insuficiente? Spec não está em CI? Roda contra
+   fixture errada?
+3. **Se a categoria não existe**, abra FDD com:
+   - Sintoma do incidente
+   - Que tipo de teste detectaria
+   - Tier estimado (1 = quick wins, 2 = sprint, 3 = produção)
+   - Esforço inicial e por endpoint adicional
+4. **Atualize a tabela acima** mostrando explicitamente o gap e a FDD
+   que fecha.
+
+Esta seção **deve evoluir** — toda incidência que escapa do CI vira
+linha aqui. Sem hesitação. Sem reforma da pirâmide pra "esconder" o
+gap. Documentar é o primeiro passo pra fechar.
+
+### Anti-pattern: "passa no CI = está pronto"
+
+Não está. Pirâmide é **necessária**, não suficiente. Em particular:
+
+- ✅ "Passou no CI" = **lógica correta + shape correto + a11y AA**
+- ❌ "Passou no CI" ≠ **rápido em escala real**
+- ❌ "Passou no CI" ≠ **resiliente a cache frio / network lento / 3rd
+  party flutuante**
+- ❌ "Passou no CI" ≠ **funciona com 1M rows / 27 squads simultâneos /
+  tenant novo**
+
+Antes de promover algo pra "release-ready", pergunte: existe categoria
+de teste pra cada uma das dimensões acima? Se não, é débito documentado
+(FDD-OPS-004..011), não bug que apareceu no caminho.
+
+### Mudança de hábito
+
+Quando rodar `npm test` ou `make test-unit` localmente, lembre-se:
+**isso valida lógica, não viability**. Pra perf/scale/runtime, a única
+forma de validar hoje é abrir o app real e ver se renderiza rápido. Até
+fecharmos FDD-OPS-004..011, **o dev é o monitoring system**.
