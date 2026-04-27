@@ -50,6 +50,58 @@ This document captures every adjustment, problem, and solution encountered durin
 | Jira reserved words | Project key "DESC" is SQL reserved word | Must quote project keys in JQL |
 | Archived projects | Some keys referenced in PRs (e.g., "RC") don't exist in Jira API | Graceful handling of orphan references |
 
+### 2.3 Source Configuration Philosophy — Discovery Only
+
+**Decisão fundamental (locked-in 2026-04-27):** PULSE **NÃO mantém listas
+explícitas** de repos GitHub ou projetos Jira em `connections.yaml` ou em
+qualquer outro lugar. **Todo source é descoberto dinamicamente.**
+
+**Por quê** — três razões:
+
+1. **Listas explícitas envelhecem mal**: cada novo squad/repo/projeto
+   exige edição manual + redeploy. Webmotors evoluiu de 8 → 69 projetos
+   Jira em poucas semanas; manter sincronizado à mão não escala.
+2. **Falham silenciosamente**: PRs referenciando `SECOM-1234` ficam
+   "linkados a nada" se SECOM não está na lista. Resultado: 5.27% de
+   link rate. Após discovery: 21.9% (4× melhor) com 96-100% per active
+   project.
+3. **Não fazem sentido pra SaaS**: o produto precisa funcionar em
+   tenant novo sem que ninguém edite YAML. Discovery é a única forma de
+   "zero-config onboarding" (princípio §6.1).
+
+**O que é mantido em `connections.yaml`** (não-discoverable):
+
+| Campo | Razão |
+|---|---|
+| `connections[].source` (github/jira/jenkins) | Identifica tipo de conector pra usar |
+| `connections[].base_url` | Endpoint da source (Jira tenant URL, GitHub Enterprise vs Cloud) |
+| `connections[].token_env`/`username_env` | Onde achar credenciais (env var) |
+| `connections[].sync_interval_minutes` | Cadência de sync (decisão operacional, não discoverable) |
+| `status_mapping` (60+ entries PT-BR/EN) | Mapeamento de workflow Jira customizado → estados normalizados (todo/in_progress/in_review/done). Pode ser parcialmente AI-discovered no futuro (§6.4) |
+| `teams` (squad → repos/projects mapping) | Decisão de organização, não topologia de source — pertence ao produto |
+
+**O que foi REMOVIDO em 2026-04-27:**
+
+- `connections[].scope.repositories` (lista de 9 repos GitHub explícitos)
+- `connections[].scope.projects` (lista de 8 projetos Jira explícitos)
+
+Eram artefatos de bootstrap (teste de viabilidade no início do projeto).
+Agora dispensáveis.
+
+**Como cada source descobre:**
+
+| Source | Mecanismo | Resultado |
+|---|---|---|
+| **GitHub** | `discover_repos(active_months=12)` via GraphQL `organization.repositories(orderBy: PUSHED_AT)` filtrado por atividade | ~283 repos com atividade nos últimos 12 meses |
+| **Jira** | `ProjectDiscoveryService.run_discovery()` lista todos projetos via REST `/rest/api/3/project`, marca como `discovered`. `SmartPrioritizer.auto_activate(threshold=3)` promove pra `active` projetos com ≥3 references em PR titles | 69 projetos descobertos, ~9 dos quais auto-ativados na primeira passada (cresce conforme novos PRs chegam) |
+| **Jenkins** | `discover_jenkins_jobs.py` faz SCM scan READ-ONLY em todos os jobs, gera `config/jenkins-job-mapping.json`. Sync worker lê esse JSON. Re-rodar quando novos repos aparecem (semanal/sob demanda) | 577 PRD jobs em 283 repos |
+
+**Quando re-discovery acontece:**
+
+- Jira: cron `0 3 * * *` UTC (configurável via `tenant_jira_config.discovery_schedule_cron`); manual via `POST /admin/jira/discovery/run`
+- GitHub: a cada ciclo de sync (15min) — o `discover_repos` é chamado pelo connector se `_explicit_repos is None`
+- Jenkins: regen do JSON é manual (script `discover_jenkins_jobs.py`); idempotente
+
 ---
 
 ## 3. Ingestion Architecture
@@ -84,15 +136,146 @@ async def sync(self):
 
 ### 3.3 Key Design Decisions
 
-| Decision | Rationale | ADR |
-|----------|-----------|-----|
+| Decision | Rationale | ADR / Commit |
+|----------|-----------|--------------|
+| **Discovery-only source configuration** | See §2.3 — explicit lists kill SaaS scalability and link rate | 2026-04-27 |
 | Replaced DevLake with proprietary connectors | 99.3% issue data loss in DevLake PostgreSQL layer | ADR-005 |
 | GraphQL primary for GitHub, REST fallback | 40x faster PR fetch (50 PRs + reviews + stats in 1 call) | Commit `60fe576` |
 | Per-repo batch upsert (not all-at-end) | Memory efficiency + real-time progress visibility | Commit `7f9f339` |
-| Global watermark per entity (not per-project) | Simpler model, but requires reset for project scope expansion | Migration 002 |
+| Global watermark per entity (not per-project) | Simpler model, but requires reset for project scope expansion. **Tradeoff documented in §3.7 + Problem 5.** | Migration 002 |
 | JSONB for `linked_issue_ids` and `status_transitions` | Flexible schema, supports variable-length arrays | Migration 001 |
 | Row-Level Security on all tables | Multi-tenant isolation at DB level | Migration 001 |
 | Kafka event backbone | Decouples ingestion from metric calculation | ADR-004 |
+| **Partial index for snapshots `(tenant, metric_type, calculated_at DESC) WHERE team_id IS NULL`** | 50× perf regression on `/metrics/home` once `metrics_snapshots` >5M rows; non-partial index doesn't help due to B-tree NULL semantics | Commit `80f1796` (2026-04-27) |
+| **Worker schema-drift monitor (FDD-OPS-001 line 3)** | Detects payload-vs-dataclass mismatch when bytecode is stale; tags rows with `_schema_drift` for Pipeline Monitor surfacing | Commit `5d71618` |
+
+### 3.4 Worker Lifecycle Guarantees
+
+**Origin:** FDD-OPS-001 incidents (2026-04-16/17/18) — Python workers running
+stale code in memory while updated source was on disk. Resulted in 3
+production-local incidents in 3 days where snapshots persisted with
+obsolete logic.
+
+**Four lines of defense (all SHIPPED):**
+
+1. **Hot-reload em dev (planned, not yet shipped)** — `docker compose
+   watch` to auto-reload workers on file change
+2. **Admin recalc force-reload** — `POST /admin/metrics/recalculate`
+   calls `importlib.reload()` on domain/service modules before recalc
+3. **Snapshot schema-drift monitor (SHIPPED 2026-04-23)** — pós-write,
+   compara payload com dataclass corrente. Missing fields → log WARN
+   `FDD-OPS-001/L3` + Prometheus counter `pulse_snapshot_schema_drift_total`
+   + anota `_schema_drift` no JSONB. Pipeline Monitor consome via
+   `GET /pipeline/schema-drift?hours=N`
+4. **CI/CD force-restart on deploy (SHIPPED 2026-04-23)** —
+   `.github/workflows/deploy.yml` sempre roda
+   `docker compose up -d --force-recreate` nos 4 workers Python pós
+   build (deploy step ainda é TODO, mas o template existe)
+
+**Operacional fora do CI:** após edit em `domain/service` files local,
+o operator deve rodar `make rotate-secrets` (que faz `up -d
+--force-recreate` em 5 serviços) — `docker compose restart` NÃO relê
+o `.env` nem força reimport de módulos. Documentado em
+`docs/testing-playbook.md` §8.9.
+
+### 3.5 DB Index Strategy for Snapshots
+
+**Origin:** 2026-04-27 incident — dashboard error 30s timeout porque
+`/metrics/home` levava 54s. Causa raiz: `metrics_snapshots` cresceu
+pra 7M rows e a query `WHERE tenant_id=? AND metric_type=? AND team_id
+IS NULL ORDER BY calculated_at DESC LIMIT 200` regrediu de Index Scan
+pra Parallel Seq Scan (10s/query × 8 queries por home request = 50s+).
+
+**Indexes mantidos** (em `metrics_snapshots`):
+
+| Index | Definição | Cobre |
+|---|---|---|
+| `metrics_snapshots_pkey` | `(id)` | Primary key — sempre |
+| `uq_metrics_snapshots_*` | `UNIQUE(tenant, team, type, name, period_start, period_end)` | Upsert constraint |
+| `idx_metrics_snapshots_lookup` | `(tenant, type, name, period_start, period_end)` | Specific metric+window queries |
+| **`idx_metrics_snapshots_tenant_latest`** | `(tenant, type, calculated_at DESC) WHERE team_id IS NULL` | **`/metrics/home` tenant-wide aggregations** (NEW 2026-04-27, migration 009) |
+
+**Por que partial index** (não non-partial): B-tree não usa índice
+quando filtro inclui `IS NULL` em coluna não-NULL-aware. Partial
+index `WHERE team_id IS NULL` resolve isso e mantém o índice menor
+(exclui linhas team-scoped que têm padrão de acesso diferente).
+
+**Resultado medido**: query 10.3s → 2.4ms (**~4000× faster**). `/metrics/home`
+total: 54s → 0.6s.
+
+**Princípio pra futuro**: toda nova query crítica que faz `ORDER BY ...
+LIMIT N` em tabela >1M rows precisa de índice **explicitamente
+ordenado** pela coluna do ORDER BY. EXPLAIN ANALYZE durante PR review.
+Tracked como FDD-OPS-009 (DB query plan regression tests).
+
+### 3.6 Jenkins Job Mapping Workflow
+
+**Por que mapping em vez de discovery contínua:** Jenkins não tem
+endpoint nativo eficiente pra "list todos os PRD jobs com seus repos
+GitHub correspondentes". Precisaríamos consultar `lastBuild.remoteUrls`
+de cada job individualmente — pra 1400+ jobs Webmotors, isso é caro
+e lento.
+
+**Solução:** SCM scan one-shot, output em JSON, sync worker lê o JSON
+no boot.
+
+**Fluxo:**
+
+```
+1. Operator (humano ou cron) roda:
+     docker compose exec sync-worker python -m scripts.discover_jenkins_jobs
+
+2. Script faz READ-ONLY scan via Jenkins API:
+   - GET /api/json?tree=jobs[name,fullName,url,lastBuild[url]]
+   - Para cada job: lastBuild → workflow_run → SCM remoteUrls
+   - Classifica jobs por padrão (PRD vs DEV vs HML)
+   - Casa cada job com repo GitHub (heurísticas: nome, SCM URL)
+   - Output: config/jenkins-job-mapping.json (committed)
+
+3. sync-worker lê o JSON no startup (config flag jobs_from_mapping=true)
+   - Mantém em memória: dict[repo_full_name, list[prd_jobs]]
+   - Pra cada deploy event do Jenkins: usa o mapping pra resolver repo
+
+4. Quando regenerar:
+   - Novo repo Webmotors aparece (esperado: poucas vezes/mês)
+   - Mudança de pattern de naming dos jobs
+   - Cron sugerido (futuro): semanal, sábado 04:00 UTC
+```
+
+**Resultado atual** (`jenkins-job-mapping.json` versão 2026-04-14):
+283 repos × 577 PRD jobs.
+
+**Idempotência:** script é READ-ONLY. Re-rodar a qualquer momento é
+seguro. Dois runs consecutivos produzem JSONs equivalentes (modulo
+mudanças genuínas em Jenkins).
+
+### 3.7 Post-Ingestion Mandatory Steps
+
+Após qualquer **full re-ingestion** (DB wipe + sync from scratch),
+quatro passos pós-ingestão são **obrigatórios** pra ter dashboard
+correto. Skip qualquer um → métricas incompletas ou inconsistentes.
+
+| # | Operação | Endpoint / Comando | Tempo | Por quê |
+|---|---|---|---|---|
+| 1 | Backfill description | `POST /data/v1/admin/issues/refresh-descriptions?scope=all` | ~43min | `description` não é puxada no fetch padrão de issues (custo de payload Jira); endpoint admin busca via `GET /rest/api/3/issue/{key}`. Necessário pro Flow Health drawer mostrar contexto da issue. Cobertura final esperada ~62% (~38% das issues genuinamente sem description no Jira). |
+| 2 | Re-link PRs↔Issues | `psql < scripts/relink_prs_to_issues.sql` | ~5s | Sync worker linka PRs durante ingestão usando o snapshot de issues no momento. Discovery dinâmica pode ativar projetos depois — re-link captura PRs que ficaram sem match na primeira passada. Idempotente. |
+| 3 | Force snapshot recalc | `POST /data/v1/admin/metrics/recalculate` | ~10s | Garante que todos os 6 períodos (7d/14d/30d/60d/90d/120d) e 4 metric types (dora/lean/cycle_time/throughput) têm snapshot fresco. Workers rodam por evento Kafka, mas alguns períodos podem ficar stale se o evento não disparou em algum bucket. |
+| 4 | (Conditional) Backfill `first_commit_at` | `POST /data/v1/admin/prs/refresh-first-commits?scope=stale` | varies | **Skip se ingestão usou código pós-INC-003 fix (2026-04-17+).** Validar via SQL: se ≥90% dos PRs têm `first_commit_at < created_at`, não rodar. Se <90%, rodar com `scope=stale` (filtro `first_commit_at == created_at`). |
+
+**Validação pós-step 4:**
+
+```sql
+SELECT
+  COUNT(*) AS total,
+  COUNT(*) FILTER (WHERE first_commit_at < created_at) AS correct,
+  COUNT(*) FILTER (WHERE first_commit_at = created_at) AS stale,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE first_commit_at < created_at)
+        / NULLIF(COUNT(*),0), 1) AS pct_correct
+FROM eng_pull_requests WHERE source = 'github';
+```
+
+Esperado: `pct_correct >= 90%` (alguns PRs muito pequenos onde commit
+e abertura acontecem no mesmo segundo são casos legítimos de igualdade).
 
 ---
 
@@ -875,3 +1058,169 @@ IngestionPipeline:
 | `efaeba7` | Discovery service, mode resolver, guardrails |
 | `bea8b13` | Admin API + React UI for discovery |
 | `c5350dc` | Security hardening, PII gating, Phase 4 rollout |
+| `5d71618` | Snapshot drift monitor (FDD-OPS-001 line 3) + deploy workflow |
+| `0a1050c` | FDD-OPS-001 lines 1+2 — eliminate stale-code-in-workers drift |
+| `dd10d34` | FDD-OPS-002 — full Jira description backfill (61.74% coverage) |
+| `80f1796` | Partial index for snapshots — fixes 50× perf regression on `/metrics/home` |
+
+---
+
+## 8. Metric Field Decisions — Master Table
+
+Esta seção consolida **as decisões de qual timestamp/field é usado pra
+cada métrica**, ancorando-se nos incidentes documentados em
+`docs/metrics/metrics-inconsistencies.md`. Quando uma métrica produz
+um número estranho, comece por aqui — provavelmente é decisão de
+campo, não bug de código.
+
+### 8.1 Lead Time for Changes (DORA)
+
+**Fórmula canônica:** `deployed_at - first_commit_at` (em horas)
+
+| Field | Source | Decisão | Referência |
+|---|---|---|---|
+| `eng_pull_requests.first_commit_at` | GitHub GraphQL `commits(first:1).authoredDate` | Real authored date do primeiro commit no branch — **NÃO** a data de abertura do PR | INC-003 fix 2026-04-17, commit `c5350dc` |
+| `eng_pull_requests.deployed_at` | Temporal linking PR → Jenkins deploy via SHA matching | Populado por `link_pr_deploys()` quando deploy chega; null pra PRs sem deploy linkado | INC-004 fix 2026-04-17 |
+
+**Variantes expostas pelo backend** (decisão FDD-DSH-082, 2026-04-17):
+
+- `lead_time_for_changes_hours` (inclusive): inclui PRs sem `deployed_at` usando `merged_at` como fallback. Maior cobertura, mas não-canônico DORA.
+- `lead_time_for_changes_hours_strict`: SOMENTE PRs com `deployed_at != NULL`. Canônico DORA. Cobertura menor (depende de Jenkins linking).
+- Frontend mostra ambos em cards separados. Usuário escolhe a interpretação.
+
+**Edge case**: PR aberto-e-fechado-sem-merge → excluído do cálculo (`is_merged = false`).
+
+### 8.2 Cycle Time
+
+**Fórmula:** `merged_at - first_commit_at` (em horas) — INC-007 fix 2026-04-17
+
+**Phases breakdown** (`cycle_time/breakdown` snapshot):
+
+| Phase | De | Para |
+|---|---|---|
+| `coding` | `first_commit_at` | `pr_opened_at` (created_at) |
+| `pickup` | `pr_opened_at` | `first_review_at` |
+| `review` | `first_review_at` | `merged_at` |
+| `merge_to_deploy` | `merged_at` | `deployed_at` |
+
+**Edge case INC-012 (parcial)**: `merge_to_deploy` é null quando
+`deployed_at` é null. Stacked bar mostra 3 fases em vez de 4. Documentado
+como aceitável até full Jenkins linking (depende de FDD-DSH-050).
+
+### 8.3 Deployment Frequency
+
+**Fórmula:** `count(eng_deployments WHERE environment='production' AND deployed_at IN [period])` por unidade de tempo
+
+| Decisão | Referência |
+|---|---|
+| Filtro `environment='production'` (não staging/dev) | INC-008 fix 2026-04-17 |
+| Source = jenkins (Webmotors) | `connections.yaml` |
+| `is_failure` derivado de `result != 'SUCCESS'` no Jenkins build | normalizer `_extract_jenkins_result()` |
+| **Aberto INC-016**: builds UNSTABLE (testes falham mas compila) contam como falha — comportamento mais rigoroso que padrão DORA, sem flag pra desabilitar | P2, aceitável |
+
+### 8.4 Change Failure Rate
+
+**Fórmula:** `count(deploys WHERE is_failure) / count(deploys)` no período
+
+**Decisões:** mesmas de §8.3 (escopo de deploys idêntico).
+
+### 8.5 MTTR (Mean Time to Recovery)
+
+**Status:** ❌ **AINDA NÃO IMPLEMENTADO**
+
+`recovery_time_hours` é always null (INC-005). Calculation function existe
+e está correta, mas não há pipeline de incidents para alimentar. Card
+"Time to Restore" mostra `null` + badge "R1" + tooltip explicativo.
+
+Tracking: FDD-DSH-050 (P1, L, multi-agent — data scientist define sinal
+de incidente → data engineer cria tabela `eng_incidents` → backend → frontend).
+
+### 8.6 Throughput (PRs merged per period)
+
+**Fórmula:** `count(PRs WHERE is_merged AND merged_at IN [period])`
+
+| Decisão | Referência |
+|---|---|
+| Fetch por `merged_at` (não `created_at`) | INC-001 fix 2026-04-16 — antes, PRs com lifecycle longo eram subcontados |
+| `pr_analytics.total_merged` no payload `throughput/pr_analytics` | usado por `/metrics/home` |
+| Cycle time per-week sparkline computed inline | INC-007 fix |
+
+### 8.7 WIP (Work in Progress)
+
+**Fórmula:** `count(eng_issues WHERE normalized_status IN ('in_progress','in_review'))` no momento do snapshot
+
+**Decisões importantes:**
+
+- Status `todo` **excluído do WIP** — apenas trabalho tocado conta. Documentado em `kanban-formulas-v1.md` §2
+- "aguardando deploy produção" mapeado pra `done` (INC-019 P2 — debatível, porém fixo no `connections.yaml` status_mapping)
+- WIP é tenant-aggregate por default; per-squad é cálculo on-demand via `squad_key` query param
+
+### 8.8 Lead Time Distribution / CFD / Scatterplot (Lean)
+
+**Fonte de verdade:** `eng_issues` com `status_transitions` JSONB populado pelo Jira changelog.
+
+| Métrica | Fórmula | Edge case |
+|---|---|---|
+| Lead Time Distribution | histograma de `completed_at - created_at` por bin | INC-010 fix 2026-04-16: inclui issues longas que stradle o período |
+| CFD | contagem por status × dia, banda `done` usa `MAX(done_so_far)` | INC-009 P1 — protege contra reopens |
+| Scatterplot | um ponto por issue concluída no período (P50/85/95 lines) | mesmo escopo de fetch que LT distribution |
+
+### 8.9 Anti-Surveillance Invariant
+
+**Decisão fundamental, INVIOLÁVEL:**
+
+> Author/assignee/reporter **NUNCA** entram em payloads de métrica.
+
+**Onde está garantido:**
+
+1. **Domain dataclasses** (`pulse-data/src/contexts/metrics/domain/`): nenhum field tipo `author`, `assignee`, `reporter` ou similar
+2. **Schema registry** (FDD-OPS-001 line 3): payload-vs-dataclass diff loga `_schema_drift` se algo nuevo aparece
+3. **Frontend contract tests** (`tests/contract/anti-surveillance-schemas.test.ts`): meta-test que injeta payload tainted em cada um dos 6 schemas Zod e verifica rejeição
+4. **Underlying tables** (`eng_pull_requests.author`, `eng_issues.assignee`) — campos existem (necessários pra ingestão e linking), mas **nunca atravessam a fronteira de aggregação**
+
+**Snapshot anonimizado (PR #2.1 / future):** quando construirmos pipeline
+de snapshot pra distribuir entre devs, aggregate-only não é suficiente —
+o DB ainda tem PII nos raw fields. Anonimização determinística de
+author/assignee → hash + `@example.invalid` é necessária. Detalhes em
+`docs/onboarding.md` (PR #2.1).
+
+### 8.10 Status Normalization
+
+**Fonte primária:** `connections.yaml` `status_mapping` (60+ entries
+PT-BR + EN). Override do DEFAULT_STATUS_MAPPING em
+`engineering_data/normalizer.py`.
+
+**Edge cases conhecidos:**
+
+- "aguardando deploy produção" → `done` (INC-019, debatível)
+- "em teste azul/hml" → `in_review` (Webmotors-specific QA stages)
+- "construção de hipótese" → `in_progress` (Kanban upstream stage)
+- Status sem mapping → `todo` (fallback conservador)
+
+**Princípio**: tudo que não é `done` claro vira `in_progress` ou `in_review`
+pra ser visível em CFD/WIP. Pessimismo por design — melhor superestimar
+WIP que esconder trabalho.
+
+### 8.11 PR ↔ Issue Linking
+
+**Mecanismo:** regex `[A-Z][A-Z0-9]+-\d+` em `pr.title`, `pr.head_ref`, `pr.base_ref`
+
+**Sequência:**
+
+1. Sync worker carrega `(issue_key, external_id)` do tenant **antes** de sincronizar PRs (issues vêm 1º no ciclo)
+2. Pra cada PR, regex extrai possíveis keys (multi-match suportado)
+3. Filtra keys que existem em `jira_project_catalog` com status `active|discovered`
+4. Popula `linked_issue_ids` JSONB do PR
+
+**Per-project link rate observado** (Webmotors, post-discovery):
+
+- Top performers (96-100%): SDI, PUSO, DSP, FID, CRMC
+- Tenant-wide médio: 21.9%
+- Falsos positivos: HOTFIX-123, RELEASE-1, BUGFIX-42, lib names (LODASH-4) — filtrados via `IN (jira_project_catalog)` clause
+- Orphans conhecidos: RC (1348 references, projeto archived no Jira)
+
+**Re-relink pós-ingestão:** script `scripts/relink_prs_to_issues.sql`
+re-aplica em PRs antigos quando novos projetos são ativados via discovery
+dinâmica.
+
+---
