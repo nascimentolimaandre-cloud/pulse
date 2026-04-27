@@ -67,10 +67,22 @@ Exit: `0` on all pass, `1` on any failure.
 
 ### What's coming (next PRs)
 
-- **PR #2** — `make seed-dev` populates 15 fake squads, ~2k PRs, ~5k issues deterministically. Safety-guarded: refuses to run against a remote DB or a tenant that already has real data.
+- **PR #2** — `make seed-dev` populates 15 fake squads, ~2k PRs, ~5k issues deterministically. Safety-guarded: refuses to run against a remote DB or a tenant that already has real data. Includes `--scale=large` mode (FDD-OPS-010) for perf testing.
 - **PR #3** — persistent UI banner when the dev tenant is detected (impossible to mistake a seed screenshot for prod).
-- **PR #4** — `make onboard` orchestrator (doctor → build → up → migrate → seed → verify → print URL).
+- **PR #4** — **expanded scope after 2026-04-24 incident**:
+  - `make onboard` orchestrator (doctor → build → up → migrate → seed → verify → print URL)
+  - **Backend-in-CI + smoke E2E as blocking PR gate** (FDD-OPS-004) — fixes the gap that let `/metrics/home` regress 50× without the CI catching it
+  - **Performance budget assertions in smoke** (FDD-OPS-006) — smoke now fails on `/metrics/home` taking > 8s
+  - Branch protection updated with the new required check
 - **PR #5** — optional Doppler overlay: `doppler run -- make ingest-real` triggers a live, scoped ingestion (last 30d, top-5 repos) using shared read-only service-account creds. Secrets never touch disk.
+
+After PR #5, three follow-up FDDs close the perf/scale gap completely:
+- **FDD-OPS-007** Cold-cache test mode
+- **FDD-OPS-008** Per-endpoint perf contract suite
+- **FDD-OPS-009** DB query plan regression tests
+- **FDD-OPS-011** Synthetic monitoring (before first prod deploy)
+
+See `docs/testing-playbook.md` §10 for the full "tests we don't have (yet)" roadmap.
 
 ---
 
@@ -135,3 +147,4 @@ Never paste tokens into chat with AI tools or into the repo itself. The gitleaks
 ## Changelog
 
 - **2026-04-24** — PR #1: doctor + verify-dev scripts, Makefile targets, this document.
+- **2026-04-24** — Roadmap update: PR #4 scope expanded post-incident to include backend-in-CI smoke gate (FDD-OPS-004) + perf budget assertions (FDD-OPS-006). 6 new FDDs (OPS-004..011) added to ops-backlog covering perf/scale gaps. See `testing-playbook.md` §10.
