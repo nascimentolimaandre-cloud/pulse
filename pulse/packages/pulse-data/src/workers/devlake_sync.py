@@ -67,6 +67,43 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Changelog helpers
+# ---------------------------------------------------------------------------
+
+def extract_status_transitions_inline(raw_issue: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract status transitions from a Jira issue's INLINE changelog.
+
+    FDD-OPS-013 — replaces the previous round-trip to
+    `fetch_issue_changelogs(issue_ids)` which made one HTTP GET per issue.
+    The JQL search uses `expand=changelog`, so the changelog is already
+    present in the response payload.
+
+    Always returns a list (possibly empty for issues with no status changes
+    in their history). The empty-list case is what fixed the 24h hang in
+    production: previously the cache lookup on `_last_changelogs` skipped
+    entries with empty transitions, causing a downstream cache-miss that
+    triggered the redundant individual GET.
+
+    Output shape mirrors `JiraConnector._extract_changelogs` so that
+    `normalize_issue(..., changelogs=...)` doesn't need to change.
+    """
+    issue_id = str(raw_issue["id"])
+    transitions: list[dict[str, Any]] = []
+    for history in raw_issue.get("changelog", {}).get("histories", []):
+        created = history.get("created")
+        for item in history.get("items", []):
+            if item.get("field", "").lower() == "status":
+                transitions.append({
+                    "issue_id": issue_id,
+                    "from_status": item.get("fromString", ""),
+                    "to_status": item.get("toString", ""),
+                    "created_date": created,
+                })
+    transitions.sort(key=lambda t: t.get("created_date") or "")
+    return transitions
+
+
+# ---------------------------------------------------------------------------
 # Watermark helpers — persistent DB storage via pipeline_watermarks
 # ---------------------------------------------------------------------------
 
@@ -580,85 +617,199 @@ class DataSyncWorker:
         return total_count
 
     async def _sync_issues(self) -> int:
-        """Read issues from source connectors, upsert to PULSE DB, publish to Kafka."""
+        """Stream issues from Jira PER PROJECT, persisting each batch immediately.
+
+        FDD-OPS-012 — replaces the previous bulk-fetch-then-persist pattern
+        (everything in RAM until JQL pagination + ALL changelog HTTP calls
+        complete, then single upsert) with per-page streaming. Mirrors the
+        pattern that PRs adopted in commit 7f9f339.
+
+        Properties:
+        - Time-to-first-row: < 10s (was: hours, sometimes never)
+        - Memory: ~one page (~50 issues) in flight, not 376k
+        - Crash recovery: lose ≤ 1 batch of work, not the whole cycle
+        - Operator visibility: `eng_issues.COUNT()` grows in real time
+        """
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "issues")
 
-        # Resolve project keys via dynamic discovery or env var fallback
-        project_keys: list[str] | None = None
+        # Resolve project keys via dynamic discovery (kill-switch via env var).
+        # No fallback to a static env var list — that path was deprecated when
+        # we landed discovery-only (ingestion-spec §2.3). Empty list = nothing
+        # to sync this cycle.
+        project_keys: list[str] = []
         if settings.dynamic_jira_discovery_enabled:
             try:
                 async with get_session(self._tenant_id) as session:
                     resolver = ModeResolver(session)
                     project_keys = await resolver.resolve_active_projects(self._tenant_id)
                 logger.info(
-                    "Dynamic discovery resolved %d Jira projects for tenant %s",
+                    "[issues] resolved %d active Jira projects for tenant %s",
                     len(project_keys), self._tenant_id,
                 )
             except Exception:
                 logger.exception(
-                    "ModeResolver failed for tenant %s, falling back to env var",
+                    "[issues] ModeResolver failed for tenant %s — skipping cycle",
                     self._tenant_id,
                 )
-                project_keys = None
+                return 0
 
-        fetch_kwargs: dict[str, Any] = {"since": since}
-        if project_keys is not None:
-            fetch_kwargs["project_keys"] = project_keys
-        raw_issues = await self._reader.fetch_issues(**fetch_kwargs)
-        if not raw_issues:
-            logger.info("No new issues to sync")
+        if not project_keys:
+            logger.info("[issues] no active projects, nothing to sync")
             return 0
 
-        # Fetch status changelogs for all issues in this batch (Jira only)
-        issue_ids = [str(raw["id"]) for raw in raw_issues]
-        changelogs_by_issue = await self._reader.fetch_issue_changelogs(issue_ids)
+        # FDD-OPS-015 lite: pre-flight progress signal so operators see the
+        # scope BEFORE we start hammering the API. Total count via per-project
+        # JQL count would itself be N HTTP calls — defer to follow-up FDD.
+        # For now we expose project_keys as the unit of work.
+        started_at = datetime.now(timezone.utc)
+        await _update_ingestion_progress(
+            self._tenant_id, "issues",
+            status="running",
+            total_sources=len(project_keys),
+            sources_done=0,
+            records_ingested=0,
+            current_source=None,
+            started_at=started_at,
+        )
 
-        # Normalize
-        normalized = []
-        for raw in raw_issues:
-            try:
-                issue_id = str(raw["id"])
-                issue_changelogs = changelogs_by_issue.get(issue_id, [])
-                issue_data = normalize_issue(
-                    raw,
-                    self._tenant_id,
-                    self._status_mapping,
-                    changelogs=issue_changelogs,
+        # FDD-OPS-014 placeholder: per-scope watermarks aren't shipped yet.
+        # All projects share the global watermark for now. When OPS-014 ships,
+        # this becomes a per-project lookup.
+        since_by_project: dict[str, datetime | None] = {pk: since for pk in project_keys}
+
+        total_count = 0
+        projects_done: set[str] = set()
+        current_project: str | None = None
+        per_project_count: dict[str, int] = {pk: 0 for pk in project_keys}
+
+        try:
+            async for project_key, raw_batch in self._reader.fetch_issues_batched(
+                project_keys=project_keys,
+                since_by_project=since_by_project,
+            ):
+                # Project change marker for ingestion progress
+                if project_key != current_project:
+                    if current_project is not None:
+                        projects_done.add(current_project)
+                    current_project = project_key
+                    await _update_ingestion_progress(
+                        self._tenant_id, "issues",
+                        status="running",
+                        sources_done=len(projects_done),
+                        records_ingested=total_count,
+                        current_source=project_key,
+                    )
+
+                # FDD-OPS-013: changelogs are INLINE from JQL expand=changelog.
+                # No extra HTTP round-trip per issue.
+                normalized: list[dict[str, Any]] = []
+                for raw in raw_batch:
+                    try:
+                        issue_changelogs = extract_status_transitions_inline(raw)
+                        issue_data = normalize_issue(
+                            raw,
+                            self._tenant_id,
+                            self._status_mapping,
+                            changelogs=issue_changelogs,
+                        )
+                        normalized.append(issue_data)
+                    except Exception:
+                        logger.exception(
+                            "[issues] normalize error in project %s: id=%s",
+                            project_key, raw.get("id"),
+                        )
+
+                if not normalized:
+                    continue
+
+                # Persist this batch immediately (FDD-OPS-012)
+                batch_count = await self._upsert_issues(normalized)
+                total_count += batch_count
+                per_project_count[project_key] = per_project_count.get(project_key, 0) + batch_count
+
+                # Emit Kafka events for this batch only
+                events = [
+                    (str(issue["external_id"]), issue)
+                    for issue in normalized
+                ]
+                await publish_batch(
+                    self._producer, TOPIC_ISSUE_NORMALIZED, events,
                 )
-                normalized.append(issue_data)
-            except Exception:
-                logger.exception("Error normalizing issue: %s", raw.get("id"))
 
-        # Upsert to PULSE DB
-        count = await self._upsert_issues(normalized)
+                # Per-batch progress update (operator can grep the log to
+                # confirm forward progress)
+                logger.info(
+                    "[issues] batch persisted: %s +%d (project total: %d, "
+                    "tenant total: %d)",
+                    project_key, batch_count,
+                    per_project_count[project_key], total_count,
+                )
 
-        # Publish to Kafka
-        events = []
-        for issue in normalized:
-            events.append((str(issue["external_id"]), issue))
-        await publish_batch(self._producer, TOPIC_ISSUE_NORMALIZED, events)
+                await _update_ingestion_progress(
+                    self._tenant_id, "issues",
+                    records_ingested=total_count,
+                    current_source=project_key,
+                )
 
-        # Update watermark in DB
-        async with get_session(self._tenant_id) as session:
-            await _set_watermark(
-                session, self._tenant_id, "issues",
-                datetime.now(timezone.utc), count,
+            # Mark final project as done
+            if current_project is not None:
+                projects_done.add(current_project)
+
+            logger.info(
+                "[issues] sync complete: %d issues across %d projects "
+                "(per-project counts: %s)",
+                total_count, len(projects_done),
+                {k: v for k, v in per_project_count.items() if v > 0},
             )
 
-        # Record sync outcome per project for guardrails (dynamic discovery only)
-        if settings.dynamic_jira_discovery_enabled and project_keys:
-            try:
+            # Update global watermark only when sync succeeded.
+            # Per-scope watermarks are FDD-OPS-014 (next phase).
+            if total_count > 0:
                 async with get_session(self._tenant_id) as session:
-                    guardrails = Guardrails(session)
-                    for pk in project_keys:
-                        await guardrails.record_sync_outcome(
-                            self._tenant_id, pk, success=True,
-                        )
-            except Exception:
-                logger.exception("Failed to record sync outcomes for guardrails")
+                    await _set_watermark(
+                        session, self._tenant_id, "issues",
+                        datetime.now(timezone.utc), total_count,
+                    )
 
-        return count
+            # Record per-project sync outcome for guardrails (success only —
+            # batches that errored mid-stream are logged but don't block)
+            if settings.dynamic_jira_discovery_enabled and projects_done:
+                try:
+                    async with get_session(self._tenant_id) as session:
+                        guardrails = Guardrails(session)
+                        for pk in projects_done:
+                            await guardrails.record_sync_outcome(
+                                self._tenant_id, pk, success=True,
+                            )
+                except Exception:
+                    logger.exception(
+                        "[issues] failed to record guardrail outcomes",
+                    )
+
+            await _update_ingestion_progress(
+                self._tenant_id, "issues",
+                status="completed",
+                sources_done=len(projects_done),
+                records_ingested=total_count,
+                current_source=None,
+                finished_at=datetime.now(timezone.utc),
+            )
+
+        except Exception as exc:
+            await _update_ingestion_progress(
+                self._tenant_id, "issues",
+                status="failed",
+                sources_done=len(projects_done),
+                records_ingested=total_count,
+                current_source=current_project,
+                finished_at=datetime.now(timezone.utc),
+                error_message=str(exc)[:500],
+            )
+            logger.exception("[issues] sync cycle failed")
+            raise
+
+        return total_count
 
     async def _sync_deployments(self) -> int:
         """Read deployments from source connectors, upsert to PULSE DB, publish to Kafka."""
