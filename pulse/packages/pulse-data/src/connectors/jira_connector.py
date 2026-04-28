@@ -259,6 +259,102 @@ class JiraConnector(BaseConnector):
         logger.info("Fetched %d issues from Jira (%d projects, %d pages)", len(all_issues), len(effective_projects), page)
         return all_issues
 
+    async def fetch_issues_batched(
+        self,
+        project_keys: list[str],
+        since_by_project: dict[str, datetime | None] | None = None,
+    ):
+        """Stream issues PER PROJECT, yielding (project_key, batch) per page.
+
+        FDD-OPS-012 — replaces the bulk-fetch-all-then-persist pattern of
+        fetch_issues(). Yields each page (~50 issues) as it arrives, so the
+        caller can normalize → upsert → emit_event → advance_watermark
+        immediately. Memory bound: ~one page in flight; crash recovery loses
+        at most one page of work.
+
+        Per-project pagination (one JQL per project) instead of `project IN
+        (...)` makes per-scope watermarks possible (each project advances
+        its own last_synced_at independently — see FDD-OPS-014). It also
+        means failure on one project doesn't lose progress on others.
+
+        Args:
+            project_keys: Projects to sync. Must be explicit; no fallback
+                to env var (caller MUST resolve via ModeResolver).
+            since_by_project: Optional per-project watermark. Missing keys
+                default to None (full backfill for that project).
+
+        Yields:
+            (project_key, list_of_normalized_raw_issues) tuples.
+            Each list has SEARCH_PAGE_SIZE items (50 by default), except
+            the last page of each project which may be smaller.
+        """
+        if not project_keys:
+            logger.warning("fetch_issues_batched: empty project_keys, nothing to do")
+            return
+
+        # Discover tenant-specific custom field IDs once (cached for reuse).
+        await self._discover_custom_fields()
+
+        # Build fields list: base + discovered custom fields + fallbacks.
+        fields_to_fetch = list(SEARCH_FIELDS)
+        if self._sprint_field_id:
+            fields_to_fetch.append(self._sprint_field_id)
+        if self._story_points_field_id:
+            fields_to_fetch.append(self._story_points_field_id)
+        for f in FALLBACK_SPRINT_FIELDS + FALLBACK_STORY_POINTS_FIELDS:
+            if f not in fields_to_fetch:
+                fields_to_fetch.append(f)
+
+        since_by_project = since_by_project or {}
+
+        for project_key in project_keys:
+            since = since_by_project.get(project_key)
+            # Keys like "DESC" collide with SQL reserved words — quote always.
+            jql = f'project = "{project_key}"'
+            if since:
+                since_str = since.strftime("%Y-%m-%d %H:%M")
+                jql += f' AND updated >= "{since_str}"'
+            jql += " ORDER BY updated DESC"
+
+            logger.info(
+                "[batched] %s: starting JQL fetch (since=%s)",
+                project_key, since.isoformat() if since else "full-history",
+            )
+
+            next_page_token: str | None = None
+            page = 0
+            total_yielded = 0
+
+            while True:
+                body: dict[str, Any] = {
+                    "jql": jql,
+                    "maxResults": SEARCH_PAGE_SIZE,
+                    "fields": fields_to_fetch,
+                    "expand": "changelog",  # critical: keeps changelog inline (FDD-OPS-013)
+                }
+                if next_page_token:
+                    body["nextPageToken"] = next_page_token
+
+                data = await self._client.post(
+                    f"{REST_API}/search/jql", json_body=body,
+                )
+
+                issues = data.get("issues", [])
+                if issues:
+                    mapped_batch = [self._map_issue(issue) for issue in issues]
+                    yield project_key, mapped_batch
+                    total_yielded += len(mapped_batch)
+
+                page += 1
+                next_page_token = data.get("nextPageToken")
+                if not next_page_token or not issues:
+                    break
+
+            logger.info(
+                "[batched] %s: complete (%d issues, %d pages)",
+                project_key, total_yielded, page,
+            )
+
     async def fetch_issue_changelogs(
         self, issue_ids: list[str],
     ) -> dict[str, list[dict[str, Any]]]:

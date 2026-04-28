@@ -102,6 +102,10 @@ class ConnectorAggregator:
     ) -> list[dict[str, Any]]:
         """Fetch issues from all work-tracking connectors (Jira, GitHub Issues).
 
+        DEPRECATED for new code paths — use fetch_issues_batched() which streams
+        per-project and persists incrementally (FDD-OPS-012). This bulk-fetch
+        method is retained for backward compatibility (sprint sync etc.).
+
         Args:
             since: Watermark for incremental sync.
             project_keys: If provided, passed to Jira connector to scope which
@@ -121,6 +125,34 @@ class ConnectorAggregator:
                 except Exception:
                     logger.exception("Error fetching issues from %s", source)
         return all_issues
+
+    async def fetch_issues_batched(
+        self,
+        project_keys: list[str],
+        since_by_project: dict[str, datetime | None] | None = None,
+    ):
+        """Stream issues per-project from work-tracking connectors (FDD-OPS-012).
+
+        Yields (project_key, batch) tuples per page. Caller normalizes,
+        upserts, emits Kafka, advances watermark per batch — bounded memory,
+        crash-safe.
+
+        Currently only Jira implements batched issues. GitHub/Azure issues
+        sync remains bulk (low volume, can be migrated later if needed).
+        """
+        connector = self._connectors.get("jira")
+        if connector is None or not hasattr(connector, "fetch_issues_batched"):
+            logger.warning("No Jira connector with batched fetch — skipping")
+            return
+
+        try:
+            async for project_key, batch in connector.fetch_issues_batched(
+                project_keys=project_keys,
+                since_by_project=since_by_project,
+            ):
+                yield project_key, batch
+        except Exception:
+            logger.exception("Error during batched issue fetch from Jira")
 
     async def fetch_issue_changelogs(
         self, issue_ids: list[str],
