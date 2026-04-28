@@ -197,12 +197,23 @@ class GitHubConnector(BaseConnector):
         return len(repos)
 
     async def fetch_pull_requests_batched(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        since_by_repo: dict[str, datetime | None] | None = None,
     ) -> AsyncIterator[tuple[str, list[dict[str, Any]] | None]]:
         """Yield PRs in batches, one batch per repo — parallelized via GraphQL.
 
         Processes REPO_CONCURRENCY repos at a time. Each repo uses a single
         GraphQL query per page (50 PRs) instead of 1+2N REST calls.
+
+        FDD-OPS-014 step 2.4-B: per-repo watermarks. When `since_by_repo`
+        is provided, each repo uses its own `since` timestamp:
+            - Found in dict, value is datetime → incremental from that point
+            - Found in dict, value is None     → full backfill (new repo)
+            - NOT in dict                      → falls back to bulk `since`
+        Backwards-compat: if `since_by_repo` is None, all repos use the
+        single `since` parameter (legacy behavior, preserved for callers
+        not yet updated).
 
         For each repo, emits:
           1. (repo_full_name, None) — "starting" signal for UI progress
@@ -210,10 +221,33 @@ class GitHubConnector(BaseConnector):
         """
         repos = await self._get_repos()
         total_repos = len(repos)
-        logger.info(
-            "Starting parallel PR fetch: %d repos, concurrency=%d, page_size=%d",
-            total_repos, REPO_CONCURRENCY, GRAPHQL_PAGE_SIZE,
-        )
+
+        # Resolve effective `since` per repo. Calling with explicit
+        # since_by_repo wins; otherwise everyone gets the bulk `since`.
+        def _resolve_since(repo: str) -> datetime | None:
+            if since_by_repo is not None and repo in since_by_repo:
+                return since_by_repo[repo]
+            return since
+
+        # Pre-flight summary so operator sees the per-repo plan up front.
+        if since_by_repo is not None:
+            backfill = sum(
+                1 for r in repos
+                if since_by_repo.get(r, since) is None
+            )
+            incremental = total_repos - backfill
+            logger.info(
+                "Starting parallel PR fetch: %d repos (per-repo plan: "
+                "%d backfill, %d incremental), concurrency=%d, page_size=%d",
+                total_repos, backfill, incremental,
+                REPO_CONCURRENCY, GRAPHQL_PAGE_SIZE,
+            )
+        else:
+            logger.info(
+                "Starting parallel PR fetch: %d repos, concurrency=%d, "
+                "page_size=%d (single since=%s)",
+                total_repos, REPO_CONCURRENCY, GRAPHQL_PAGE_SIZE, since,
+            )
 
         semaphore = asyncio.Semaphore(REPO_CONCURRENCY)
         # Queue holds outputs from worker coroutines so we can yield them
@@ -224,12 +258,14 @@ class GitHubConnector(BaseConnector):
             async with semaphore:
                 # Emit "starting" as soon as we acquire the slot
                 await queue.put(("start", repo_full_name, None))
+                repo_since = _resolve_since(repo_full_name)
                 try:
-                    prs = await self._fetch_repo_prs_graphql(repo_full_name, since)
+                    prs = await self._fetch_repo_prs_graphql(repo_full_name, repo_since)
                     if prs:
                         logger.info(
-                            "Batch: %d PRs from %s (GraphQL)",
+                            "Batch: %d PRs from %s (GraphQL, since=%s)",
                             len(prs), repo_full_name,
+                            repo_since.isoformat() if repo_since else "full-history",
                         )
                         await queue.put(("batch", repo_full_name, prs))
                     else:
@@ -240,7 +276,7 @@ class GitHubConnector(BaseConnector):
                         repo_full_name,
                     )
                     try:
-                        prs = await self._fetch_repo_prs(repo_full_name, since)
+                        prs = await self._fetch_repo_prs(repo_full_name, repo_since)
                         await queue.put(("batch", repo_full_name, prs or []))
                     except Exception:
                         logger.exception("REST fallback also failed for %s", repo_full_name)
