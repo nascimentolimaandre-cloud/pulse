@@ -283,8 +283,8 @@ def normalize_pull_request(
         "tenant_id": tenant_id,
         "source": source,
         "repo": repo,
-        "title": devlake_pr.get("title", ""),
-        "author": devlake_pr.get("author_name", "unknown"),
+        "title": _strip_null_bytes(devlake_pr.get("title", "")),
+        "author": _strip_null_bytes(devlake_pr.get("author_name", "unknown")),
         "state": state,
         "is_merged": is_merged,
         "first_commit_at": first_commit_at,  # INC-003: real authored_date when enriched
@@ -370,18 +370,23 @@ def normalize_issue(
         else None
     )
 
+    # Strip NULL bytes (0x00) from any text field. Postgres `text`/`varchar`
+    # rejects them with `CharacterNotInRepertoireError: invalid byte sequence
+    # for encoding "UTF8": 0x00`. Real-world Jira data has them — observed
+    # 2026-04-28 in ENO-3296 description (likely paste from buggy source).
+    # Without this, a single bad row breaks the whole batch upsert.
     return {
         "external_id": str(devlake_issue["id"]),
         "tenant_id": tenant_id,
         "source": _detect_source(devlake_issue),
         "project_key": project_key,
         "issue_key": (issue_key or None),
-        "title": devlake_issue.get("title", ""),
-        "description": description,
+        "title": _strip_null_bytes(devlake_issue.get("title", "")),
+        "description": _strip_null_bytes(description),
         "issue_type": issue_type,
         "status": raw_status,
         "normalized_status": normalized,
-        "assignee": devlake_issue.get("assignee_name"),
+        "assignee": _strip_null_bytes(devlake_issue.get("assignee_name")),
         "story_points": devlake_issue.get("story_point"),
         "sprint_id": sprint_id,
         "status_transitions": transitions,
@@ -390,6 +395,19 @@ def normalize_issue(
         "created_at": created_date or datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
+
+
+def _strip_null_bytes(value: Any) -> Any:
+    """Remove NULL bytes (0x00) from a string. Pass-through for non-strings.
+
+    Postgres rejects 0x00 in `text`/`varchar` with
+    `CharacterNotInRepertoireError`. Real-world Jira data sometimes contains
+    them (copy-paste from binary sources, malformed encoding upstream).
+    Stripping is the conservative choice — preserves all readable content.
+    """
+    if isinstance(value, str) and "\x00" in value:
+        return value.replace("\x00", "")
+    return value
 
 
 def normalize_deployment(
