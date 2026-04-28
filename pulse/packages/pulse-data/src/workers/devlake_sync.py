@@ -525,10 +525,19 @@ class DataSyncWorker:
         published to Kafka immediately — no accumulation in memory. If the
         process crashes mid-sync, all previously persisted repos are safe.
 
+        FDD-OPS-014 step 2.4 — per-repo watermarks now WRITTEN as each repo's
+        batch persists (scope_key='github:repo:<owner>/<name>'). Reads still
+        use the global '*' watermark for now; the connector signature update
+        to accept since_by_repo is a follow-up step (the writes accumulate
+        ahead of that refactor so when it lands, repos already have their
+        own watermarks).
+
         Progress is tracked in pipeline_ingestion_progress for real-time
         visibility in the Pipeline Monitor dashboard.
         """
         async with get_session(self._tenant_id) as session:
+            # Read global '*' watermark — connector still uses single `since`.
+            # Per-repo READ comes in a follow-up commit (sister of this one).
             since = await _get_watermark(session, self._tenant_id, "pull_requests")
 
         # Build issue-key lookup for PR linking. Loading all issue external_ids
@@ -623,6 +632,19 @@ class DataSyncWorker:
                     event = {k: v for k, v in pr.items() if not k.startswith("_")}
                     events.append((str(pr["external_id"]), event))
                 await publish_batch(self._producer, TOPIC_PR_NORMALIZED, events)
+
+                # FDD-OPS-014 step 2.4: advance this repo's scope watermark.
+                # Writes accumulate even though reads are still global '*';
+                # follow-up commit changes the connector to read this dict
+                # via since_by_repo.
+                if batch_count > 0:
+                    repo_scope = make_scope_key("github", "repo", repo_name)
+                    async with get_session(self._tenant_id) as session:
+                        await _set_watermark(
+                            session, self._tenant_id, "pull_requests",
+                            started_at, batch_count,
+                            scope_key=repo_scope,
+                        )
 
                 # Update progress in DB (queryable by API)
                 await _update_ingestion_progress(
@@ -919,7 +941,20 @@ class DataSyncWorker:
         return total_count
 
     async def _sync_deployments(self) -> int:
-        """Read deployments from source connectors, upsert to PULSE DB, publish to Kafka."""
+        """Read deployments from source connectors, upsert to PULSE DB, publish to Kafka.
+
+        FDD-OPS-014 step 2.5 — writes per-repo scope watermarks alongside
+        the legacy global '*' row. Per-repo READ + per-job streaming are
+        follow-ups; this commit accumulates the rows so they're available
+        when the connector refactor lands.
+
+        Granularity choice (Q2 of phase-2-plan): repo-level scope rather
+        than per-job. Volume is low (~1.4k deploys at Webmotors scale); the
+        repo dimension matches the cross-source linking model (PR↔deploy
+        is by repo+sha) and avoids an explosion of scope rows for
+        ephemeral Jenkins jobs.
+        """
+        started_at = datetime.now(timezone.utc)
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "deployments")
 
@@ -937,8 +972,30 @@ class DataSyncWorker:
             except Exception:
                 logger.exception("Error normalizing deployment: %s", raw.get("id"))
 
+        # Group per repo to track per-scope counts for watermark writes.
+        per_repo_count: dict[str, int] = {}
+        for d in normalized:
+            repo = d.get("repo") or "unknown"
+            per_repo_count[repo] = per_repo_count.get(repo, 0) + 1
+
         # Upsert to PULSE DB
         count = await self._upsert_deployments(normalized)
+
+        # FDD-OPS-014 step 2.5: advance per-repo deploy watermarks. Reads
+        # still use global '*' until the fetcher refactor lands.
+        async with get_session(self._tenant_id) as session:
+            for repo, repo_count in per_repo_count.items():
+                if repo_count == 0:
+                    continue
+                repo_scope = make_scope_key("jenkins", "repo", repo)
+                await _set_watermark(
+                    session, self._tenant_id, "deployments",
+                    started_at, repo_count, scope_key=repo_scope,
+                )
+        logger.info(
+            "[deployments] advanced %d per-repo watermarks (jenkins:repo:*)",
+            len([c for c in per_repo_count.values() if c > 0]),
+        )
 
         # INC-004 — forward-path linker: bind newly ingested deploys back to
         # any merged PRs in the same repo that were still missing
