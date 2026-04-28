@@ -38,10 +38,13 @@ class PipelineWatermark(TenantModel):
 
     __tablename__ = "pipeline_watermarks"
     __table_args__ = (
-        # Legacy constraint kept for backwards-compat during transition.
-        # Dropped in migration 011 (FDD-OPS-014 step 2.7).
-        UniqueConstraint("tenant_id", "entity_type", name="uq_watermark_entity"),
-        # New per-scope constraint (active from migration 010 onward).
+        # Per-scope constraint (active from migration 010 onward).
+        # Legacy uq_watermark_entity (without scope_key) was dropped in
+        # migration 011 — Postgres enforces all UniqueConstraints on every
+        # INSERT, so "harmless coexistence" was impossible: legacy blocked
+        # any per-scope insert because the (tenant, entity) tuple already
+        # existed via the '*' row. Discovered immediately after Phase 2-A
+        # deployment.
         UniqueConstraint(
             "tenant_id", "entity_type", "scope_key",
             name="uq_watermark_entity_scope",
