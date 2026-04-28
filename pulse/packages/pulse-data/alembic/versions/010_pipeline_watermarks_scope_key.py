@@ -1,17 +1,7 @@
-"""DRAFT — pipeline_watermarks: add scope_key + replace unique constraint.
+"""pipeline_watermarks: add scope_key (FDD-OPS-014 Phase 2, Step 2.1).
 
-⚠ DRAFT STATUS — DO NOT APPLY YET ⚠
-
-Filename suffix `_DRAFT.py` excludes this from Alembic auto-discovery
-(Alembic only picks up files matching the pattern `<rev>_<slug>.py`
-when present in `script_location`; a `_DRAFT.py` suffix breaks that
-match if revision_finder is strict, AND we explicitly DO NOT chain
-this revision into down_revision yet).
-
-To promote: rename to `010_pipeline_watermarks_scope_key.py` AND wire
-`down_revision = "009_metrics_snapshots_tenant_latest_index"` (already
-done below to be ready). Apply via `alembic upgrade head` from a
-context with sync-workers stopped.
+Promoted from DRAFT 2026-04-28 after `docs/ingestion-v2-phase-2-plan.md`
+review approval.
 
 ==============================================================================
 Why this migration exists (FDD-OPS-014, Phase 2 of ingestion-architecture-v2)
@@ -69,9 +59,9 @@ What this DOES NOT change
   which now matches the global '*' row.
 - No data backfill — existing rows just inherit '*' default.
 
-Revision ID: 010_pipeline_watermarks_scope_key_DRAFT
+Revision ID: 010_pipeline_watermarks_scope_key
 Revises: 009_metrics_snapshots_tenant_latest_index
-Create Date: 2026-04-28 (DRAFT — not chained until promoted)
+Create Date: 2026-04-28
 """
 
 from typing import Sequence, Union
@@ -80,8 +70,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-# When promoting to runnable: rename file (drop _DRAFT) + uncomment chain.
-revision: str = "010_pipeline_watermarks_scope_key_DRAFT"
+revision: str = "010_watermarks_scope_key"
 down_revision: Union[str, None] = "009_metrics_snapshots_tenant_latest_index"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
