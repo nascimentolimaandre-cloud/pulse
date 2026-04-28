@@ -787,3 +787,112 @@ clientes, não pela equipe.
 
 ---
 
+## FDD-OPS-012 · Issue sync — batch-per-project (simetria com PRs)
+
+**Epic:** Data Pipeline Reliability · **Release:** R1
+**Priority:** **P1** · **Persona:** Engineering (visibility + memory safety)
+**Owner class:** `pulse-data-engineer`
+**Trigger:** 2026-04-28 — full re-ingestion travada por horas em fase
+"search/jql" sem nenhuma issue persistida no DB. Diagnóstico: arquitetura
+do `_sync_issues()` é bulk-fetch-then-persist, enquanto `_sync_pull_requests()`
+foi migrada pra batch-per-repo em 2026-04-23 (commit `7f9f339`). Issues
+ficou pra trás.
+
+### Problema
+
+`packages/pulse-data/src/workers/devlake_sync.py:_sync_issues()` segue o
+padrão antigo:
+
+```python
+raw_issues = await self._reader.fetch_issues(...)            # ← BLOQUEIA até paginar TUDO
+changelogs = await self._reader.fetch_issue_changelogs(ids)  # ← + N calls extras
+normalized = [normalize_issue(...) for raw in raw_issues]    # ← TUDO em RAM
+count = await self._upsert_issues(normalized)                # ← upsert único
+```
+
+Para 32 projetos × ~12k issues médias = ~376k issues:
+- **Tempo até primeira linha persistida**: 2-5h (pagination + changelogs serial)
+- **Pico de memória**: ~1-2 GB de issue dicts (no atual setup, OK; se Webmotors crescer pra 1M+, OOM)
+- **Visibilidade zero durante fetch**: `eng_issues.COUNT()` fica em 0 por horas — operadores acham que travou
+- **Recovery se sync abortar mid-fetch**: zero progress preserved (toda paginação se perde)
+
+PRs já resolveram isso em `7f9f339`:
+
+```python
+# devlake_sync.py:_sync_pull_requests() (post-7f9f339)
+async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
+    # 1 repo at a time → normalize → upsert → progress signal
+```
+
+Resultado: PRs persistem em batches de ~100 a cada poucos segundos, operador
+vê COUNT crescendo, recovery preserva 95%+ do trabalho em caso de crash.
+
+### Solução
+
+Espelhar o padrão de PRs em issues:
+
+1. **Refactor `JiraConnector.fetch_issues()` em `fetch_issues_batched()`** —
+   AsyncIterator que yielda `(project_key, batch_of_issues)` por página JQL
+   (ou por projeto, granularidade a definir).
+
+2. **Refactor `_sync_issues()` em devlake_sync.py** — loop async sobre
+   batches, normaliza + upsert por batch, atualiza progress, publica Kafka
+   por batch.
+
+3. **Manter changelog fetch inline com expand=changelog** — não fazer call
+   separada `fetch_issue_changelogs(ids)`. JQL já suporta `expand=changelog`
+   inline (veja `jira_connector.py:212`). Verificar se está sendo usado.
+
+4. **Watermark batch-aware** — atualizar watermark a cada N batches (ex: 10),
+   não só no final. Permite resume após crash sem perder muito.
+
+### Acceptance Criteria
+
+```
+Given a fresh re-ingestion against a Webmotors-scale tenant (32 projects, 376k issues)
+ When _sync_issues() runs
+ Then eng_issues.COUNT() starts growing within 60 seconds (not after hours)
+  AND each batch persists ~100-500 issues
+  AND total memory peak stays below 800 MB (vs 2 GB current)
+  AND if the worker crashes mid-sync, ≥80% of fetched issues are already in DB
+
+Given the new batch-per-project mode is enabled
+ When operator queries `SELECT COUNT(*) FROM eng_issues` repeatedly
+ Then count increases monotonically during the sync (not 0 → 376k jump)
+
+Given Pipeline Monitor exposes /pipeline/ingestion-progress
+ When _sync_issues() is mid-run
+ Then progress endpoint shows current_source = "<project_key>" and
+      records_ingested updates per batch (parity with PR sync)
+```
+
+### Anti-surveillance check
+PASS — sem mudança em payload de métrica. Refactor é puramente sobre
+fluxo de ingestão.
+
+### Dependencies
+Nenhuma. Pode ser implementado isoladamente.
+
+### Estimate
+**M (4-6h)**:
+- 1.5h refactor `JiraConnector.fetch_issues_batched()`
+- 1.5h refactor `_sync_issues()` em devlake_sync.py
+- 1h ajustar progress tracking + watermarks
+- 1-2h tests (unit pra batched fetcher + integration test contra fixture mock)
+
+### Riscos de não fazer
+
+- Cada full re-ingestion futura leva 3-5h cega (igual hoje)
+- Quando Webmotors crescer ou primeiro tenant 2× maior chegar, OOM
+- Operador não tem visibilidade durante o fetch — mascarando travas como
+  a que aconteceu hoje (cycle 2 falhou silenciosamente em 21:23 e ninguém
+  notou por 14h)
+
+### Bonus
+
+Esta FDD se conecta com **FDD-OPS-008** (per-endpoint perf budgets) — uma
+vez que issues sync seja batched, fica viável adicionar performance
+assertions: "batch persist deve completar em < 30s" → falha CI se regredir.
+
+---
+
