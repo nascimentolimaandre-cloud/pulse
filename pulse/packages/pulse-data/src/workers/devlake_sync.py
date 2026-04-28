@@ -990,10 +990,37 @@ class DataSyncWorker:
         ephemeral Jenkins jobs.
         """
         started_at = datetime.now(timezone.utc)
+        # FDD-OPS-014 step 2.5-B: read per-repo watermarks for deployments.
+        # Pre-load all rows where scope_key starts with 'jenkins:repo:' so
+        # the connector can resolve each job's `since` via job→repo mapping.
         async with get_session(self._tenant_id) as session:
             since = await _get_watermark(session, self._tenant_id, "deployments")
+            from sqlalchemy import select as _select
+            result = await session.execute(
+                _select(
+                    PipelineWatermark.scope_key,
+                    PipelineWatermark.last_synced_at,
+                ).where(
+                    PipelineWatermark.entity_type == "deployments",
+                    PipelineWatermark.scope_key.like("jenkins:repo:%"),
+                )
+            )
+            since_by_repo: dict[str, datetime | None] = {}
+            for scope_key_str, last_synced in result.all():
+                # 'jenkins:repo:owner/name' → 'owner/name'
+                repo = scope_key_str[len("jenkins:repo:"):]
+                since_by_repo[repo] = last_synced
 
-        raw_deployments = await self._reader.fetch_deployments(since=since)
+        logger.info(
+            "[deployments] watermark plan: %d repos with per-scope rows, "
+            "global '*' fallback=%s",
+            len(since_by_repo),
+            since.isoformat() if since else "None (full backfill)",
+        )
+
+        raw_deployments = await self._reader.fetch_deployments(
+            since=since, since_by_repo=since_by_repo,
+        )
         if not raw_deployments:
             logger.info("No new deployments to sync")
             return 0
