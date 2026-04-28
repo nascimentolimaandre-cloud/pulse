@@ -684,15 +684,18 @@ class DataSyncWorker:
         complete, then single upsert) with per-page streaming. Mirrors the
         pattern that PRs adopted in commit 7f9f339.
 
-        Properties:
-        - Time-to-first-row: < 10s (was: hours, sometimes never)
-        - Memory: ~one page (~50 issues) in flight, not 376k
-        - Crash recovery: lose ≤ 1 batch of work, not the whole cycle
-        - Operator visibility: `eng_issues.COUNT()` grows in real time
-        """
-        async with get_session(self._tenant_id) as session:
-            since = await _get_watermark(session, self._tenant_id, "issues")
+        FDD-OPS-014 step 2.3 — uses PER-PROJECT watermarks. Each project has
+        its own scope_key='jira:project:<KEY>' row in pipeline_watermarks.
+        Adding a new project = backfill ONLY that scope. Per-project failures
+        don't reset other projects' watermarks. The legacy global '*'
+        watermark is also updated at end-of-cycle for backwards compat.
 
+        Properties:
+        - Time-to-first-row: < 10s
+        - Memory: ~one page in flight, not all-projects
+        - Crash recovery: lose ≤ 1 batch of work
+        - Per-project incremental sync: only fetch new since last project run
+        """
         # Resolve project keys via dynamic discovery (kill-switch via env var).
         # No fallback to a static env var list — that path was deprecated when
         # we landed discovery-only (ingestion-spec §2.3). Empty list = nothing
@@ -718,10 +721,31 @@ class DataSyncWorker:
             logger.info("[issues] no active projects, nothing to sync")
             return 0
 
+        # FDD-OPS-014 step 2.3: load per-project watermarks (scope_key per
+        # project). Missing rows return None = full backfill for that scope.
+        project_scopes = [
+            make_scope_key("jira", "project", pk) for pk in project_keys
+        ]
+        async with get_session(self._tenant_id) as session:
+            scope_to_wm = await _list_watermarks_by_scope(
+                session, self._tenant_id, "issues", project_scopes,
+            )
+        since_by_project: dict[str, datetime | None] = {
+            pk: scope_to_wm[make_scope_key("jira", "project", pk)]
+            for pk in project_keys
+        }
+
+        # Log which projects need backfill vs which have an existing watermark
+        backfill_count = sum(1 for v in since_by_project.values() if v is None)
+        incremental_count = len(project_keys) - backfill_count
+        logger.info(
+            "[issues] watermark plan: %d projects backfill (no scope), "
+            "%d projects incremental",
+            backfill_count, incremental_count,
+        )
+
         # FDD-OPS-015 lite: pre-flight progress signal so operators see the
-        # scope BEFORE we start hammering the API. Total count via per-project
-        # JQL count would itself be N HTTP calls — defer to follow-up FDD.
-        # For now we expose project_keys as the unit of work.
+        # scope BEFORE we start hammering the API.
         started_at = datetime.now(timezone.utc)
         await _update_ingestion_progress(
             self._tenant_id, "issues",
@@ -733,24 +757,42 @@ class DataSyncWorker:
             started_at=started_at,
         )
 
-        # FDD-OPS-014 placeholder: per-scope watermarks aren't shipped yet.
-        # All projects share the global watermark for now. When OPS-014 ships,
-        # this becomes a per-project lookup.
-        since_by_project: dict[str, datetime | None] = {pk: since for pk in project_keys}
-
         total_count = 0
         projects_done: set[str] = set()
         current_project: str | None = None
         per_project_count: dict[str, int] = {pk: 0 for pk in project_keys}
+
+        async def _advance_project_watermark(project_key: str) -> None:
+            """Update watermark for `jira:project:<KEY>` after that project finishes.
+
+            Only advances when count > 0 — empty syncs (incremental with no
+            changes) leave the watermark unchanged so a subsequent failed
+            cycle doesn't accidentally claim "synced through now()".
+            """
+            count_for_project = per_project_count.get(project_key, 0)
+            if count_for_project == 0:
+                return
+            scope_key = make_scope_key("jira", "project", project_key)
+            async with get_session(self._tenant_id) as session:
+                await _set_watermark(
+                    session, self._tenant_id, "issues",
+                    started_at, count_for_project, scope_key=scope_key,
+                )
+            logger.info(
+                "[issues] watermark advanced: %s → %s (%d issues this cycle)",
+                scope_key, started_at.isoformat(), count_for_project,
+            )
 
         try:
             async for project_key, raw_batch in self._reader.fetch_issues_batched(
                 project_keys=project_keys,
                 since_by_project=since_by_project,
             ):
-                # Project change marker for ingestion progress
+                # Project change marker for ingestion progress + watermark advance
                 if project_key != current_project:
                     if current_project is not None:
+                        # Previous project finished — advance its scope watermark
+                        await _advance_project_watermark(current_project)
                         projects_done.add(current_project)
                     current_project = project_key
                     await _update_ingestion_progress(
@@ -812,8 +854,9 @@ class DataSyncWorker:
                     current_source=project_key,
                 )
 
-            # Mark final project as done
+            # Final project after the loop: advance its watermark + mark done
             if current_project is not None:
+                await _advance_project_watermark(current_project)
                 projects_done.add(current_project)
 
             logger.info(
@@ -823,13 +866,17 @@ class DataSyncWorker:
                 {k: v for k, v in per_project_count.items() if v > 0},
             )
 
-            # Update global watermark only when sync succeeded.
-            # Per-scope watermarks are FDD-OPS-014 (next phase).
+            # Update legacy global '*' watermark for backwards compat. Some
+            # monitoring queries / Pipeline Monitor still read by entity
+            # without scope. Migration 011 (FDD-OPS-014 step 2.7) will drop
+            # the legacy unique constraint after a successful per-source
+            # cycle; until then both keep updating.
             if total_count > 0:
                 async with get_session(self._tenant_id) as session:
                     await _set_watermark(
                         session, self._tenant_id, "issues",
-                        datetime.now(timezone.utc), total_count,
+                        started_at, total_count,
+                        # default scope_key='*' — legacy global row
                     )
 
             # Record per-project sync outcome for guardrails (success only —
