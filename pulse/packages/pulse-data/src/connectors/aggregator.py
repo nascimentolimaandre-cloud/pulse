@@ -219,15 +219,29 @@ class ConnectorAggregator:
         return all_changelogs
 
     async def fetch_deployments(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        since_by_repo: dict[str, datetime | None] | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch deployments from all CI/CD connectors (Jenkins, GitHub Actions)."""
+        """Fetch deployments from all CI/CD connectors (Jenkins, GitHub Actions).
+
+        FDD-OPS-014 step 2.5-B: forwards since_by_repo to connectors that
+        support it. Connectors without the parameter fall back to single
+        `since` behavior.
+        """
+        import inspect
         all_deploys: list[dict[str, Any]] = []
         for source in ("jenkins", "github", "gitlab", "azure"):
             connector = self._connectors.get(source)
             if connector:
                 try:
-                    deploys = await connector.fetch_deployments(since)
+                    sig = inspect.signature(connector.fetch_deployments)
+                    if "since_by_repo" in sig.parameters:
+                        deploys = await connector.fetch_deployments(
+                            since=since, since_by_repo=since_by_repo,
+                        )
+                    else:
+                        deploys = await connector.fetch_deployments(since)
                     all_deploys.extend(deploys)
                     logger.info("Fetched %d deployments from %s", len(deploys), source)
                 except Exception:

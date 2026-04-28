@@ -116,16 +116,42 @@ class JenkinsConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def fetch_deployments(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        since_by_repo: dict[str, datetime | None] | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch builds from configured Jenkins jobs.
 
         Each build is mapped to a deployment record. Only jobs configured
         in connections.yaml are fetched (not all Jenkins jobs).
+
+        FDD-OPS-014 step 2.5-B: per-repo `since` resolution. Jenkins has
+        no native "repo" concept — we use the job→repo mapping (built
+        from SCM scan, see `discover_jenkins_jobs.py`) to map each job
+        to its source repo and look up the repo's watermark.
+
+        Resolution order per job:
+          1. since_by_repo[mapped_repo] (if mapped_repo in dict)
+          2. fall back to bulk `since` (single-watermark behavior)
+
+        Backwards compat: if since_by_repo is None, all jobs use
+        single `since` (legacy bulk behavior preserved).
         """
         if not self._jobs:
             logger.warning("No Jenkins jobs configured — skipping deployment fetch")
             return []
+
+        # Pre-flight: log per-repo plan when since_by_repo is provided.
+        if since_by_repo is not None:
+            jobs_with_scope = sum(
+                1 for j in self._jobs
+                if self._job_to_repo.get(j.get("fullName", ""), "") in since_by_repo
+            )
+            logger.info(
+                "Jenkins fetch: %d jobs total, %d jobs with per-repo watermark, "
+                "rest use bulk since=%s",
+                len(self._jobs), jobs_with_scope, since,
+            )
 
         all_builds: list[dict[str, Any]] = []
 
@@ -134,8 +160,15 @@ class JenkinsConnector(BaseConnector):
             if not job_name:
                 continue
 
+            # Resolve per-repo since via job→repo mapping.
+            repo = self._job_to_repo.get(job_name, job_name)
+            if since_by_repo is not None and repo in since_by_repo:
+                job_since = since_by_repo[repo]
+            else:
+                job_since = since
+
             try:
-                builds = await self._fetch_job_builds(job_name, since)
+                builds = await self._fetch_job_builds(job_name, job_since)
                 all_builds.extend(builds)
             except Exception:
                 logger.exception("Failed to fetch builds for job: %s", job_name)
