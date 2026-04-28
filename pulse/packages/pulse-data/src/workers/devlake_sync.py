@@ -105,13 +105,42 @@ def extract_status_transitions_inline(raw_issue: dict[str, Any]) -> list[dict[st
 
 # ---------------------------------------------------------------------------
 # Watermark helpers — persistent DB storage via pipeline_watermarks
+#
+# FDD-OPS-014 (migration 010): watermarks are keyed by (tenant, entity, scope).
+# `scope_key='*'` is the legacy "global" key — kept as default for backwards
+# compatibility during the rollout. Per-source workers (steps 2.3-2.5) will
+# pass explicit scope_keys like 'jira:project:BG' or 'github:repo:foo/bar'.
 # ---------------------------------------------------------------------------
 
-async def _get_watermark(session, tenant_id: UUID, entity: str) -> datetime | None:
-    """Get the last sync timestamp for an entity type from the DB."""
+# Scope-key conventions (free-form string per Q2 of phase-2 plan, but helpers
+# enforce shape). Format: '<source>:<dimension>:<value>'.
+GLOBAL_SCOPE = "*"
+
+
+def make_scope_key(source: str, dimension: str, value: str) -> str:
+    """Build a canonical scope_key. Convention enforced via helper, not DB.
+
+    Examples:
+        make_scope_key("jira", "project", "BG")     -> "jira:project:BG"
+        make_scope_key("github", "repo", "foo/bar") -> "github:repo:foo/bar"
+    """
+    return f"{source}:{dimension}:{value}"
+
+
+async def _get_watermark(
+    session, tenant_id: UUID, entity: str, scope_key: str = GLOBAL_SCOPE,
+) -> datetime | None:
+    """Get the last sync timestamp for (entity_type, scope_key) from the DB.
+
+    Default scope_key='*' preserves legacy callers (one global row per
+    entity_type). Per-source workers pass an explicit scope_key.
+    """
     result = await session.execute(
         select(PipelineWatermark.last_synced_at)
-        .where(PipelineWatermark.entity_type == entity)
+        .where(
+            PipelineWatermark.entity_type == entity,
+            PipelineWatermark.scope_key == scope_key,
+        )
     )
     row = result.scalar_one_or_none()
     return row
@@ -119,19 +148,24 @@ async def _get_watermark(session, tenant_id: UUID, entity: str) -> datetime | No
 
 async def _set_watermark(
     session, tenant_id: UUID, entity: str, ts: datetime, count: int,
+    scope_key: str = GLOBAL_SCOPE,
 ) -> None:
-    """Upsert the watermark for an entity type using ON CONFLICT."""
+    """Upsert the watermark for (entity_type, scope_key) using ON CONFLICT.
+
+    Default scope_key='*' upserts the legacy global row.
+    """
     stmt = (
         pg_insert(PipelineWatermark)
         .values(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
             entity_type=entity,
+            scope_key=scope_key,
             last_synced_at=ts,
             records_synced=count,
         )
         .on_conflict_do_update(
-            constraint="uq_watermark_entity",
+            constraint="uq_watermark_entity_scope",
             set_={
                 "last_synced_at": ts,
                 "records_synced": count,
@@ -140,7 +174,33 @@ async def _set_watermark(
         )
     )
     await session.execute(stmt)
-    logger.debug("Updated watermark for %s to %s (count=%d)", entity, ts, count)
+    logger.debug(
+        "Updated watermark for %s/%s to %s (count=%d)",
+        entity, scope_key, ts, count,
+    )
+
+
+async def _list_watermarks_by_scope(
+    session, tenant_id: UUID, entity: str, scope_keys: list[str],
+) -> dict[str, datetime | None]:
+    """Bulk-fetch watermarks for a list of scopes. Returns {scope_key: ts}.
+
+    Missing scopes return None (no watermark = full backfill on first sync).
+    Used by per-source workers (Phase 2 step 2.3+) to feed
+    `since_by_project={...}` into batched fetchers.
+    """
+    if not scope_keys:
+        return {}
+
+    result = await session.execute(
+        select(PipelineWatermark.scope_key, PipelineWatermark.last_synced_at)
+        .where(
+            PipelineWatermark.entity_type == entity,
+            PipelineWatermark.scope_key.in_(scope_keys),
+        )
+    )
+    found = {row[0]: row[1] for row in result.all()}
+    return {scope: found.get(scope) for scope in scope_keys}
 
 
 # ---------------------------------------------------------------------------

@@ -19,20 +19,41 @@ from src.shared.models import TenantModel
 
 
 class PipelineWatermark(TenantModel):
-    """Stores sync watermarks per entity type for incremental sync.
+    """Stores sync watermarks per (tenant, entity, scope) for incremental sync.
 
     Replaces the in-memory _WATERMARKS dict with persistent DB storage,
     so watermarks survive worker restarts and scale across replicas.
+
+    FDD-OPS-014 (migration 010): added `scope_key` so a single entity_type
+    can have multiple scopes. E.g.:
+        scope_key='*'                   → legacy global (one row, all sources)
+        scope_key='jira:project:BG'     → Jira project BG
+        scope_key='github:repo:foo/bar' → specific GitHub repo
+        scope_key='jenkins:job:deploy-X'→ specific Jenkins job
+
+    The legacy `uq_watermark_entity` constraint coexists with the new
+    `uq_watermark_entity_scope` UNIQUE — to be dropped in migration 011
+    after all worker code is writing per-scope.
     """
 
     __tablename__ = "pipeline_watermarks"
     __table_args__ = (
+        # Legacy constraint kept for backwards-compat during transition.
+        # Dropped in migration 011 (FDD-OPS-014 step 2.7).
         UniqueConstraint("tenant_id", "entity_type", name="uq_watermark_entity"),
+        # New per-scope constraint (active from migration 010 onward).
+        UniqueConstraint(
+            "tenant_id", "entity_type", "scope_key",
+            name="uq_watermark_entity_scope",
+        ),
     )
 
     entity_type: Mapped[str] = mapped_column(
         String(64), nullable=False,
     )  # pull_requests | issues | deployments | sprints
+    scope_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, server_default="*",
+    )  # see class docstring for format
     last_synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
     )
