@@ -265,3 +265,86 @@ class TestSyncIssuesDoesNotCallFetchIssueChangelogs:
             "instead — changelogs are already inline in the JQL response "
             "(expand=changelog)."
         )
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: connector mapping → inline extraction
+# ---------------------------------------------------------------------------
+
+class TestMapIssuePreservesChangelogForInlineExtraction:
+    """REGRESSION GUARD (2026-04-27 incident).
+
+    `JiraConnector._map_issue` originally extracted the changelog into a
+    side-cache (`self._last_changelogs`) but did NOT include it in the
+    returned mapped dict. The new `_sync_issues` flow reads
+    `raw["changelog"]["histories"]` from the mapped dict via
+    `extract_status_transitions_inline()` — so 311k issues landed in
+    `eng_issues` with `status_transitions=[]`, breaking every Lean and
+    Cycle Time metric downstream.
+
+    This test wires the connector mapping to the inline extractor end-to-end
+    and asserts that real Jira API shape produces non-empty transitions.
+    """
+
+    def test_map_issue_output_yields_status_transitions_when_changelog_present(self):
+        from src.connectors.jira_connector import JiraConnector
+
+        # Build a Jira API issue payload mirroring what `expand=changelog` returns.
+        jira_api_response = {
+            "id": "100200",
+            "key": "TEST-1",
+            "fields": {
+                "summary": "do the thing",
+                "status": {"name": "Done"},
+                "priority": {"name": "Medium"},
+                "issuetype": {"name": "Task"},
+                "assignee": {"displayName": "Alice"},
+                "created": "2026-01-15T10:00:00.000+0000",
+                "updated": "2026-01-20T16:30:00.000+0000",
+                "resolutiondate": "2026-01-20T16:30:00.000+0000",
+                "description": None,
+            },
+            "changelog": {
+                "histories": [
+                    {
+                        "created": "2026-01-15T10:00:00.000+0000",
+                        "items": [
+                            {"field": "Status", "fromString": "To Do",
+                             "toString": "In Progress"},
+                        ],
+                    },
+                    {
+                        "created": "2026-01-20T16:30:00.000+0000",
+                        "items": [
+                            {"field": "Status", "fromString": "In Progress",
+                             "toString": "Done"},
+                        ],
+                    },
+                ],
+            },
+        }
+
+        # Instantiate without hitting the network — supply minimal config.
+        connector = JiraConnector.__new__(JiraConnector)
+        connector._connection_id = 1
+        connector._base_url = "https://example.atlassian.net"
+        connector._sprint_field_id = None
+        connector._story_points_field_id = None
+        connector._last_changelogs = {}
+
+        mapped = connector._map_issue(jira_api_response)
+
+        # The mapped dict MUST carry the changelog so the inline extractor
+        # downstream can find it. Removing this key (or renaming it without
+        # updating extract_status_transitions_inline) silently breaks
+        # every status-transition metric.
+        assert "changelog" in mapped, (
+            "_map_issue dropped the `changelog` key — extract_status_"
+            "transitions_inline() in the sync worker will return [] for "
+            "every issue. This is the 2026-04-27 production bug."
+        )
+
+        transitions = extract_status_transitions_inline(mapped)
+        assert len(transitions) == 2
+        assert transitions[0]["to_status"] == "In Progress"
+        assert transitions[1]["to_status"] == "Done"
