@@ -78,9 +78,15 @@ class ConnectorAggregator:
         return total
 
     async def fetch_pull_requests_batched(
-        self, since: datetime | None = None,
+        self,
+        since: datetime | None = None,
+        since_by_repo: dict[str, datetime | None] | None = None,
     ) -> AsyncIterator[tuple[str, list[dict[str, Any]] | None]]:
         """Yield PRs in batches (per repo) from all code-hosting connectors.
+
+        FDD-OPS-014 step 2.4-B: forwards since_by_repo to connectors that
+        support it. Connectors without the parameter (older shape) fall
+        back to single-`since` behavior.
 
         Each yield is (repo_name, prs_or_none):
           - prs is None → "starting" signal for this repo (UI progress hint)
@@ -90,7 +96,17 @@ class ConnectorAggregator:
             connector = self._connectors.get(source)
             if connector and hasattr(connector, "fetch_pull_requests_batched"):
                 try:
-                    async for repo_name, prs in connector.fetch_pull_requests_batched(since):
+                    # Detect if connector supports since_by_repo (graceful
+                    # for connectors not yet updated in newer codebases).
+                    import inspect
+                    sig = inspect.signature(connector.fetch_pull_requests_batched)
+                    if "since_by_repo" in sig.parameters:
+                        gen = connector.fetch_pull_requests_batched(
+                            since=since, since_by_repo=since_by_repo,
+                        )
+                    else:
+                        gen = connector.fetch_pull_requests_batched(since)
+                    async for repo_name, prs in gen:
                         yield repo_name, prs
                 except Exception:
                     logger.exception("Error fetching batched PRs from %s", source)
