@@ -896,3 +896,418 @@ assertions: "batch persist deve completar em < 30s" → falha CI se regredir.
 
 ---
 
+## FDD-OPS-013 · Eliminate redundant `fetch_issue_changelogs` call in `_sync_issues`
+
+**Epic:** Data Pipeline Reliability · **Release:** R1 (P0 — fixes
+24h+ blocking phase observed 2026-04-28)
+**Priority:** **P0** · **Persona:** Data engineering, all customers
+**Owner class:** `pulse-data-engineer`
+**Trigger:** 2026-04-28 — full re-ingestion stuck for hours in
+sequential `GET /rest/api/3/issue/{id}?expand=changelog` calls (~3
+calls/sec for 250k+ issues = ~24h estimated). Diagnosed as redundant.
+
+### Problema
+
+`_sync_issues()` faz duas chamadas que sobrepõem 100%:
+
+1. `fetch_issues()` — JQL search com `expand=changelog` inline. Já
+   retorna a changelog completa em `raw["changelog"]`.
+2. `fetch_issue_changelogs(ids)` — chama `GET /issue/{id}?expand=changelog`
+   uma vez por issue.
+
+Resultado: 376k issues × ~300ms latência = **~31 horas de chamadas
+redundantes** + pressão sobre rate limit Atlassian.
+
+O próprio connector documenta o problema (`jira_connector.py:267`):
+
+```python
+def fetch_issue_changelogs(...):
+    """...
+    Since fetch_issues already includes changelogs via expand=changelog,
+    this method is used for issues fetched WITHOUT expand (e.g., sprint issues).
+    """
+```
+
+Mas em `devlake_sync.py:614`:
+
+```python
+issue_ids = [str(raw["id"]) for raw in raw_issues]
+changelogs_by_issue = await self._reader.fetch_issue_changelogs(issue_ids)  # ← redundante
+```
+
+E `normalize_issue` recebe `changelogs=changelogs_by_issue.get(id, [])` em
+vez de extrair `raw["changelog"]` direto.
+
+### Solução
+
+**1 mudança código + 1 teste:**
+
+```python
+# devlake_sync.py:_sync_issues()
+# REMOVER:
+# issue_ids = [str(raw["id"]) for raw in raw_issues]
+# changelogs_by_issue = await self._reader.fetch_issue_changelogs(issue_ids)
+
+# SUBSTITUIR por:
+# (changelogs já estão em raw["changelog"] via expand)
+for raw in raw_issues:
+    issue_changelogs = raw.get("changelog", {}).get("histories", [])
+    issue_data = normalize_issue(
+        raw, self._tenant_id, self._status_mapping,
+        changelogs=issue_changelogs,
+    )
+    normalized.append(issue_data)
+```
+
+`fetch_issue_changelogs` permanece existindo — é usado SOMENTE para
+sprint issues que vêm sem `expand` (esse caminho fica intocado).
+
+### Acceptance Criteria
+
+```
+Given full re-ingestion against Webmotors (32 projects, 376k issues)
+ When _sync_issues() runs
+ Then NO calls are made to GET /rest/api/3/issue/{id}?expand=changelog
+   (verify via httpx logs / mock)
+  AND eng_issues.status_transitions JSONB is populated correctly
+   (parity with current behavior — verified by domain-level tests)
+  AND total wall time for issues phase drops from ~24h to ~5min
+
+Given a fresh tenant has 1000 issues across 5 projects
+ When sync runs
+ Then changelogs are extracted from inline expand response
+  AND status_transitions field has same content as before
+```
+
+### Regression test
+
+Adicionar test em `packages/pulse-data/tests/integration/`:
+
+```python
+def test_sync_issues_uses_inline_changelogs_only():
+    # Mock JiraConnector.fetch_issues returning raw with "changelog" inline
+    # Mock fetch_issue_changelogs to record calls
+    # Run _sync_issues
+    # Assert mock_fetch_issue_changelogs.call_count == 0
+    # Assert eng_issues.status_transitions populated correctly
+```
+
+Trava regressão futura (alguém pode "consertar" reintroduzindo a call).
+
+### Anti-surveillance check
+PASS — sem mudança em payload/normalização, só elimina I/O redundante.
+
+### Estimate
+**XS (1-2h)**:
+- 30min: code change in `_sync_issues()`
+- 30min: regression test
+- 30min: validate against real Webmotors data (compare status_transitions before/after)
+- ~30min margin
+
+### Dependencies
+Nenhuma. Pode ser shipped imediatamente.
+
+### Risco de não fazer
+Cada full re-ingestion (Webmotors hoje, novos tenants amanhã) leva 24h+
+em vez de minutos. SaaS-blocker.
+
+### Conexão com v2 architecture
+Este é o "quick win Phase 1" do `docs/ingestion-architecture-v2.md`. Não
+substitui Phases 2/3, mas elimina o pior gargalo single-handedly.
+
+---
+
+## FDD-OPS-014 · Per-source workers + per-scope watermarks
+
+**Epic:** Data Pipeline Architecture · **Release:** R1
+**Priority:** **P1** · **Persona:** SaaS engineering team
+**Owner class:** `pulse-data-engineer` + `pulse-engineer`
+**Trigger:** 2026-04-27/28 incidents — sync-worker monolítico travado
+em Jenkins (VPN off) bloqueando GitHub e Jira que estavam saudáveis.
+Global watermark causando full backfill ao adicionar projetos novos.
+
+### Problema (dois sintomas, uma causa)
+
+**Sintoma 1 — sem source isolation (AP-4):**
+
+`DataSyncWorker` é um único processo que roda 4 fases sequenciais
+(`issues → PRs → deploys → sprints`). Todas as 4 fontes (GitHub, Jira,
+Jenkins) compartilham:
+
+- Mesmo event loop
+- Mesma cadence de sync
+- Mesmo cycle order
+- Mesmo failure handling
+
+Consequência: **Jenkins offline (VPN drop)** ou **Jira blip** travam
+todo o ciclo, mesmo que GitHub esteja saudável. Onboarding de GitLab/ADO
+significa ainda mais código no mesmo loop monolítico.
+
+A simétrica fica esquisita: `discovery-worker` JÁ é processo separado
+(boa decisão em ADR-014). `sync-worker` ficou para trás.
+
+**Sintoma 2 — global watermark (AP-3):**
+
+`pipeline_watermarks` tem 1 row por `entity_type`, sem dimensão de
+scope:
+
+```sql
+entity_type='issues', last_synced_at='2026-04-26'  -- aplica a TODOS os 32 projetos
+```
+
+Consequência: quando discovery ativa um novo projeto, a única forma de
+backfill é resetar watermark para `2020-01-01`, o que **re-fetcha
+TODOS os 200k+ issues dos projetos existentes** sem necessidade.
+
+### Solução (2 partes coesas)
+
+**Parte 1 — split sync-worker em 3 workers:**
+
+```
+docker-compose.yml:
+  sync-worker         → REMOVE
+  github-sync-worker  → NEW (apenas GitHub PRs)
+  jira-sync-worker    → NEW (apenas Jira issues + sprints)
+  jenkins-sync-worker → NEW (apenas Jenkins deploys)
+```
+
+Cada worker:
+- Próprio event loop
+- Cadence configurável independente
+- Health-aware: pre-flight check antes de iniciar fase
+- Logging com tag de source para grep/filter
+
+**Parte 2 — per-scope watermarks:**
+
+Migration nova adiciona `scope_key` em `pipeline_watermarks`:
+
+```sql
+ALTER TABLE pipeline_watermarks
+  ADD COLUMN scope_key VARCHAR(255) NOT NULL DEFAULT '*';
+
+-- Drop unique on entity_type alone, replace:
+ALTER TABLE pipeline_watermarks
+  ADD CONSTRAINT uq_watermark_scope
+  UNIQUE (tenant_id, entity_type, scope_key);
+```
+
+Watermarks viram:
+
+| tenant_id | entity_type | scope_key | last_synced_at |
+|---|---|---|---|
+| ...001 | issues | jira:project:BG | 2026-04-26 |
+| ...001 | issues | jira:project:OKM | 2026-04-26 |
+| ...001 | pull_requests | github:repo:foo/bar | 2026-04-26 |
+| ...001 | deployments | jenkins:job:deploy-X | 2026-04-26 |
+
+Connector-side: `fetch_issues(project_key=..., since=watermark[scope_key])`.
+
+### Acceptance Criteria
+
+```
+Given Jenkins is unreachable (VPN off)
+ When the daily ingestion cycle runs
+ Then jenkins-sync-worker logs "unhealthy, skipping cycle"
+  AND github-sync-worker continues normally
+  AND jira-sync-worker continues normally
+  AND VPN reconnect → jenkins-sync-worker resumes from last per-scope watermark
+
+Given a NEW Jira project is auto-activated by discovery
+ When jira-sync-worker runs the next cycle
+ Then ONLY the new project's issues are backfilled (since 2020-01-01)
+  AND existing projects' issues are NOT re-fetched
+  AND pipeline_watermarks has a new row with scope_key=jira:project:NEW
+
+Given Webmotors has 32 active Jira projects
+ When jira-sync-worker runs incremental sync
+ Then 32 watermarks are queried (1 per scope)
+  AND each project syncs from its own last_synced_at
+  AND total cycle time scales linearly with new data, not historical data
+```
+
+### Anti-surveillance check
+PASS — sem mudança em campos persistidos.
+
+### Estimate
+**M-L (1 semana)**:
+- 1 dia: extract per-source workers (refactor `DataSyncWorker`)
+- 0.5 dia: docker-compose + Dockerfile per-source
+- 1 dia: schema migration + watermark repo refactor
+- 1 dia: connector-side scope filtering (Jira `project_keys` already there; GitHub repo-by-repo already there; Jenkins per-job)
+- 1 dia: testes (especialmente o cenário VPN drop simulation)
+- 0.5 dia: Pipeline Monitor UI per-source breakdown
+- ~1 dia margin
+
+### Dependencies
+- FDD-OPS-013 (deve shipping antes pra simplificar refactor)
+- FDD-OPS-012 (issue batch-per-project) idealmente ships antes — mas
+  pode ser paralelo
+
+### Risco de não fazer
+- Cada outage de fonte (VPN, rate-limit, Atlassian incident) trava todo
+  o pipeline
+- Onboarding de GitLab/ADO/Linear adiciona código na monolita já
+  frágil
+- SaaS multi-tenant inviável sem isolation entre tenants → entre sources
+  é o primeiro passo
+
+### Conexão com v2 architecture
+Este é o "Phase 2" de `docs/ingestion-architecture-v2.md`. Phase 3 (job
+queue + worker pool) constrói em cima.
+
+---
+
+## FDD-OPS-015 · Observable ingestion: pre-flight estimates + per-scope progress + ETA
+
+**Epic:** Data Pipeline / Ops Visibility · **Release:** R1
+**Priority:** **P1** · **Persona:** Operators (you, on-call), data engineering
+**Owner class:** `pulse-data-engineer` + `pulse-engineer` (UI)
+**Trigger:** 2026-04-27/28 — 5 cycles where I gave estimates ("ETA
+45min") that were wrong by 10×+. Operator (você) cannot answer "is it
+stuck?" without diving into logs. `COUNT(*)` is useless during
+bulk-fetch.
+
+### Problema
+
+Atualmente:
+
+1. **Sem pre-flight count.** Worker não pergunta "quantas issues match
+   esse JQL?" antes de iniciar. Apenas começa.
+2. **Sem rate-aware ETA.** Pace medido (ex: 27 calls/min) não é
+   usado pra calcular tempo restante.
+3. **Sem per-scope progress.** Quando preso, impossível distinguir
+   "BG (197k) ainda não terminou" de "estamos no projeto X".
+4. **Pipeline Monitor mostra agregado per-entity_type**, não per-scope.
+
+Consequência operacional: **5 falsos alarmes de progresso esta semana**.
+
+### Solução (3 entregas coesas)
+
+**1. Pre-flight estimate per scope:**
+
+Em cada início de fase, o worker chama o source pra contar:
+
+```python
+# Jira: count via JQL count
+estimate = await jira.count_issues(project_key=BG, since=watermark)
+# logs: "[scope=jira:project:BG] estimated 12,450 issues since 2026-04-26"
+```
+
+Se a count call em si for muito cara (alguns sources não suportam),
+heuristic: "X items since Y, extrapolated."
+
+**2. Per-batch progress with rate-aware ETA:**
+
+Cada batch persistido emite progress event:
+
+```python
+{
+  "scope": "jira:project:BG",
+  "phase": "fetching",
+  "items_done": 1200,
+  "items_total_estimate": 12450,
+  "items_per_second": 18.5,
+  "eta_seconds": 608,
+  "started_at": "...",
+  "current_high_water": "2026-04-27T10:23:00Z"
+}
+```
+
+Tabela nova `pipeline_progress` (live + historical):
+
+```sql
+CREATE TABLE pipeline_progress (
+    id UUID PRIMARY KEY,
+    tenant_id UUID,
+    scope_key VARCHAR(255),
+    entity_type VARCHAR(64),
+    phase VARCHAR(32),  -- fetching | normalizing | persisting | done | failed
+    items_done INT,
+    items_estimate INT,
+    items_per_second DOUBLE PRECISION,
+    eta_seconds INT,
+    started_at TIMESTAMPTZ,
+    last_progress_at TIMESTAMPTZ,
+    status VARCHAR(16),  -- running | done | failed | paused
+    last_error TEXT
+);
+```
+
+**3. Endpoint `/pipeline/jobs` + Pipeline Monitor UI per-scope:**
+
+```
+GET /data/v1/pipeline/jobs
+
+[
+  {
+    "scope": "jira:project:BG",
+    "entity_type": "issues",
+    "status": "running",
+    "items_done": 1200,
+    "items_estimate": 12450,
+    "progress_pct": 9.6,
+    "eta_seconds": 608,
+    "rate_per_sec": 18.5,
+    "started_at": "...",
+    "errors": []
+  },
+  ...
+]
+```
+
+Pipeline Monitor UI ganha tab "Per-scope progress" com tabela tipo Top Hat:
+scope, status, %, ETA, current rate, errors.
+
+### Acceptance Criteria
+
+```
+Given a fresh ingestion against 32 projects
+ When operator queries /pipeline/jobs after 30s
+ Then response includes 32 rows (1 per active scope)
+  AND each row has status, items_done, ETA, rate
+  AND ETA accuracy: actual_completion_time within ±20% of estimate
+   (measured: ETA at 10% complete vs actual completion at 100%)
+
+Given an ingestion job stalls (network blip, source down)
+ When 60 seconds pass without progress
+ Then job's last_progress_at falls > 60s behind now()
+  AND UI displays "stalled" badge
+  AND on-call gets clear signal "scope X is stuck"
+
+Given operator wants to investigate a slow source
+ When opens Pipeline Monitor → Per-scope tab
+ Then can sort by items_per_second
+  AND can filter by entity_type/source
+  AND can see error history per scope
+```
+
+### Anti-surveillance check
+PASS — progress data is metadata about ingestion, not user activity.
+
+### Estimate
+**M (3-5 dias)**:
+- 0.5 dia: schema migration `pipeline_progress`
+- 1 dia: pre-flight count helpers (Jira count JQL, GitHub repo count, Jenkins job count)
+- 1 dia: per-batch progress emission + ETA calculation
+- 0.5 dia: `/pipeline/jobs` endpoint
+- 1 dia: Pipeline Monitor UI tab per-scope
+- 0.5 dia: tests + dashboard polish
+
+### Dependencies
+- FDD-OPS-014 (per-scope watermarks) é pré-requisito do per-scope
+  progress
+- FDD-OPS-012 (batch-per-project) facilita progress emit per-batch
+
+### Riscos
+- Pre-flight count aumenta tempo total se overhead alto. Mitigar: se
+  count > 5s, usar heuristic
+- Estimate ruim no início (até medir rate real) — aceitar e refinar a
+  cada batch
+
+### Conexão com v2 architecture
+Este é o "Phase 1.5" de `docs/ingestion-architecture-v2.md`. Crítico
+para evitar repetir o ciclo de "estimar 45min, esperar 4h, descobrir
+que travou".
+
+---
+
