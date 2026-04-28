@@ -516,6 +516,11 @@ class JiraConnector(BaseConnector):
             "assignee_name": (fields.get("assignee") or {}).get("displayName"),
             "type": (fields.get("issuetype") or {}).get("name", "Task"),
             "sprint_id": sprint_id,
+            # FDD-OPS-013 — preserve raw changelog from `expand=changelog` so
+            # `extract_status_transitions_inline()` in the sync worker can read
+            # it. Without this, mapped dict drops the changelog and ALL issues
+            # land with status_transitions=[] in eng_issues.
+            "changelog": jira_issue.get("changelog", {}),
         }
 
     def _map_sprint_issue(
