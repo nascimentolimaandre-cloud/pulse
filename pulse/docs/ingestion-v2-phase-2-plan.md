@@ -1,9 +1,55 @@
 # Ingestion v2 — Phase 2 Plan (FDD-OPS-014)
 
-**Status:** DRAFT — produced in parallel while Phase 1 ingestion runs.
+**Status:** PARTIAL — foundation shipped 2026-04-28, read-side refactor + worker split deferred.
 **Companion docs:** `ingestion-architecture-v2.md` (overall design),
 `ingestion-spec.md` (current architecture).
-**Sister artifact:** `alembic/versions/010_pipeline_watermarks_scope_key_DRAFT.py`
+**Sister artifact (applied):** `alembic/versions/010_pipeline_watermarks_scope_key.py`
+
+---
+
+## 0. Shipping summary (2026-04-28 status)
+
+What landed in this iteration vs. what carries forward:
+
+### ✅ Shipped (production-ready, validated against live tenant)
+
+| Step | Commit | What |
+|---|---|---|
+| **2.1** | `f357d05` | Migration 010 applied: `pipeline_watermarks.scope_key VARCHAR(255) NOT NULL DEFAULT '*'` + `uq_watermark_entity_scope` UNIQUE coexisting with legacy `uq_watermark_entity` |
+| **2.2** | `f357d05` | Per-scope watermarks API: `GLOBAL_SCOPE`, `make_scope_key(source, dim, value)`, `_get_watermark(scope_key=...)`, `_set_watermark(scope_key=...)`, `_list_watermarks_by_scope(scope_keys=[...])`. Default `'*'` preserves all legacy callers. |
+| **2.3** | `f357d05` | `_sync_issues()` reads + writes per-project watermarks (`jira:project:<KEY>`). Logs "watermark plan: N backfill, M incremental" pre-flight. Per-project advance fires on project transition. Legacy global '*' kept for compat. |
+| **2.4** | `15574a7` | `_sync_pull_requests()` writes per-repo watermarks (`github:repo:<owner>/<name>`) on each batch persist. **Write-side only** — connector still uses single `since` for fetch. |
+| **2.5** | `15574a7` | `_sync_deployments()` writes per-repo watermarks (`jenkins:repo:<repo>`) post-upsert. Per-repo not per-job (Q2 decision: matches PR↔deploy linking dimension). **Write-side only.** |
+
+Test coverage shipped: 19 unit tests (`test_watermark_scope_keys.py` 9, `test_inline_changelog_extraction.py` 10 — re-validated alongside).
+
+### 🟡 Deferred to next iteration (sister FDD)
+
+| Step | What's missing | Why deferred |
+|---|---|---|
+| **2.4-B / 2.5-B** | Connector signature refactor: accept `since_by_repo` / `since_by_project` so per-scope watermarks are READ during fetch (not just written) | Required for new-repo backfill correctness — without it, adding a repo only fetches PRs newer than the global `*` watermark. Significant connector code change (~M effort), warranted in a dedicated PR with thorough tests. |
+| **2.6** | docker-compose split into per-source workers (jira/github/jenkins) | Architectural value of split (per-source isolation, parallel cycles) only realizes when combined with 2.4-B + 2.5-B. Splitting alone = 3 containers running same global-watermark logic — zero throughput win. |
+| **2.7** | Migration 011: drop legacy `uq_watermark_entity` constraint | Plan §3 explicitly requires "after one successful per-source cycle". Per-source doesn't exist yet (deferred above). Legacy constraint coexists harmlessly until then. |
+| **Health-aware pre-flight** (P-8 in v2 doc) | Pre-cycle source reachability check (skip cycle if source unhealthy) | Belongs with worker-split work (each per-source worker owns its health-check). Without split, a single sync still has interleaved phases. |
+
+### 🟢 Foundation shipped means
+
+- New scope rows accumulate every cycle. When the read-side refactor lands, every active repo/project already has its own watermark — no schema migration, no backfill of historic data.
+- Migration 010 is rollback-safe via `downgrade()`. The legacy unique constraint coexists with the new one for as long as needed.
+- All Phase 1 wins (FDD-OPS-012 batched persistence, FDD-OPS-013 inline changelogs) remain intact and continue working.
+
+### 📅 Suggested next iteration
+
+Open as `feat/ingestion-v2-phase-2b` branch:
+
+1. Refactor `JiraConnector.fetch_issues_batched` to accept `since_by_project` dict (already does — done in Phase 1). Just verify wired correctly.
+2. Refactor `GithubConnector.fetch_pull_requests_batched` to accept `since_by_repo: dict[str, datetime | None]` and use per-repo since when provided.
+3. Refactor `JenkinsConnector` deployments fetch to accept per-repo since.
+4. Update `_sync_*` methods to pass `since_by_<scope>` from `_list_watermarks_by_scope` results.
+5. Smoke test: add new project to Jira catalog → confirm only that scope backfills.
+6. THEN: docker-compose split (Step 2.6) + companion migration 011.
+
+Estimated effort for Phase 2-B: **M-L (~3-5 dev-days)**. Honest scoping based on actual time spent on Phase 2-A (much faster than originally estimated due to clean foundation).
 
 ---
 
@@ -309,13 +355,20 @@ window.
 
 ## Status
 
-**Status of this document:** DRAFT 1. Awaiting review by
-`pulse-data-engineer` and `pulse-engineer`. No code changes
-beyond the sister Alembic migration draft (also DRAFT). Phase 1
-ingestion is currently running and must converge before any Phase 2
-implementation begins.
+**Status of this document:** PARTIAL IMPLEMENTATION (2026-04-28).
 
-When approved:
-1. Rename `010_pipeline_watermarks_scope_key_DRAFT.py` → `010_pipeline_watermarks_scope_key.py`
-2. Open implementation PRs in the order described in §3
-3. Update this doc's status to "APPROVED" and remove the DRAFT prefix
+Phase 2-A foundation shipped — see §0 for the breakdown of what landed
+vs. what was deferred to Phase 2-B. The architectural pattern (per-scope
+watermarks coexisting with legacy global '*' rows) is in production use
+and validated against the Webmotors tenant.
+
+Phase 2-B (read-side connector refactor + docker-compose split + drop
+legacy constraint) opens as a separate effort — see §0 "Suggested next
+iteration" for the concrete roadmap.
+
+### Document changelog
+
+- **2026-04-28 evening** — PARTIAL status. Steps 2.1–2.5 (write-side)
+  shipped. Steps 2.4-B, 2.5-B, 2.6, 2.7 deferred with rationale.
+- **2026-04-28 afternoon** — DRAFT 1 produced in parallel while Phase 1
+  ingestion converged.
