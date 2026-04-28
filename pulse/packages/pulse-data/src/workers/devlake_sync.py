@@ -525,20 +525,52 @@ class DataSyncWorker:
         published to Kafka immediately — no accumulation in memory. If the
         process crashes mid-sync, all previously persisted repos are safe.
 
-        FDD-OPS-014 step 2.4 — per-repo watermarks now WRITTEN as each repo's
-        batch persists (scope_key='github:repo:<owner>/<name>'). Reads still
-        use the global '*' watermark for now; the connector signature update
-        to accept since_by_repo is a follow-up step (the writes accumulate
-        ahead of that refactor so when it lands, repos already have their
-        own watermarks).
+        FDD-OPS-014 step 2.4-B: PER-REPO watermarks now READ + WRITTEN.
+        Each repo has scope_key='github:repo:<owner>/<name>'. Adding a new
+        repo = backfill ONLY that scope. Existing repos continue from their
+        own last_synced_at, not the global '*' value.
+
+        The global '*' watermark is still updated at end-of-cycle for any
+        remaining legacy reads (Pipeline Monitor UI etc.). Migration 011
+        already dropped the legacy unique constraint that conflicted with
+        per-scope inserts.
 
         Progress is tracked in pipeline_ingestion_progress for real-time
         visibility in the Pipeline Monitor dashboard.
         """
+        # Load ALL existing per-repo watermarks for pull_requests. We don't
+        # know which repos the connector will emit yet, so fetch the full
+        # set keyed by scope_key. The connector will look up each repo's
+        # since via since_by_repo[repo] (None = backfill on first sync).
         async with get_session(self._tenant_id) as session:
-            # Read global '*' watermark — connector still uses single `since`.
-            # Per-repo READ comes in a follow-up commit (sister of this one).
-            since = await _get_watermark(session, self._tenant_id, "pull_requests")
+            global_since = await _get_watermark(
+                session, self._tenant_id, "pull_requests",
+            )
+            # Returns rows where scope_key starts with 'github:repo:'.
+            from sqlalchemy import select as _select
+            result = await session.execute(
+                _select(
+                    PipelineWatermark.scope_key,
+                    PipelineWatermark.last_synced_at,
+                ).where(
+                    PipelineWatermark.entity_type == "pull_requests",
+                    PipelineWatermark.scope_key.like("github:repo:%"),
+                )
+            )
+            since_by_repo: dict[str, datetime | None] = {}
+            for scope_key_str, last_synced in result.all():
+                # 'github:repo:owner/name' → 'owner/name'
+                repo = scope_key_str[len("github:repo:"):]
+                since_by_repo[repo] = last_synced
+
+        logger.info(
+            "[prs] watermark plan: %d repos with per-scope rows, global '*' fallback=%s",
+            len(since_by_repo),
+            global_since.isoformat() if global_since else "None (full backfill)",
+        )
+        # Pass single fallback for compatibility — repos not in
+        # since_by_repo (newly discovered) inherit it.
+        since = global_since
 
         # Build issue-key lookup for PR linking. Loading all issue external_ids
         # from the tenant is cheap (~30k strings) and lets us link each batch
@@ -579,7 +611,10 @@ class DataSyncWorker:
         repos_done = 0
 
         try:
-            async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(since=since):
+            async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(
+                since=since,
+                since_by_repo=since_by_repo,
+            ):
                 # "Starting" signal: connector emits (repo_name, None) before
                 # any API calls so the UI can show progress immediately.
                 if raw_prs is None:
