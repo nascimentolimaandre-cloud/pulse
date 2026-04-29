@@ -42,13 +42,14 @@ class MetricsSnapshot(Base):
         nullable=True,
         index=True,
     )
+    # FDD-OPS-001 L5 — sizes aligned with migration schema (50/100).
     metric_type: Mapped[str] = mapped_column(
-        String(64),
+        String(50),
         nullable=False,
         index=True,
     )  # dora | lean | cycle_time | throughput | sprint
     metric_name: Mapped[str] = mapped_column(
-        String(128),
+        String(100),
         nullable=False,
     )  # deployment_frequency | lead_time | cfd | wip | etc.
     value: Mapped[dict] = mapped_column(
