@@ -673,9 +673,19 @@ def normalize_sprint(
         "source": _detect_source(devlake_sprint),
         "name": devlake_sprint.get("name", ""),
         "board_id": str(devlake_sprint.get("original_board_id", "")),
+        # FDD-OPS-018 — sprint lifecycle status, lowercase to match the
+        # convention used elsewhere in PULSE (`normalized_status`,
+        # `issue_type`, etc.). The connector emits ACTIVE/CLOSED/FUTURE;
+        # we normalize here so consumers can rely on a stable casing.
+        # Was previously DROPPED entirely → all 216 Webmotors sprints
+        # landed with status='' in eng_sprints, breaking any future
+        # filter for "active sprint" / "completed sprints in quarter".
+        "status": _normalize_sprint_status(devlake_sprint.get("status")),
+        # FDD-OPS-018 — sprint goal text (set by squad lead in Jira). Was
+        # hardcoded None; now passed through from the connector.
+        "goal": _strip_null_bytes(devlake_sprint.get("goal")),
         "started_at": started_date,
         "completed_at": ended_date,
-        "goal": None,  # Not in DevLake domain table
         "committed_items": committed_items,
         "committed_points": committed_points,
         "added_items": 0,  # Requires tracking scope changes over time
@@ -686,6 +696,39 @@ def normalize_sprint(
         "created_at": started_date or datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
+
+
+# Sprint lifecycle states accepted by `_normalize_sprint_status`. Anything
+# else falls through to None (better than guessing) — operators see NULLs
+# in eng_sprints.status and can investigate.
+_SPRINT_STATUS_ALIASES: dict[str, str] = {
+    "active": "active",
+    "closed": "closed",
+    "future": "future",
+    # Common aliases observed across Jira variants
+    "open": "active",
+    "in_progress": "active",
+    "completed": "closed",
+    "complete": "closed",
+    "ended": "closed",
+    "planned": "future",
+    "upcoming": "future",
+}
+
+
+def _normalize_sprint_status(raw: Any) -> str | None:
+    """Map a sprint state string to one of: active | closed | future | None.
+
+    Lowercased; whitespace stripped. Unknown values return None — we don't
+    silently bucket them into one of the known states, since Sprint Velocity
+    / Carryover logic relies on knowing which sprints are actually closed.
+    """
+    if not isinstance(raw, str):
+        return None
+    key = raw.strip().lower()
+    if not key:
+        return None
+    return _SPRINT_STATUS_ALIASES.get(key)
 
 
 def build_issue_key_map(
