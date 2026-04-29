@@ -6,6 +6,7 @@ import type {
   TeamHealth,
   TimelineEvent,
   CoverageResponse,
+  ProgressJob,
 } from '@/types/pipeline';
 
 export async function fetchPipelineHealth(): Promise<PipelineHealthResponse> {
@@ -43,5 +44,28 @@ export async function fetchPipelineTimeline(params?: {
 
 export async function fetchPipelineCoverage(): Promise<CoverageResponse> {
   const response = await dataClient.get<CoverageResponse>('/pipeline/coverage');
+  return response.data;
+}
+
+/**
+ * FDD-OPS-015 — per-scope ingestion progress (live + recently completed).
+ *
+ * Returns 1 row per active or recently-completed scope. Backend orders
+ * running first (most recent activity), then by last_progress_at desc.
+ *
+ * Used by PerScopeJobs tab in Pipeline Monitor with 5s polling.
+ */
+export async function fetchPipelineJobs(params?: {
+  status?: string;
+  entity_type?: string;
+  limit?: number;
+}): Promise<ProgressJob[]> {
+  const response = await dataClient.get<ProgressJob[]>('/pipeline/jobs', {
+    params: {
+      ...(params?.status && { status: params.status }),
+      ...(params?.entity_type && { entity_type: params.entity_type }),
+      ...(params?.limit && { limit: params.limit }),
+    },
+  });
   return response.data;
 }

@@ -138,3 +138,41 @@ export interface PipelineSourceRow {
   sourceName: string;
   phases: PipelinePhaseCell[];
 }
+
+/* ── Per-scope progress (FDD-OPS-015) ── */
+
+export type ProgressJobStatus =
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'paused'
+  | 'cancelled';
+
+export type ProgressJobPhase =
+  | 'pre_flight'
+  | 'fetching'
+  | 'normalizing'
+  | 'persisting'
+  | 'done'
+  | 'failed';
+
+/**
+ * One row in `GET /data/v1/pipeline/jobs` — per-scope ingestion progress.
+ * Backend computes `progressPct` and `isStalled`; UI just renders.
+ */
+export interface ProgressJob {
+  scopeKey: string;
+  entityType: string;
+  phase: ProgressJobPhase;
+  status: ProgressJobStatus;
+  itemsDone: number;
+  itemsEstimate: number | null;
+  progressPct: number | null;
+  itemsPerSecond: number;
+  etaSeconds: number | null;
+  startedAt: string;
+  lastProgressAt: string;
+  finishedAt: string | null;
+  isStalled: boolean;
+  lastError: string | null;
+}

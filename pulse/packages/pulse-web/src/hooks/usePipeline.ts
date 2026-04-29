@@ -6,6 +6,7 @@ import {
   fetchPipelineTeams,
   fetchPipelineTimeline,
   fetchPipelineCoverage,
+  fetchPipelineJobs,
 } from '@/lib/api/pipeline';
 import type {
   PipelineHealthResponse,
@@ -14,6 +15,7 @@ import type {
   TeamHealth,
   TimelineEvent,
   CoverageResponse,
+  ProgressJob,
 } from '@/types/pipeline';
 
 export function usePipelineHealth() {
@@ -70,5 +72,25 @@ export function usePipelineCoverage() {
     queryFn: fetchPipelineCoverage,
     refetchInterval: 60_000,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * FDD-OPS-015 — Per-scope progress jobs.
+ *
+ * 5s polling for live operator visibility. The endpoint is cheap (single
+ * indexed table query) and the UI is the primary use case for this data,
+ * so polling at 5s keeps "is it stuck?" answerable in near real-time.
+ */
+export function usePipelineJobs(params?: {
+  status?: string;
+  entity_type?: string;
+  limit?: number;
+}) {
+  return useQuery<ProgressJob[]>({
+    queryKey: ['pipeline-jobs', params?.status, params?.entity_type, params?.limit],
+    queryFn: () => fetchPipelineJobs(params),
+    refetchInterval: 5_000,
+    staleTime: 2_000,
   });
 }
