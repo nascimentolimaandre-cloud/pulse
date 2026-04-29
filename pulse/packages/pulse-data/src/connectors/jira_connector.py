@@ -164,6 +164,14 @@ class JiraConnector(BaseConnector):
         # through to None. Logged at end of each batched fetch so operators
         # can spot estimation mode shifts without combing through traces.
         self._effort_source_counts: dict[str, int] = {}
+        # FDD-OPS-017 — status→category map cached from /rest/api/3/status.
+        # Keys are lowercased status names (e.g., "fechado em prod"); values
+        # are statusCategory.key ("new" | "indeterminate" | "done"). Used
+        # by the normalizer as the authoritative fallback when a textual
+        # mapping isn't found. Populated by `_discover_status_categories()`
+        # on first fetch.
+        self._status_categories: dict[str, str] = {}
+        self._status_categories_discovered: bool = False
 
     @property
     def source_type(self) -> str:
@@ -267,6 +275,7 @@ class JiraConnector(BaseConnector):
 
         # Discover tenant-specific custom field IDs (sprint, story points)
         await self._discover_custom_fields()
+        await self._discover_status_categories()
 
         # Quote each project key in JQL — some keys like "DESC" are reserved words
         quoted_projects = ", ".join(f'"{p}"' for p in effective_projects)
@@ -362,6 +371,7 @@ class JiraConnector(BaseConnector):
 
         # Discover tenant-specific custom field IDs once (cached for reuse).
         await self._discover_custom_fields()
+        await self._discover_status_categories()
 
         # Build fields list: base + discovered custom fields + fallbacks.
         fields_to_fetch = list(SEARCH_FIELDS)
@@ -582,6 +592,17 @@ class JiraConnector(BaseConnector):
         sprint_id = self._extract_sprint_id(fields)
 
         status_name = (fields.get("status") or {}).get("name", "")
+        # FDD-OPS-017 — read statusCategory from Jira's own `status` field
+        # (always inline in the issue response, no extra HTTP). Fallback to
+        # the cached `name → category` map if the issue payload lacks it
+        # (older Jira REST APIs / odd workflows).
+        status_cat_inline = (
+            ((fields.get("status") or {}).get("statusCategory") or {}).get("key")
+        )
+        status_category = (
+            status_cat_inline.lower() if isinstance(status_cat_inline, str)
+            else self._status_categories.get(status_name.strip().lower())
+        )
 
         # Store changelogs inline (extracted separately for the sync worker)
         self._last_changelogs = self._last_changelogs if hasattr(self, "_last_changelogs") else {}
@@ -609,6 +630,15 @@ class JiraConnector(BaseConnector):
             "assignee_name": (fields.get("assignee") or {}).get("displayName"),
             "type": (fields.get("issuetype") or {}).get("name", "Task"),
             "sprint_id": sprint_id,
+            # FDD-OPS-017 — Jira's authoritative classification of THIS issue's
+            # current status. The normalizer uses it as the fallback when the
+            # textual DEFAULT_STATUS_MAPPING doesn't recognize the status name.
+            "status_category": status_category,
+            # FDD-OPS-017 — full name→category map so build_status_transitions
+            # can classify each historical to_status, not just the current one.
+            # Same dict reference for every issue (cached on the connector);
+            # downstream upsert ignores extra keys.
+            "status_categories_map": self._status_categories,
             # FDD-OPS-013 — preserve raw changelog from `expand=changelog` so
             # `extract_status_transitions_inline()` in the sync worker can read
             # it. Without this, mapped dict drops the changelog and ALL issues
@@ -662,6 +692,52 @@ class JiraConnector(BaseConnector):
         # Sort chronologically
         transitions.sort(key=lambda t: t.get("created_date") or "")
         return transitions
+
+    async def _discover_status_categories(self) -> None:
+        """FDD-OPS-017 — fetch all status definitions and cache name→category.
+
+        Jira's `/rest/api/3/status` returns every status defined in the
+        tenant, each tagged with a `statusCategory.key` of "new",
+        "indeterminate", or "done". This is the AUTHORITATIVE classification
+        of "is this status considered finished by the workflow author".
+
+        Used by the normalizer as the fallback when our textual
+        DEFAULT_STATUS_MAPPING doesn't recognize a status name. Without
+        this, exotic Webmotors statuses like "FECHADO EM PROD" silently
+        defaulted to "todo", catastrophically polluting flow metrics
+        (Cycle Time, Throughput, WIP, CFD all read from `normalized_status`).
+
+        Discovery is one HTTP call per connector lifetime — cached on
+        instance. Failures degrade gracefully: we just lose the fallback.
+        """
+        if self._status_categories_discovered:
+            return
+
+        try:
+            data = await self._client.get(f"{REST_API}/status")
+        except Exception:
+            logger.exception(
+                "Failed to fetch Jira status catalog — normalization will "
+                "rely solely on textual DEFAULT_STATUS_MAPPING"
+            )
+            self._status_categories_discovered = True
+            return
+
+        statuses = data if isinstance(data, list) else data.get("values", [])
+        for s in statuses:
+            name = (s.get("name") or "").strip().lower()
+            cat = ((s.get("statusCategory") or {}).get("key") or "").strip().lower()
+            if name and cat in ("new", "indeterminate", "done"):
+                self._status_categories[name] = cat
+
+        self._status_categories_discovered = True
+        logger.info(
+            "Discovered %d Jira status definitions (new=%d, indeterminate=%d, done=%d)",
+            len(self._status_categories),
+            sum(1 for v in self._status_categories.values() if v == "new"),
+            sum(1 for v in self._status_categories.values() if v == "indeterminate"),
+            sum(1 for v in self._status_categories.values() if v == "done"),
+        )
 
     # ------------------------------------------------------------------
     # Internal: Custom field discovery + extraction helpers

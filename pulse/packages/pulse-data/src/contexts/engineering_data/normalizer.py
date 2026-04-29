@@ -86,15 +86,107 @@ DEFAULT_STATUS_MAPPING: dict[str, str] = {
     "aguardando desenvolvimento": "todo",
     "priorizado gp": "todo",
     "pronto para o gp": "todo",
+    "em progresso": "in_progress",
+    "em desenv": "in_progress",
+    "em deploy hml": "in_progress",
+    "em deploy produção": "in_progress",
+    "em deploy azul": "in_progress",
     # Active work / pre-dev analysis
     "construção de hipótese": "in_progress",
     "desenvolvimento": "in_progress",
     "design": "in_progress",
     "analise": "in_progress",
+    "análise": "in_progress",
+    "em análise": "in_progress",
     "discovery": "in_progress",
     "entendimento": "in_progress",
-    # Post-deploy
+    # FDD-OPS-017 — Webmotors PT-BR status names that need the in_review
+    # granularity (Jira's `indeterminate` category collapses these into
+    # in_progress, but for Cycle Time breakdown we want the split).
+    "em verificação": "in_review",
+    "em teste": "in_review",
+    "em teste regressão": "in_review",
+    "em teste integrado hml": "in_review",
+    "em testes integrados": "in_review",
+    "em teste try": "in_review",
+    "homologação": "in_review",
+    "para verificação": "in_review",
+    "pronto para teste": "in_review",
+    "aguardando teste": "in_review",
+    "aguardando teste regressão": "in_review",
+    "aguardando teste hml": "in_review",
+    "aguardando teste try": "in_review",
+    "aguardando review": "in_review",
+    "aguardando deploy": "in_review",
+    "aguardando deploy hml": "in_review",
+    "aguardando deploy azul": "in_review",
+    "aguardando merge": "in_review",
+    "valid. azul": "in_review",
+    "validação": "in_review",
+    "validação infosec": "in_review",
+    "revisão de negócio": "in_review",
+    "em design review": "in_review",
+    # Post-deploy / monitoring → done (issue is shipped, monitoring is
+    # passive observation, not active dev work)
     "pós-implantação": "done",
+    "fechado em prod": "done",
+    # NOTE: "fechado em hml" — Jira's own statusCategory is "done" and the
+    # name literally says FECHADO. We respect that. If a workflow author
+    # later wants to keep these issues in WIP (e.g., pending prod rollout),
+    # they should rename the status to "Aguardando Deploy Produção" which
+    # already maps to in_progress.
+    "fechado em hml": "done",
+    "em monitoramento produção": "done",
+    "feito": "done",
+    "finalizado": "done",
+    "publicado": "done",
+    "resolvido": "done",
+    "entregue": "done",
+    "envio para loja": "done",
+    "itens concluídos": "done",
+    "fechada": "done",
+    # Cancelled / rejected variations observed in Webmotors
+    "recusado": "done",
+    "reprovado": "done",
+    "solicitação reprovada": "done",
+    "falha": "done",
+    "arquivo morto": "done",
+    "estacionamento": "done",
+    # Common backlog/refinement aliases
+    "novo": "todo",
+    "a fazer": "todo",
+    "aberto": "todo",
+    "esboçando": "todo",
+    "ideação": "todo",
+    "exploração": "todo",
+    "descoberta": "todo",
+    "descobrindo": "todo",
+    "mapeando": "todo",
+    "desenhando": "todo",
+    "prototipando": "todo",
+    "novo chamado": "todo",
+    "em refinamento": "todo",
+    "em refinamento de negócio": "todo",
+    "em refinamento técnico": "todo",
+    "pré refinamento": "todo",
+    "aguardando refinamento": "todo",
+    "aguardando refinamento técnico": "todo",
+    "aguardando refinamento tecnico": "todo",
+    "aguardando análise": "todo",
+    "aguardando definição e refinamento": "todo",
+    "aguardando handover": "todo",
+    "aguardando terceiro": "todo",
+    "aguardando ideação": "todo",
+    "aguardando aprovação": "todo",
+    "aguardando validação": "todo",
+    "priorizado": "todo",
+    "priorização técnica": "todo",
+    "priorizando o negócio": "todo",
+    "preparando o trabalho": "todo",
+    "ajustes do trabalho": "todo",
+    "revisando trabalho": "todo",
+    "pausado": "todo",
+    "não aplicável": "todo",
 }
 
 # Regex to find issue keys in branch names (e.g., "feature/BACK-123-add-login")
@@ -168,31 +260,74 @@ def _extract_project_key(issue_key: str | None, url: str | None) -> str:
     return "UNKNOWN"
 
 
-def normalize_status(raw_status: str, status_mapping: dict[str, str] | None = None) -> str:
-    """Normalize a raw issue status to one of: todo, in_progress, done.
+def normalize_status(
+    raw_status: str,
+    status_mapping: dict[str, str] | None = None,
+    status_category: str | None = None,
+) -> str:
+    """Normalize a raw issue status to one of: todo | in_progress | in_review | done.
 
     Args:
         raw_status: The original status string from the source system.
         status_mapping: Optional custom mapping overriding defaults.
+        status_category: FDD-OPS-017 — Jira's own statusCategory.key value
+            ("new" | "indeterminate" | "done") for this status. Used as the
+            authoritative fallback when our textual mapping doesn't recognize
+            the status name. Without it, custom Jira workflows (e.g.,
+            "FECHADO EM PROD") silently default to "todo" — corrupting
+            every flow metric (Cycle Time, Throughput, WIP, CFD).
 
     Returns:
-        Normalized status string.
+        Normalized status string. Granularity:
+          - `todo`         — work not started
+          - `in_progress`  — actively being worked on
+          - `in_review`    — code/test review (subset of "active" for WIP)
+          - `done`         — completed (workflow author classified as done)
+
+    Resolution order:
+        1. Custom + DEFAULT_STATUS_MAPPING textual lookup (preserves
+           the in_progress/in_review distinction we hand-curated)
+        2. status_category fallback ("done" → done, "indeterminate" →
+           in_progress, "new" → todo)
+        3. Final default "todo" with WARN log (visible in pipeline_events)
     """
     mapping = {**DEFAULT_STATUS_MAPPING}
     if status_mapping:
         mapping.update({k.lower(): v for k, v in status_mapping.items()})
 
-    normalized = mapping.get(raw_status.lower().strip())
+    key = raw_status.lower().strip()
+    normalized = mapping.get(key)
     if normalized:
         return normalized
 
-    logger.warning("Unknown status '%s' — defaulting to 'todo'", raw_status)
+    # FDD-OPS-017 — fall back to Jira's own statusCategory before defaulting
+    # to "todo". This is the safety net for the long tail of tenant-custom
+    # workflow states (104 distinct statuses observed in Webmotors alone).
+    if status_category:
+        cat = status_category.lower().strip()
+        if cat == "done":
+            return "done"
+        if cat == "indeterminate":
+            # Active work. We can't distinguish in_progress vs in_review at
+            # this level — that's intentional, since `_ACTIVE_STATUSES`
+            # treats both equivalently for WIP/Cycle Time. Operators who
+            # want the finer split must add the status to DEFAULT_STATUS_MAPPING.
+            return "in_progress"
+        if cat == "new":
+            return "todo"
+
+    logger.warning(
+        "Unknown status %r (no textual mapping, no statusCategory) "
+        "— defaulting to 'todo'",
+        raw_status,
+    )
     return "todo"
 
 
 def build_status_transitions(
     changelogs: list[dict[str, Any]],
     status_mapping: dict[str, str] | None = None,
+    status_categories_map: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert DevLake issue_changelogs into PULSE status_transitions JSONB.
 
@@ -200,6 +335,11 @@ def build_status_transitions(
         changelogs: Sorted list of changelog dicts with keys:
             from_status, to_status, created_date
         status_mapping: Optional custom mapping for normalization.
+        status_categories_map: FDD-OPS-017 — name→category dict (lowercased
+            keys) from the Jira connector. Lets each historical to_status
+            fall back to its statusCategory when not in the textual mapping.
+            Without this, a status no longer in active Jira workflows
+            (legacy / archived) defaults to "todo" → bogus Cycle Time.
 
     Returns:
         List of transition dicts:
@@ -208,11 +348,13 @@ def build_status_transitions(
     if not changelogs:
         return []
 
+    cats = status_categories_map or {}
     transitions: list[dict[str, Any]] = []
     for i, cl in enumerate(changelogs):
         entered_at = _parse_datetime(cl["created_date"])
         to_status_raw = cl.get("to_status", "")
-        normalized = normalize_status(to_status_raw, status_mapping)
+        cat = cats.get(to_status_raw.strip().lower())
+        normalized = normalize_status(to_status_raw, status_mapping, cat)
 
         # exited_at is the entered_at of the next transition, or None if current
         exited_at = None
@@ -321,7 +463,11 @@ def normalize_issue(
         Dict matching EngIssue model columns.
     """
     raw_status = devlake_issue.get("original_status") or devlake_issue.get("status", "")
-    normalized = normalize_status(raw_status, status_mapping)
+    # FDD-OPS-017 — pull Jira's authoritative category from the connector
+    # so the normalizer can fall back to it when textual mapping misses.
+    status_category = devlake_issue.get("status_category")
+    status_categories_map = devlake_issue.get("status_categories_map") or {}
+    normalized = normalize_status(raw_status, status_mapping, status_category)
 
     issue_key = devlake_issue.get("issue_key", "")
     project_key = _extract_project_key(issue_key, devlake_issue.get("url"))
@@ -330,7 +476,9 @@ def normalize_issue(
     resolution_date = _parse_datetime(devlake_issue.get("resolution_date"))
 
     # Build status transitions from changelog data (populated by Jira plugin)
-    transitions = build_status_transitions(changelogs or [], status_mapping)
+    transitions = build_status_transitions(
+        changelogs or [], status_mapping, status_categories_map,
+    )
 
     # Derive started_at from first transition to an active state
     started_at = None
