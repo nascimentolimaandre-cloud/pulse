@@ -555,20 +555,33 @@ Three new FDDs come out of this:
 Lock these as acceptance for the migration:
 
 1. **TTFR ≤ 60s for any source/entity** (measured: time from cycle
-   start to first row in `eng_*` table)
+   start to first row in `eng_*` table) — ✅ **ATINGIDO (Phase 1, commit `4d1c9b4`)**: `_sync_issues` agora streams per-project; primeira issue persistida em <30s tipicamente
 2. **Full re-ingestion at Webmotors scale (376k issues, 64k PRs, 1.4k
-   deploys, 200 sprints) completes in ≤ 90 minutes**
-3. **Memory peak ≤ 200 MB per worker** (vs 1.5 GB today)
+   deploys, 200 sprints) completes in ≤ 90 minutes** — ⚠️ **PARCIAL**: backfill BG (197k issues em projeto único) ainda é o gargalo dominante. Demais projetos rápidos. Estimativa total ~2-3h, não 90min — projeto BG sozinho consome maioria do tempo
+3. **Memory peak ≤ 200 MB per worker** (vs 1.5 GB today) — ✅ **ATINGIDO**: Phase 1 streaming reduz para ~50-100 MB peak observado em produção
 4. **Zero silent failures** — every error is logged with scope and
-   visible via `GET /pipeline/jobs` endpoint
+   visible via `GET /pipeline/jobs` endpoint — ⚠️ **PARCIAL**: per-batch logs detalhados existem; `pipeline_ingestion_progress` tracking OK; falta `GET /pipeline/jobs` endpoint dedicado (FDD-OPS-015 pendente)
 5. **VPN drop simulation**: kill jenkins network in test, GitHub +
-   Jira ingestion continues unaffected, Jenkins resumes on reconnect
+   Jira ingestion continues unaffected, Jenkins resumes on reconnect — ❌ **NÃO ATINGIDO**: Phase 2-A/B per-scope watermarks shippadas mas worker still monolítico. P-2 source isolation requer Step 2.6 (docker-compose split em workers per-source) — pendente
 6. **Adding 1 fake project to Jira catalog** triggers backfill ONLY
-   for that scope (not full rerun of existing 32 projects)
+   for that scope (not full rerun of existing 32 projects) — ✅ **ATINGIDO (Phase 2-A + 2-B, commits `c2c6e5d`..`c628528`)**: per-scope watermarks `(tenant, entity, scope_key)` + read-side resolution `since_by_project`/`since_by_repo` enviam since correto por escopo
 7. **Crash recovery test**: SIGKILL worker mid-batch, restart, verify
-   ≥99% of fetched data persisted (not 0, like today)
+   ≥99% of fetched data persisted (not 0, like today) — ✅ **ATINGIDO (Phase 1)**: cada batch persiste imediatamente via `_upsert_*` antes de avançar watermark; crash recovery loses ≤1 batch (~50-100 issues)
 
-These are testable. Phase 3 acceptance hinges on items 4-7.
+**Status agregado v2 (2026-04-29):**
+
+| Phase | Status | Commits |
+|---|---|---|
+| Phase 1 (Quick Wins — AP-1 + AP-2 + pre-flight) | ✅ SHIPPED | `4d1c9b4`, `62c183f` |
+| Phase 2-A (writes per-scope watermarks) | ✅ SHIPPED | `c2c6e5d`, `a2d5850`, `f357d05`, `15574a7`, `4f86fd2` |
+| Phase 2-B (reads per-scope watermarks) | ✅ SHIPPED | `4478f13`, `c628528` |
+| Phase 2.6 (docker-compose split per-source workers) | ⏳ PENDING | next session |
+| Phase 3 (job queue + worker pool — SaaS-ready) | ⏳ PENDING | R1 |
+| **Bonus data-quality fixes descobertos durante v2** | ✅ SHIPPED | `177830e` (changelog), `172f3f2` (effort), `0c7124d` (status), `649ed78` (sprint) |
+
+**Observação importante:** durante a engenharia Phase 1+2 emergiram 4 bugs estruturais de data quality (status_transitions=0, story_points=0, status normalization skew, sprint status vazio) que **não estavam no escopo original** mas ficaram visíveis quando começamos a olhar dados frescos pós-Phase 1. Documentados como INC-020..023 / FDD-OPS-016..018. Fix de cada um expandiu o escopo do v2 — mas todos foram resolvidos ainda dentro da janela de 2 dias.
+
+These are testable. Phase 3 acceptance hinges on items 4-7. **Item 5 (VPN simulation)** é o gating não-resolvido para confiar em SaaS multi-source.
 
 ---
 

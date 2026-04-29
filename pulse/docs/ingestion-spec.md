@@ -13,18 +13,24 @@
 
 This document captures every adjustment, problem, and solution encountered during PULSE's data ingestion buildout — from initial DevLake-based pipeline to current proprietary connectors with dynamic discovery. It serves as the **single source of truth** for understanding ingestion behavior and as the **specification baseline** for building a fully autonomous SaaS ingestion engine.
 
-### Current State (2026-04-14)
+### Current State (2026-04-29 — pós-Phase-1 v2 + data-quality fixes)
 
-| Metric | Value |
-|--------|-------|
-| Jira projects active | 69 |
-| Issues ingested | 373,872 |
-| PRs ingested | 63,647 |
-| PR-Issue link rate | 21.9% (13,966 PRs) |
-| Deployments (Jenkins) | 83 |
-| Sprints | 215 |
-| GitHub repos discovered | 754 (active), 1,429 (total) |
-| Ingestion cycle time | ~3h (full backfill), ~7min (incremental) |
+| Metric | Value | Note |
+|--------|-------|------|
+| Jira projects active | 32 (de 69 totais descobertos) | Subset ativo via discovery dinâmica (ADR-014) |
+| Issues ingested | 311.068 | Re-ingestão pós-`seed_dev` revert (commit `40ca7e4`); diff vs. 373k anterior é por escopo de projetos ativos |
+| PRs ingested | 63.131 | Estável desde 2026-04-27 |
+| PR-Issue link rate | ~5% (em recovery após reset) | Baixo temporariamente — re-link pós-ingestão completa restaura ~22% |
+| Deployments (Jenkins) | 1.376 | Auto-discovery via SCM scan (commit `d1aebf7`) |
+| Sprints | 195/217 com status correto (89,9%) | 22 vazias = board órfão 873 sem projeto ativo. Pós-FDD-OPS-018 (commit `649ed78`) |
+| GitHub repos discovered | 754 (active), 1.429 (total) | Estável |
+| Status definitions discovered | 326 (117 new + 181 indeterminate + 28 done) | Pós-FDD-OPS-017 (commit `0c7124d`) |
+| Distinct status names em uso | 104 | DEFAULT_STATUS_MAPPING expandido para ~80; fallback `statusCategory` cobre o resto |
+| Squads ativos | 27 | FID + PTURB usam Sprint; **25 são Kanban-pure** (sem sprints) |
+| Story Points usage | 0% (todos os 69 projetos) | Webmotors NÃO usa SP — fallback chain T-shirt/Hours/Count em FDD-OPS-016 |
+| Ingestion cycle time | TTFR <60s (Phase 1 v2) | Backfill BG ~197k issues continua o gargalo. Pre-fix bulk: 24-30h. Pós-fix: ~30-45 min issues + paralelo PR/deploy |
+| Coverage de `status_transitions` | ~0% legacy / 100% fresh | Rolling forward: cada incremental sync corrige; backfill retroativo opcional via watermark reset |
+| Coverage de `story_points` (effort) | 52,3% em projetos novos (CRMC), ~0% legacy | Mesma rolling-forward dinâmica que status_transitions |
 
 ---
 
@@ -42,13 +48,19 @@ This document captures every adjustment, problem, and solution encountered durin
 
 | Characteristic | Detail | Impact on Ingestion |
 |---------------|--------|-------------------|
-| Org size | ~750 active repos, 69 Jira projects | High volume, need batch processing |
-| Jira project scale | 197K issues in single project (BG) | Single JQL query can return massive payloads |
-| Custom fields | Sprint = `customfield_10007`, Story Points = `customfield_18524` | Must discover dynamically per tenant |
-| Jenkins patterns | No corporate standard; each repo has unique pipeline config | Cannot use single regex for deployment detection |
-| Language mix | Portuguese status names ("Em Desenvolvimento", "Concluido") | Status normalizer needs i18n mapping |
-| Jira reserved words | Project key "DESC" is SQL reserved word | Must quote project keys in JQL |
-| Archived projects | Some keys referenced in PRs (e.g., "RC") don't exist in Jira API | Graceful handling of orphan references |
+| Org size | ~750 active repos, 69 Jira projects, 27 squads ativos | High volume, need batch processing |
+| Squad shape | 25 de 27 squads são **Kanban-puros** (sem sprints); apenas FID + PTURB usam Scrum | Sprint metrics aplicam-se a 7% das squads — métricas de fluxo (Cycle Time, CFD, Throughput) são as primárias |
+| Jira project scale | 197K issues em projeto único (BG) | Single JQL query can return massive payloads — exige streaming per-project |
+| Custom fields | Sprint = `customfield_10007`, Story Points = `customfield_18524` (+ legacy `customfield_10004`) | Must discover dynamically per tenant via `/rest/api/3/field` |
+| Effort estimation method | **Webmotors NÃO usa Story Points** (0% dos 69 projetos). Padrões heterogêneos por squad: T-shirt size (P/M/G), `timeoriginalestimate` em horas, ou nada (Kanban-puro) | FDD-OPS-016 — fallback chain SP→T-shirt→Hours→None com discovery dinâmico de campos T-shirt/Tamanho |
+| T-shirt size fields | `customfield_18762` ("T-Shirt Size") + `customfield_15100` ("Tamanho/Impacto") | Mapeados em escala Fibonacci: PP=1, P=2, M=3, G=5, GG=8, GGG=13. Discovery por nome (case-insensitive) |
+| Status workflows | 326 status definitions descobertas; 104 raw distintos em uso ativo | DEFAULT_STATUS_MAPPING curado com ~80 PT-BR; resto via fallback `statusCategory.key` da Jira |
+| Jenkins patterns | No corporate standard; each repo has unique pipeline config | Cannot use single regex for deployment detection — auto-discovery via SCM scan (`d1aebf7`) descobriu 577 PRD jobs em 283 repos |
+| Language mix | Portuguese status names ("Em Desenvolvimento", "Concluído", "FECHADO EM PROD") | Status normalizer requer i18n mapping + `statusCategory` fallback como rede de segurança |
+| Jira reserved words | Project key "DESC" é SQL reserved word | Must quote project keys in JQL |
+| Archived projects | Some keys referenced in PRs (e.g., "RC") don't exist in Jira API | Graceful handling of orphan references — RC tem 1.348 PR refs sem Jira project correspondente |
+| NULL bytes em texto | Observado 2026-04-28 em ENO-3296 (description) | Postgres `text` rejeita 0x00; helper `_strip_null_bytes` aplicado a title/description/assignee no normalizer |
+| Network dependency | Acesso à Jira/GitHub/Jenkins via VPN corporativa | VPN drops causaram silent failures (FDD-OPS-001 / FDD-OPS-014 §AP-3, AP-4); health-aware orchestration é P-8 do v2 |
 
 ### 2.3 Source Configuration Philosophy — Discovery Only
 
@@ -438,41 +450,92 @@ WHERE entity_type = 'issues';
 
 ---
 
-### Problem 6: Status Normalization — Portuguese and Custom Workflows
+### Problem 6: Status Normalization — Hybrid Textual + Jira statusCategory Fallback
 
-**Context:** Jira workflows vary wildly across orgs and even across projects within the same org. Webmotors uses Portuguese status names.
+**Context:** Jira workflows variam selvagemente entre orgs e até entre projects do mesmo tenant. Webmotors usa status names em PT-BR (e.g., "Em Desenvolvimento", "FECHADO EM PROD"). Audit em 2026-04-28 (FDD-OPS-017 / INC-022) mostrou que a abordagem **textual-only** original era catastroficamente insuficiente.
 
-**Symptoms:**
-- "Em Desenvolvimento" not mapping to `in_progress`
-- "Concluido" (without accent) not mapping to `done`
-- Custom statuses like "Aguardando Deploy", "Em Code Review" unrecognized
+**Symptoms quantificados (2026-04-28):**
 
-**Solution:** Extensive DEFAULT_STATUS_MAPPING with 60+ entries covering English, Portuguese, and common custom workflows.
+Distribuição de `normalized_status` em 311.068 issues:
+- 96,5% `done` · 3,3% `todo` · 0,2% `in_progress` · 0,1% `in_review`
+
+Investigação revelou que a Webmotors tem **104 status raw distintos** em workflows ativos. O `DEFAULT_STATUS_MAPPING` original cobria ~50 → 50+ status caíam silenciosamente no fallback "Unknown → todo". Casos sistêmicos:
+
+| Status raw | Issues afetadas | Bucket atual (errado) | Bucket correto |
+|---|---|---|---|
+| `FECHADO EM PROD` | 2.881 | todo | done |
+| `FECHADO EM HML` | 14 | todo | done |
+| `Em Progresso` | 6 | todo | in_progress |
+| `Em desenv` | 4 | todo | in_progress |
+| `Em Deploy Produção` | 14 | todo | in_progress |
+| `Em Monitoramento Produção` | 3 | todo | done |
+| `Homologação` | 9 | todo | in_review |
+| `Em Verificação` | 4 | todo | in_review |
+| (50+ outros) | dezenas | todo | varia |
+
+**Cascada CRÍTICA**: status_transitions herdam classificação errada. A última transição registrada de uma issue concluída ficava com `status: "todo"` em vez de `done`. Resultado em CASCATA:
+
+- **Cycle Time** infinito (não há transição final para `done`)
+- **Throughput** sub-conta (issues entregues não aparecem)
+- **WIP** super-conta (issues finalizadas continuam "em fluxo")
+- **CFD / Lead Time** distorcidos
+- **Flow Efficiency** indeterminado
+
+Sem o fix, **todo o pilar Lean** está comprometido para qualquer projeto que use status fora do mapping curado.
+
+**Solução: Hybrid normalization em 3 camadas** (FDD-OPS-017, commit `0c7124d`):
 
 ```python
-DEFAULT_STATUS_MAPPING = {
-    # English
-    "open": "todo", "to do": "todo", "backlog": "todo",
-    "in progress": "in_progress", "in development": "in_progress",
-    "done": "done", "closed": "done", "resolved": "done",
-    # Portuguese
-    "em desenvolvimento": "in_progress", "em progresso": "in_progress",
-    "concluído": "done", "concluido": "done", "finalizado": "done",
-    "a fazer": "todo", "pendente": "todo",
-    # Custom patterns
-    "code review": "in_progress", "em code review": "in_progress",
-    "aguardando deploy": "in_progress", "ready for qa": "in_progress",
-    "em teste": "in_progress", "testing": "in_progress",
-    ...
-}
+def normalize_status(raw_status, status_mapping=None, status_category=None):
+    # Camada 1: Textual mapping curado (granularidade in_progress vs in_review)
+    mapping = {**DEFAULT_STATUS_MAPPING}  # ~80 PT-BR + EN entries
+    if status_mapping:
+        mapping.update({k.lower(): v for k, v in status_mapping.items()})
+    normalized = mapping.get(raw_status.lower().strip())
+    if normalized:
+        return normalized
+    
+    # Camada 2: Jira statusCategory.key fallback (autoritativo done/não-done)
+    if status_category:
+        cat = status_category.lower().strip()
+        if cat == "done":          return "done"
+        if cat == "indeterminate": return "in_progress"  # NB: collapses in_review
+        if cat == "new":           return "todo"
+    
+    # Camada 3: Default 'todo' com WARN log (extremamente raro agora)
+    logger.warning("Unknown status %r — defaulting to 'todo'", raw_status)
+    return "todo"
 ```
 
-**Result:** 99%+ status normalization accuracy for Webmotors workflows.
+**Discovery da camada 2** (`_discover_status_categories`): conector chama `/rest/api/3/status` 1× por lifetime e cacheia `name → category` para todos os 326 status defs do tenant. Webmotors: 117 new + 181 indeterminate + 28 done.
 
-**SaaS Implication:** Static mapping won't scale. Need:
-1. **Learning-based mapper**: observe workflow transitions to infer categories
-2. **Per-tenant overrides**: allow admin to map custom statuses
-3. **AI fallback**: LLM classifies unknown statuses into todo/in_progress/done
+**Por que híbrido (não pure textual nem pure category):**
+
+- **Textual ganha** quando definido — preserva granularidade `in_progress` vs `in_review` que o Cycle Time Breakdown precisa. Jira `statusCategory.indeterminate` colapsa os dois.
+- **Category fallback** captura o long tail tenant-custom sem manutenção contínua. Workflow author é fonte de verdade sobre done/não-done.
+- **Default 'todo'** com WARN só atinge agora status sem category — extremamente raro pós-fix.
+
+**`build_status_transitions` integrado**: `status_categories_map` (todos status → categoria) é passado adiante para classificar cada `to_status` histórico via map. O bug de cascada acima é corrigido na fonte.
+
+**Result quantificado:**
+
+3.151 issues reclassificarão na re-ingestão (1% do total) — long tail catastrófico. Distribuição já correta para os 97% restantes.
+
+| Transição | Quantidade |
+|---|---|
+| `todo → done` (FECHADO EM PROD/HML, etc.) | 2.923 |
+| `todo → in_review` (Homologação, Verificação) | 161 |
+| `todo → in_progress` (Em Progresso, Em desenv) | 67 |
+
+**Decisão de produto registrada** (FDD-OPS-017 backlog): `FECHADO EM HML` mapeado como `done` (segue Jira `statusCategory.key='done'` + nome literal "FECHADO"). Workflow author classifica como done; respeitamos. Se Webmotors quiser tratar como ainda em fluxo, pode renomear para "Aguardando Deploy Produção" (mapeado para `in_progress`).
+
+**SaaS Implication:** Hybrid approach é SaaS-ready out-of-the-box. Cada novo tenant:
+1. Conector descobre seus 100-300 status defs via `/rest/api/3/status` (1 chamada)
+2. Textual mapping curado (PT-BR + EN + ~80 PT-BR variants) cobre majoritário
+3. Status category fallback captura o long tail proprietário
+4. Operadores adicionam mappings textuais específicos APENAS quando precisam de granularidade `in_review` (raro)
+
+**Future** (FDD-OPS já catalogado): AI-fallback para status que faltam category — observar workflow transitions para inferir categoria (Section 6.4.2).
 
 ---
 
@@ -562,6 +625,217 @@ async def _fetch_repo_prs_graphql(self, repo_name, since):
 4. Updated CMD to match new dist structure
 
 **SaaS Implication:** Monorepo build patterns are a one-time setup. No impact on per-tenant ingestion.
+
+---
+
+### Problem 11: Inline Changelog Lost in Connector Mapping (`_map_issue` drop)
+
+**Context:** FDD-OPS-013 (commit `4d1c9b4`, 2026-04-28) eliminou o redundant `fetch_issue_changelogs` round-trip extraindo changelogs **inline** do JQL response (`expand=changelog`). Função nova `extract_status_transitions_inline(raw)` no sync worker fez `raw.get("changelog", {}).get("histories", [])`. Pareceu funcionar (testes passaram). Entretanto, audit em 2026-04-28 mostrou `status_transitions = []` em **100% das 311.007 issues** — mesmo problema que Phase 1 era para resolver.
+
+**Symptoms:**
+
+- 311.007 issues no DB (todas as ingeridas pós-Phase-1) com `status_transitions = []`
+- Cycle Time não fechava — sem transição para `done`
+- Throughput sub-contava — issues `done` apareciam como em fluxo
+- WIP super-contava — issues finalizadas no bucket de "ativo"
+- Lean metrics todas comprometidas
+
+**Root Cause** (descoberto via tracing connector → worker em 2026-04-29):
+
+`JiraConnector._map_issue` (commit ancestral) extraía o changelog para um cache lateral (`self._last_changelogs[internal_id]`) **mas NÃO incluía o campo `changelog` no dict mapeado de retorno**:
+
+```python
+# Ancestral code (BUG):
+def _map_issue(self, jira_issue):
+    changelogs = self._extract_changelogs(internal_id, jira_issue)
+    if changelogs:
+        self._last_changelogs[internal_id] = changelogs   # cache lateral
+    return {
+        "id": internal_id,
+        "title": fields.get("summary", ""),
+        # ... outros campos ...
+        # ❌ NO changelog field aqui
+    }
+```
+
+O `_sync_issues` (worker) chamava `extract_status_transitions_inline(raw)` no dict mapeado — `raw.get("changelog", {})` retornava `{}` sempre porque o key não existia. Resultado: lista vazia para toda issue.
+
+**Por que escapou dos testes:** Os 10 testes em `test_inline_changelog_extraction.py` testavam `extract_status_transitions_inline` **isoladamente** contra dicts sintéticos que JÁ tinham `changelog`. O contrato entre `_map_issue` e o extractor nunca foi testado end-to-end.
+
+**Solution** (commit `177830e`, 2026-04-29):
+
+```python
+return {
+    "id": internal_id,
+    # ... outros campos ...
+    # FDD-OPS-013 — preserve raw changelog from `expand=changelog` so
+    # extract_status_transitions_inline() in the sync worker can read it.
+    "changelog": jira_issue.get("changelog", {}),
+}
+```
+
+Test guard novo: `TestMapIssuePreservesChangelogForInlineExtraction` instancia o connector, alimenta payload Jira-shaped com `expand=changelog`, asserta que o pipe end-to-end (mapper → extractor) produz transitions não-vazias.
+
+**Result:** Validado live no projeto BG: 1.994 issues re-sincados todos com 3-8 transitions normalizadas (BG-202188: 5 transitions; BG-202413: 3 transitions). Pré-fix: 0 transitions em 311k issues. Pós-fix: 100% das issues recém-tocadas carregam transitions.
+
+**Lição genérica** — *cache lateral vs return value anti-pattern*:
+
+> Connector mappers devem retornar **dados completos** no dict mapeado.
+> Esconder dados em side caches (`self._last_*`) que outros call sites
+> não conhecem é um anti-pattern. Quando outro path tenta acessar via
+> "interface natural" (dict access), o dado está invisível mas o cache
+> técnico-correto está silently populated.
+
+Test pyramid lição: testar **contratos entre componentes**, não só cada componente isolado.
+
+**SaaS Implication:** Padrão "connector retorna dados completos no return value" deve ser doc-policy ao adicionar conectores futuros (GitLab, ADO, Linear). E todo connector → worker pipe precisa de pelo menos 1 test end-to-end que use a SHAPE real da API source.
+
+---
+
+### Problem 12: Effort Estimation Without Story Points (Webmotors-style heterogeneity)
+
+**Context:** Métricas como Velocity, Throughput-by-effort, Forecast Monte Carlo dependem de "esforço" agregado. Padrão da indústria: Story Points. Audit em 2026-04-28 (FDD-OPS-016 / INC-021): **`story_points = 0` em 100% das 311.007 issues** da Webmotors.
+
+**Symptoms:**
+
+- Sample em todos os 69 projetos ativos: `customfield_10004` ("Story Points") + `customfield_18524` ("Story point estimate") **0% populados**
+- Webmotors **não usa Story Points** como método de estimativa (decisão organizacional)
+- Velocity sempre zerada, throughput-by-effort impossível, forecast sem input
+
+**Investigação em squads** (samples de 50 issues por projeto):
+
+| Projeto | T-Shirt Size | Original Estimate (h) | Tamanho/Impacto | Padrão observado |
+|---------|--------------|------------------------|------------------|--------|
+| ENO     | 24%          | 52%                    | 4%               | Horas + tshirt |
+| DESC    | 26%          | 34%                    | 6%               | Horas + tshirt |
+| APPF    | 0%           | 12%                    | 0%               | Horas (raro) |
+| OKM     | 4%           | 8%                     | 0%               | Quase Kanban |
+| BG, FID, PTURB | 0%   | 0%                     | 0%               | **Kanban puro — não estimam** |
+
+**Conclusão:** padrão heterogêneo entre squads — algumas usam horas, algumas T-shirt size, várias não estimam (Kanban-puro). Single-method approach não funciona.
+
+**Solution** (commit `172f3f2`, 2026-04-29) — **Effort Fallback Chain**:
+
+Discovery dinâmico em `_discover_custom_fields`:
+- Casa por nome (case-insensitive) os patterns `"t-shirt size"` e `"tamanho/impacto"`
+- Webmotors: descobriu `customfield_18762` ("T-Shirt Size") + `customfield_15100` ("Tamanho/Impacto")
+- Funciona em qualquer tenant (não hardcode customfield IDs)
+
+`_extract_story_points` (renomeado conceitualmente para "effort") com cadeia em ordem de prioridade:
+
+```python
+# 1+2. Native numeric Story Points (preferred — no conversion)
+for field_id in (story_points_field_id, *FALLBACK_STORY_POINTS_FIELDS, "story_points"):
+    if value > 0: return float(value)  # source: 'story_points'
+
+# 3+4. T-shirt sized fields → Fibonacci scale
+TSHIRT_TO_POINTS = {"PP": 1, "P": 2, "M": 3, "G": 5, "GG": 8, "GGG": 13,
+                    "XS": 1, "S": 2, "L": 5, "XL": 8, "XXL": 13}
+for fid in self._tshirt_field_ids:
+    if (label := unwrap(fields[fid])) and (mapped := TSHIRT_TO_POINTS.get(label.upper())):
+        return mapped  # source: 'tshirt_to_sp'
+
+# 5. Original Estimate (seconds) → SP equivalent buckets
+def _hours_to_points(h):
+    if h <= 4:  return 1
+    if h <= 8:  return 2  # ~1d
+    if h <= 16: return 3  # ~2d
+    if h <= 24: return 5
+    if h <= 40: return 8  # ~1w
+    if h <= 80: return 13 # ~2w
+    return 21
+# source: 'hours_to_sp'
+
+# 6. None — issue genuinamente não estimada (Kanban-puro)
+# source: 'unestimated'
+# CONSUMER MUST count items rather than sum points
+```
+
+**Telemetria** (`_effort_source_counts`): por batched run, log da distribuição de qual hop produziu o valor. Operadores veem drift ("squad migrou de horas para t-shirt em maio") sem combar logs.
+
+**Quando `None` (Kanban-puro):** decisão de **count vs sum** fica na camada de métrica, **não** no normalizer. Métrica downstream precisa contar items rather than sum points. Documentado em §8.12.
+
+**Result:**
+
+Validado live em CRMC (1.375 issues, projeto novo full-history pós-fix):
+- **52,3% com effort estimado** (719/1.375)
+- Distribuição de valores: 1, 2, 3, 5, 8 — confirma escala Fibonacci aplicada
+- 47,7% com `story_points = None` → métrica counta items
+
+**Future (codename "dev-metrics" R3+)** — FDD-DEV-METRICS-001:
+
+Hoje a fallback chain é **automática e implícita**. Diferentes filosofias produzem métricas diferentes. R3 vai entregar:
+- Per-squad estimation method choice (admin UI: SP / T-shirt / Hours / Count-only / Auto)
+- Modelo proprietário de previsão e insights (drift detection, calibração contra histórico, Monte Carlo com método nativo)
+- UX completa rescritta ao redor da escolha
+- Anti-surveillance by design (insights por squad/processo, nunca individual)
+
+**Diferenciador competitivo:** LinearB / Jellyfish / Swarmia / Athenian são opinionated em SP. PULSE é o **único** que respeita filosofia da squad e usa isso como entrada de modelo, não como ruído a normalizar.
+
+**SaaS Implication:** Effort fallback chain é SaaS-ready (descoberta dinâmica). Para "dev-metrics" (R3+), precisa adicionar:
+- Coluna `effort_source` em `eng_issues` (auditoria por issue)
+- Migration deferred — registrado como prerequisite no FDD-DEV-METRICS-001
+
+---
+
+### Problem 13: Sprint Status Pipeline — 4-Layer Swiss Cheese
+
+**Context:** 100% das 216 sprints no `eng_sprints` da Webmotors com `status=''`. `goal` também totalmente vazio. Audit (FDD-OPS-018 / INC-023, 2026-04-29) revelou clássico **swiss cheese alignment** — quatro bugs independentes em camadas diferentes, cada um sozinho garantindo o resultado.
+
+**Symptoms:**
+
+- `SELECT status, COUNT(*) FROM eng_sprints` → `('', 216)`
+- Sprint Comparison / Velocity Trend não pode filtrar `closed` para excluir sprints em andamento da regressão
+- "Current sprint" planejado precisa `status='active'` — impossível sem dado
+
+**Os 4 bugs (cada um suficiente para causar o sintoma):**
+
+| # | Camada | Bug | Como sozinho garantia status vazio |
+|---|---|---|---|
+| 1 | `connectors/jira_connector.py:_map_sprint` | Mapeava OK (ACTIVE/CLOSED/FUTURE) | (não era bug — fonte estava certa) |
+| 2 | `engineering_data/normalizer.py:normalize_sprint` | Retornava dict **sem** o campo `status` | Status nunca chega no upsert |
+| 3 | `workers/devlake_sync.py:_upsert_sprints` | ON CONFLICT `set_={...}` não incluía `status`/`goal` | Sprints existentes (que existem) nunca atualizam |
+| 4 | `connectors/jira_connector.py:_fetch_board_sprints` | Filtrava `started_date < since` | State transitions acontecem em `endDate` — sprint que começou em março e fechou em maio nunca tem update após março |
+| 5 | `engineering_data/models.py:EngSprint` | Schema da DB tinha `status` mas ORM SQLAlchemy não tinha o `Mapped[str\|None]` correspondente | **Path que omitia status funcionava silently empty; path que tentava popular crashava com `Unconsumed column names: status`** |
+
+**Bug #5 (ORM schema drift) é o mais insidioso.** Coluna existia no DB há tempos (alguma migration anterior); ORM nunca foi atualizado. O sintoma é assimétrico: quem **omite** o campo passa silenciosamente; quem **inclui** crashar. Ninguém investiga porque "tá vazio mas não dá erro".
+
+**Solution** (commit `649ed78`, 2026-04-29) — fix em todas as camadas:
+
+1. `_map_sprint` agora também passa `goal` adiante (Jira API o retorna)
+2. `normalize_sprint` inclui `status` (lowercase: `active`/`closed`/`future`/None) + `goal` (com strip null bytes)
+3. `_upsert_sprints` ON CONFLICT `set_` atualiza ambos
+4. `_fetch_board_sprints` removeu filtro de watermark (volume baixo, ~216 total / ~5 ativas; sempre re-fetch é correto pois state transitions)
+5. `EngSprint` model adiciona `status: Mapped[str | None] = mapped_column(String(50), nullable=True)`
+
+Helper `_normalize_sprint_status` mapeia aliases comuns:
+- `open → active` · `in_progress → active`
+- `completed/complete/ended → closed`
+- `planned/upcoming → future`
+- **Unknown values → None** (não bucketiza silenciosamente — operador investiga via NULL no DB)
+
+**Por que NÃO bucketizar unknown:** Velocity / Carryover logic precisa saber QUAIS sprints estão de fato fechadas. Mapear "?" para `closed` corromperia o cálculo. Fail-loud é melhor que fail-silent aqui.
+
+**Result:**
+
+Validado live (ad-hoc backfill cobrindo 31 projetos ativos):
+
+| Status | Quantidade | Tem goal? |
+|---|---|---|
+| `closed` | 187 | sim |
+| `active` | 3 | sim |
+| `future` | 5 | sim |
+| (vazio) | 22 | board órfão 873 sem projeto ativo |
+
+**195/217 = 89,9%** das sprints com status correto + 70% com goal real (e.g., "Gestão de banner no backoffice de CNC e TEMPO para novas especificações técnicas"). As 22 vazias são de board órfão, fora do escopo deste fix.
+
+**Lição genérica — `Schema drift detection pattern`:**
+
+> Adicionar guard test "DB columns vs ORM Mapped fields" — candidato a 5ª linha de defesa do FDD-OPS-001 (eliminação de drift).
+> Migration review checklist deve incluir: toda nova coluna → Mapped column correspondente no SQLAlchemy.
+> ORM drift é o tipo de bug onde "alguns paths funcionam, outros crashern" — não tem sintoma uniforme observável, então fica oculto até alguém tentar exatamente o path quebrado.
+
+**SaaS Implication:** Sprint pipeline pós-fix está SaaS-ready. Para tenants futuros: discovery automático de boards Scrum (já existe), normalização lowercase consistente com convenção PULSE, fail-loud em status desconhecidos — operador onboarding vê NULL e investiga ao invés de receber dado silenciosamente errado.
 
 ---
 
@@ -748,6 +1022,75 @@ STATUS_PATTERNS = {
 - Per-tenant token accounting
 - Cross-worker coordination (Redis-based token bucket)
 - Graceful degradation (reduce batch size on rate limit, don't fail)
+
+#### 6.3.6 Effort Extraction (Deterministic Core + Discovery Fallback)
+
+**Problem:** Story Points não são universais — Webmotors validou 0% de uso em 69 projetos. Squads usam métodos heterogêneos: T-shirt size (P/M/G), `timeoriginalestimate` em horas, ou nada (Kanban-puro). Single-method extraction quebra para esses tenants. Implementado em FDD-OPS-016 (commit `172f3f2`).
+
+**Discovery dinâmico** (deterministic, zero-config):
+
+```python
+# JiraConnector._discover_custom_fields()
+EFFORT_NAME_PATTERNS_TSHIRT = ("t-shirt size", "tshirt size", "tamanho/impacto")
+
+for field in fields_list:
+    name = field.get("name", "").strip().lower()
+    fid = field.get("id", "")
+    
+    # Story Points (numeric)
+    if name in ("story points", "story point estimate"):
+        self._story_points_field_id = fid
+    
+    # T-shirt sized fields (option-typed)
+    elif any(p in name for p in EFFORT_NAME_PATTERNS_TSHIRT):
+        self._tshirt_field_ids.append(fid)
+```
+
+**Fallback chain (priority order):**
+
+| # | Source | Conversão | Source label |
+|---|---|---|---|
+| 1 | `customfield_*` ("Story Points") | uso direto (numeric) | `story_points` |
+| 2 | `customfield_*` ("Story point estimate") | uso direto | `story_points` |
+| 3 | `customfield_*` ("T-Shirt Size") | mapa Fibonacci PP=1, P=2, M=3, G=5, GG=8, GGG=13 (PT-BR) ou XS/S/M/L/XL/XXL (EN) | `tshirt_to_sp` |
+| 4 | `customfield_*` ("Tamanho/Impacto") | mesmo mapa | `tshirt_to_sp` |
+| 5 | `timeoriginalestimate` (segundos) | buckets: ≤4h=1, ≤8h=2, ≤16h=3, ≤24h=5, ≤40h=8, ≤80h=13, >80h=21 | `hours_to_sp` |
+| 6 | None | sem estimativa — **métrica downstream conta items (Kanban-puro)** | `unestimated` |
+
+**Hour bucket calibration:** alinhado com "1 ideal day = ~6h productive". Buckets calibrados contra valores observados na Webmotors (2h–124h, múltiplos de 4) para que cada valor comum caia em um bucket sensato. Output já na escala SP que métricas downstream esperam.
+
+**Skip SP = 0:** sentinel comum para "não estimado", trata como falta. Cai para próximo hop da chain ao invés de retornar `0.0`.
+
+**Telemetria** (`_effort_source_counts`): incrementa contador por `source` label (incluindo `'unestimated'`). Logado per batched run:
+
+```
+[batched] effort source distribution (1375 issues): 
+  tshirt_to_sp=521 (37.9%), hours_to_sp=198 (14.4%), unestimated=656 (47.7%)
+```
+
+Operadores spotam estimation drift sem combar logs.
+
+**Anti-pattern evitado** — bucketização silenciosa de unknown values:
+
+> Ao receber um T-shirt size desconhecido (ex: "JUMBO"), o connector
+> NÃO mapeia silenciosamente para algum default. Cai para o próximo
+> hop. Se nenhum produzir valor, retorna `None` com source label
+> `'unestimated'`. Métrica downstream sabe que tem que counta items.
+
+**SaaS Implication:** Já SaaS-ready. Cada tenant onboarda com:
+1. Discovery automático de fields T-shirt e Tamanho via match de nome
+2. Story Points classico funciona out-of-the-box se usado
+3. `timeoriginalestimate` é Jira built-in (não custom field) — sempre disponível
+4. Telemetria revela qual método o tenant usa nas primeiras horas pós-onboarding
+
+**Future (FDD-DEV-METRICS-001 / codename "dev-metrics" R3+)** — promote esta cadeia automática a uma escolha **explícita por squad**:
+
+- Admin UI permite escolher método: SP / T-shirt / Hours / Count-only / Auto (current)
+- Modelo proprietário: detecta drift de estimativa, calibra contra histórico, surfaces insights ("squad marcando tudo como M há 6 sprints")
+- Forecast Monte Carlo usa o método nativo do squad (não força SP como LinearB / Jellyfish / Swarmia / Athenian fazem)
+- Anti-surveillance by design: insights por squad/processo, **nunca** individual
+
+Pré-requisito (deferred): adicionar coluna `effort_source` em `eng_issues` para auditoria por issue.
 
 ### 6.4 Non-Deterministic Components (Implement with AI)
 
@@ -1062,6 +1405,79 @@ IngestionPipeline:
 | `0a1050c` | FDD-OPS-001 lines 1+2 — eliminate stale-code-in-workers drift |
 | `dd10d34` | FDD-OPS-002 — full Jira description backfill (61.74% coverage) |
 | `80f1796` | Partial index for snapshots — fixes 50× perf regression on `/metrics/home` |
+| `c5e38bb` | docs(architecture): ingestion v2 — diagnostic + 10× target + migration path |
+| `4d1c9b4` | FDD-OPS-012 + FDD-OPS-013 — Phase 1 v2: issues sync streams per-project + inline changelog (eliminates redundant `fetch_issue_changelogs`) |
+| `62c183f` | Strip NULL bytes (0x00) from text fields before persist — Webmotors `ENO-3296` description had 0x00 |
+| `4c2c1c5` | docs(ingestion): Phase 2 drafts — per-source workers + per-scope watermarks (FDD-OPS-014) |
+| `c2c6e5d` | Phase 2 step 2.1 — apply scope_key migration |
+| `a2d5850` | Phase 2 step 2.2 — per-scope watermark API |
+| `f357d05` | Phase 2 step 2.3 — `_sync_issues` uses per-project watermarks |
+| `15574a7` | Phase 2 steps 2.4 + 2.5 — per-repo watermark writes for PRs and deploys |
+| `4f86fd2` | FDD-OPS-014 step 2.7 (urgent) — drop legacy `uq_watermark_entity` (Postgres enforces ALL UniqueConstraints; legacy blocked per-scope inserts) |
+| `4478f13` | Phase 2-B step 2.4-B — read per-repo watermarks for PRs |
+| `c628528` | Phase 2-B step 2.5-B — read per-repo watermarks for deployments |
+| `177830e` | INC-020 / FDD-OPS-013 follow-up — preserve Jira changelog in `_map_issue` so inline extraction works (status_transitions=[] em 311k issues) |
+| `172f3f2` | INC-021 / FDD-OPS-016 — effort estimation fallback chain (Story Points → T-shirt → Hours → None) + FDD-DEV-METRICS-001 placeholder for R3+ |
+| `0c7124d` | INC-022 / FDD-OPS-017 — status normalization with `statusCategory.key` fallback (96.5% done skew + 50+ PT-BR statuses unmapped) |
+| `649ed78` | INC-023 / FDD-OPS-018 — sprint status pipeline 4-layer cheese fix (normalizer + upsert + watermark + ORM drift) |
+
+### D. Webmotors-Discovered Patterns (training material para futuros tenants)
+
+Capturados durante a engenharia 2026-04 — servem como **base de comparação** quando onboardar novos tenants e como **alvo de discoveries automáticas** para o Ingestion Intelligence Agent (Section 6.5).
+
+**D.1 — Estimação de esforço heterogênea entre squads:**
+
+- Webmotors **não usa Story Points** (0% nos 69 projetos)
+- Distribuição de método por squad sample:
+  - Squads que estimam: ENO (52% horas + 24% T-shirt), DESC (34% horas + 26% T-shirt)
+  - Squads que estimam pouco: APPF (12% horas), OKM (8% horas)
+  - **Squads Kanban-puros** (não estimam): BG, FID, PTURB, e ~22 outros (25 de 27 squads totais)
+- Fields descobertos: `customfield_18762` (T-Shirt: P/M/G), `customfield_15100` (Tamanho/Impacto: PP/P/M/G)
+- **Implicação para futuros tenants:** rodar discovery por nome ("t-shirt", "tamanho", "size") e logar telemetria de método usado por squad. Provável que tenants Kanban-pesados tenham padrão similar.
+
+**D.2 — Workflow status diversity:**
+
+- 326 status definitions descobertos via `/rest/api/3/status`
+- 104 status raw distintos populados em issues ativas
+- DEFAULT_STATUS_MAPPING curado precisa de ~80 entries para cobrir granularidade `in_review` específica de PT-BR
+- Resto cai no fallback `statusCategory.key` (autoritativo done/não-done)
+- Padrões PT-BR observados:
+  - "FECHADO EM PROD", "FECHADO EM HML", "Concluído", "Cancelado" → `done`
+  - "Em Desenvolvimento", "Em imersão", "Em andamento", "Em Progresso" → `in_progress`
+  - "Em Code Review", "Em Teste HML", "Homologação", "Aguardando Code Review" → `in_review`
+  - "BACKLOG", "Refinado", "PAUSADO" → `todo`
+- **Implicação:** mapping curado é por idioma + cultura organizacional. AI fallback (Section 6.4.2) deve aprender **por tenant** após primeiros 1k transitions observados.
+
+**D.3 — Squad shape:**
+
+- 27 squads ativos
+- **25 são Kanban-puros** (sem sprints) — métricas Lean (CFD, Throughput, WIP, Cycle Time) são primárias
+- 2 squads (FID, PTURB) usam Sprint — métricas Scrum (Velocity, Carryover) aplicam
+- **Implicação:** UX padrão deve assumir Kanban-first. Sprint metrics aparecem condicionalmente quando `eng_sprints` tem dados ativos para a squad.
+
+**D.4 — Repo & deploy scale:**
+
+- 754 GitHub repos active / 1.429 total descobertos
+- 283 repos com Jenkins config descoberto via SCM scan (commit `d1aebf7`)
+- 577 PRD jobs auto-classificados por pattern matching
+- 197.043 issues no projeto único BG (concentração extrema — single JQL retorna massive payload)
+- **Implicação:** SaaS engine deve assumir distribuição power-law (alguns projetos enormes, muitos pequenos). Streaming per-project (P-1 do v2) é não-negociável.
+
+**D.5 — Operational realities:**
+
+- VPN drops causam silent failures sem health-aware orchestration (P-8)
+- Project keys com palavras-reservadas SQL ("DESC") exigem quoting em JQL
+- Orphan project keys em PR titles ("RC" tem 1.348 references sem Jira project) — alias resolution AI necessário (Section 6.4.5)
+- NULL bytes (0x00) em descriptions PT-BR — `_strip_null_bytes` defensivo
+- Jenkins SHAs são build IDs, não git SHAs — PR↔Deploy linking via temporal correlation, não SHA match
+
+**D.6 — Anti-pattern de dev process descobertos:**
+
+- **Cache lateral vs return value** (INC-020): connector mappers escondendo dados em `self._last_*` que outros call sites não acessam
+- **Schema drift entre migration e ORM** (INC-023): coluna existe no DB mas SQLAlchemy `Mapped` ausente — paths que omitem campo passam, paths que incluem crashern
+- **Swiss cheese alignment** (INC-023): feature inteira zerada por 4+ bugs independentes em camadas diferentes; cada um sozinho garantia o sintoma
+- **Watermark filter dimension errado** (INC-023 #3): sprint state transitions em `endDate` não `startDate` — escolher dimensão correta de watermark é crítico
+- **Bucketização silenciosa de unknown values**: anti-pattern. Sempre fail-loud (None/WARN) — operador investiga via NULL no DB
 
 ---
 
@@ -1184,22 +1600,60 @@ o DB ainda tem PII nos raw fields. Anonimização determinística de
 author/assignee → hash + `@example.invalid` é necessária. Detalhes em
 `docs/onboarding.md` (PR #2.1).
 
-### 8.10 Status Normalization
+### 8.10 Status Normalization (hybrid textual + statusCategory)
 
-**Fonte primária:** `connections.yaml` `status_mapping` (60+ entries
-PT-BR + EN). Override do DEFAULT_STATUS_MAPPING em
-`engineering_data/normalizer.py`.
+**Fonte primária:** hybrid em 3 camadas (FDD-OPS-017 / INC-022 / commit `0c7124d`):
 
-**Edge cases conhecidos:**
+1. **Textual mapping curado** — `DEFAULT_STATUS_MAPPING` em `engineering_data/normalizer.py`, ~80 entries PT-BR Webmotors-curated + EN. Preserva granularidade `in_progress` vs `in_review`.
+2. **Jira `statusCategory.key` fallback** — autoritativo done/não-done. Connector descobre via `/rest/api/3/status` (1 chamada/lifetime, cacheada). Webmotors: 326 status defs descobertas.
+3. **Default 'todo' com WARN log** — extremamente raro pós-fix (só status sem categoria).
 
-- "aguardando deploy produção" → `done` (INC-019, debatível)
-- "em teste azul/hml" → `in_review` (Webmotors-specific QA stages)
-- "construção de hipótese" → `in_progress` (Kanban upstream stage)
-- Status sem mapping → `todo` (fallback conservador)
+**Categorias normalizadas produzidas:** `todo | in_progress | in_review | done` (4 categorias). Métricas downstream em `domain/lean.py:_ACTIVE_STATUSES = {"in_progress", "in_review"}` tratam ambos como WIP/active para Cycle Time.
 
-**Princípio**: tudo que não é `done` claro vira `in_progress` ou `in_review`
-pra ser visível em CFD/WIP. Pessimismo por design — melhor superestimar
-WIP que esconder trabalho.
+**Discovery cacheado por instância de connector:**
+
+```python
+# JiraConnector
+self._status_categories: dict[str, str] = {}  # name (lowercase) → category key
+self._status_categories_discovered: bool = False
+
+async def _discover_status_categories(self):
+    data = await self._client.get(f"{REST_API}/status")
+    for s in data:
+        name = (s.get("name") or "").strip().lower()
+        cat = ((s.get("statusCategory") or {}).get("key") or "").strip().lower()
+        if name and cat in ("new", "indeterminate", "done"):
+            self._status_categories[name] = cat
+```
+
+**`_map_issue` anexa ao dict mapeado:**
+
+- `status_category`: a categoria do status atual
+- `status_categories_map`: o dict completo (mesma referência para todas as issues do batch)
+
+**Histórico (`build_status_transitions`)** usa o `status_categories_map` para classificar cada `to_status` histórica:
+
+```python
+for cl in changelogs:
+    cat = status_categories_map.get(cl["to_status"].strip().lower())
+    normalized = normalize_status(cl["to_status"], status_mapping, cat)
+```
+
+**Edge cases conhecidos & decisões:**
+
+| Status | Mapping | Justificativa |
+|---|---|---|
+| `FECHADO EM PROD` | `done` | Jira category=done; nome literal "FECHADO" |
+| `FECHADO EM HML` | `done` | Jira category=done. Workflow author classifica como done; respeitamos. Se squad quer "ainda em fluxo", renomeia para "Aguardando Deploy Produção" |
+| `aguardando deploy produção` | `in_progress` | INC-019 P2 reverso — quando deploy é o gargalo, item ainda está em fluxo |
+| `em teste azul/hml` | `in_review` | Webmotors-specific QA stages; granularidade preservada via textual |
+| `construção de hipótese` | `in_progress` | Kanban upstream — trabalho ativo de discovery |
+| `Aguardando Code Review` | `in_review` | Trabalho ativo aguardando reviewer (textual ganha sobre Jira `new` neste tenant) |
+| Status sem mapping E sem category | `todo` (com WARN log) | Conservador — operador investiga via WARN |
+
+**Princípio**: textual ganha quando definido (granularidade); category ganha sobre default (autoridade). Tudo que cai em "todo" sem ambos é log-visible — raro, mas observável.
+
+**Por que mantemos 4 categorias (não 3 como Jira)** — métricas Lean precisam distinguir `in_progress` (development active) de `in_review` (waiting on review/test) para Cycle Time Breakdown. Jira `statusCategory.indeterminate` colapsa os dois; nosso textual mapping preserva quando a squad nomeia.
 
 ### 8.11 PR ↔ Issue Linking
 
@@ -1222,5 +1676,93 @@ WIP que esconder trabalho.
 **Re-relink pós-ingestão:** script `scripts/relink_prs_to_issues.sql`
 re-aplica em PRs antigos quando novos projetos são ativados via discovery
 dinâmica.
+
+### 8.12 Effort Estimation (story_points field)
+
+**Fonte primária:** `eng_issues.story_points` (numeric, nullable) — populado pelo `_extract_story_points` no connector via fallback chain (FDD-OPS-016 / INC-021 / commit `172f3f2`). Detalhes na §6.3.6.
+
+**Hops em ordem de prioridade** (telemetria via `_effort_source_counts`):
+
+| Hop | Source | Conversão | Source label |
+|---|---|---|---|
+| 1 | `customfield_10004` ("Story Points") | numeric direto (skip se = 0) | `story_points` |
+| 2 | `customfield_18524` ("Story point estimate") | numeric direto | `story_points` |
+| 3 | T-shirt size field (discovered) | Fibonacci: PP=1, P=2, M=3, G=5, GG=8, GGG=13 | `tshirt_to_sp` |
+| 4 | `customfield_15100` ("Tamanho/Impacto") | mesmo mapa | `tshirt_to_sp` |
+| 5 | `timeoriginalestimate` (segundos) | buckets ≤4h=1, ≤8h=2, ≤16h=3, ≤24h=5, ≤40h=8, ≤80h=13, >80h=21 | `hours_to_sp` |
+| 6 | None | `null` em `eng_issues.story_points` | `unestimated` |
+
+**Decisão downstream — quando `story_points IS NULL`:**
+
+- Métricas baseadas em soma (Velocity, Story Point Throughput): **NÃO somar** issues `null`
+- Métricas baseadas em count (Throughput by issue, WIP, Cycle Time): **incluir** issues `null` normalmente
+- **Para tenants Kanban-puros** (Webmotors: 25/27 squads), `story_points` é `null` para 100% — **a métrica primária deve ser count, não sum**
+
+**Anti-pattern evitado:**
+
+> NÃO defaultar para `story_points = 1` (ou outro valor sentinel)
+> quando não há estimativa. Seria silently wrong para Velocity.
+> Métrica precisa saber explicitamente que aquela issue não foi
+> estimada. `null` é fail-loud (NULL no DB visível) vs `1` que é
+> fail-silent.
+
+**Webmotors-observed coverage** pós-fix (CRMC, projeto novo full-history):
+
+- 52,3% com effort estimado (sample de 1.375 issues)
+- Distribuição valores: 1, 2, 3, 5, 8 (Fibonacci aplicado)
+- 47,7% `null` → métrica conta items
+
+**Future:** R3 codename "dev-metrics" (FDD-DEV-METRICS-001) entrega:
+- Coluna `effort_source` em `eng_issues` para auditoria por issue
+- Per-squad estimation method choice (admin UI)
+- Modelo proprietário de previsão usando método nativo do squad
+
+### 8.13 Sprint Status & Goal
+
+**Fonte primária:** `eng_sprints.status` (varchar(50), nullable) + `eng_sprints.goal` (text, nullable). Populados pelo `normalize_sprint` (FDD-OPS-018 / INC-023 / commit `649ed78`).
+
+**Status normalization:**
+
+| Raw value (Jira) | Aliases aceitos | Normalized |
+|---|---|---|
+| ACTIVE | active, open, in_progress | `active` |
+| CLOSED | closed, completed, complete, ended | `closed` |
+| FUTURE | future, planned, upcoming | `future` |
+| (qualquer outro) | — | `None` (fail-loud, operador investiga) |
+
+**Por que NULL para unknown** (não bucketizar): Sprint Velocity e Carryover logic precisam saber QUAIS sprints estão de fato fechadas. Bucketizar "?" para `closed` corromperia a regressão linear de tendência. NULL torna o problema visível.
+
+**Goal field:**
+
+- Source: `sprint.goal` da Jira API (string, free-text setado por squad lead)
+- Normalizer aplica `_strip_null_bytes` (Postgres rejeita 0x00)
+- Webmotors observed: 70% das sprints têm goal real (e.g., "Gestão de banner no backoffice de CNC e TEMPO para novas especificações técnicas")
+
+**Re-fetch policy crítica** — sprints **não usam watermark filter** (decisão de FDD-OPS-018):
+
+- State transitions acontecem em `endDate`, não `startDate`
+- Volume baixo (~216 total / ~5 ativas em qualquer momento)
+- Sempre re-fetch é correto E barato
+- Se quiser otimizar no futuro: filtrar por `endDate < since` (não `startDate`)
+
+**ON CONFLICT update obrigatório:**
+
+```python
+# _upsert_sprints
+.on_conflict_do_update(
+    index_elements=["tenant_id", "external_id"],
+    set_={
+        "name": sd["name"],
+        "status": sd.get("status"),       # FDD-OPS-018: era omitido
+        "goal": sd.get("goal"),           # FDD-OPS-018: era omitido
+        "started_at": sd["started_at"],
+        "completed_at": sd["completed_at"],
+        # ... outros campos métricos
+        "updated_at": datetime.now(timezone.utc),
+    },
+)
+```
+
+**Lição** — quando o ON CONFLICT `set_` omite um campo, sprints existentes nunca recebem update mesmo se o normalizer está correto. Pattern: `set_` deve incluir TODOS os campos que podem mudar entre syncs, exceto `external_id` e `tenant_id`.
 
 ---
