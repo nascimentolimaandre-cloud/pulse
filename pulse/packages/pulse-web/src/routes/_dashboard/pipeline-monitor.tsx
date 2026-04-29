@@ -1,6 +1,6 @@
 import { createRoute } from '@tanstack/react-router';
 import { useState } from 'react';
-import { Activity, Workflow, Users } from 'lucide-react';
+import { Activity, Workflow, Users, Zap } from 'lucide-react';
 import { rootRoute } from '../__root';
 import { TrustStrip } from '@/components/pipeline/TrustStrip';
 import { IntegrationBox } from '@/components/pipeline/IntegrationBox';
@@ -10,15 +10,17 @@ import { TeamHealthTable } from '@/components/pipeline/TeamHealthTable';
 import { EntityDrawer } from '@/components/pipeline/EntityDrawer';
 import { Timeline } from '@/components/pipeline/Timeline';
 import { CoveragePanel } from '@/components/pipeline/CoveragePanel';
+import { PerScopeJobs } from '@/components/pipeline/PerScopeJobs';
 import { usePipelineHealth, usePipelineSources } from '@/hooks/usePipeline';
 import type { Source, Entity } from '@/types/pipeline';
 
-type TabId = 'overview' | 'pipeline' | 'teams';
+type TabId = 'overview' | 'pipeline' | 'teams' | 'jobs';
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof Activity }> = [
   { id: 'overview', label: 'Visao geral', icon: Activity },
   { id: 'pipeline', label: 'Pipeline', icon: Workflow },
   { id: 'teams', label: 'Times', icon: Users },
+  { id: 'jobs', label: 'Per-scope', icon: Zap },
 ];
 
 function EmptyState() {
@@ -127,6 +129,9 @@ function PipelineMonitorPage() {
 
           {/* Teams tab */}
           {tab === 'teams' && <TeamHealthTable />}
+
+          {/* Per-scope jobs tab (FDD-OPS-015) */}
+          {tab === 'jobs' && <PerScopeJobs />}
         </>
       )}
 
