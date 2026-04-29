@@ -1311,3 +1311,191 @@ que travou".
 
 ---
 
+## FDD-OPS-016 · Effort estimation fallback chain (Story Points → T-shirt → Hours → Count)
+
+**Epic:** Data Quality · **Release:** R1
+**Priority:** **P1** · **Persona:** Data consumer / metric layer
+**Owner class:** `pulse-data-engineer` · **Status:** SHIPPED 2026-04-28
+
+### Problema confirmado
+
+Panorama do Pulse DB em 2026-04-28 mostrou **`story_points = 0` em todas
+as 311.007 issues**. Investigação na instância Jira da Webmotors revelou:
+
+- **`customfield_10004` ("Story Points")**: 0% populado em todos os 69 projetos
+- **`customfield_18524` ("Story point estimate")**: 0% populado também
+- Webmotors **não usa Story Points como método de estimativa**
+
+Distribuição real por projeto (amostra de 50 issues):
+
+| Projeto | T-Shirt Size | Original Estimate (h) | Tamanho/Impacto | Padrão |
+|---------|--------------|------------------------|------------------|--------|
+| ENO     | 24%          | 52%                    | 4%               | Horas + tshirt |
+| DESC    | 26%          | 34%                    | 6%               | Horas + tshirt |
+| APPF    | 0%           | 12%                    | 0%               | Horas (raro) |
+| OKM     | 4%           | 8%                     | 0%               | Quase Kanban |
+| BG, FID, PTURB | 0%   | 0%                     | 0%               | **Kanban puro** |
+
+Sem fallback, métricas de velocity, throughput-by-effort e forecast
+ficavam zeradas para 100% das issues — bloqueando todo o pilar Lean.
+
+### Solução implementada
+
+Cadeia de fallback em `JiraConnector._extract_story_points`:
+
+1. **Story Points / Story point estimate** (numérico) — uso direto
+2. **T-Shirt Size** (option) — mapa Fibonacci: PP=1, P=2, M=3, G=5, GG=8, GGG=13
+3. **Tamanho/Impacto** (option) — mesmo mapa
+4. **`timeoriginalestimate`** (segundos) — buckets: ≤4h=1, ≤8h=2, ≤16h=3, ≤24h=5, ≤40h=8, ≤80h=13, >80h=21
+5. **`None`** — issue genuinamente não estimada
+
+Discovery automático via `_discover_custom_fields` casa por nome
+("t-shirt size", "tamanho/impacto") — não hardcode customfield IDs.
+
+Telemetria de origem (`_effort_source_counts`) loggada por batched run:
+operadores conseguem ver se o squad migrou de horas pra t-shirt sem
+combar logs.
+
+### Quando `story_points = None` (Kanban puro)
+
+Quando nada está populado, a métrica downstream **DEVE contar items**
+em vez de somar pontos. Esta decisão fica na camada de métricas, **não**
+no normalizer. O normalizer só extrai o que existe.
+
+### Regras de mapeamento — escolhas e por quê
+
+- **Fibonacci-aligned**: comum na indústria, métricas downstream já
+  esperam essa escala
+- **Hours buckets calibrados** contra valores observados na Webmotors
+  (2h–124h, múltiplos de 4) — cada valor comum cai num bucket sensato
+- **Skipa SP = 0**: sentinel comum para "não estimado", trata como falta
+
+### Validação live
+
+Projeto CRMC (1.375 issues, ingestão completa pós-fix):
+- **52,3% com effort estimado** (719/1.375 issues)
+- Distribuição de valores: 1, 2, 3, 5, 8 — confirma escala Fibonacci aplicada
+
+### Migração dos 311k issues legados
+
+Como o upsert sobrescreve `story_points` em re-sync, os 311k issues
+existentes vão receber o effort correto **conforme cada projeto recebe
+updates incrementais**. Para acelerar, op pode resetar watermarks
+por projeto via SQL — custo: re-fetch da API Jira.
+
+### Arquivos
+- `pulse/packages/pulse-data/src/connectors/jira_connector.py`:
+  - Constants `TSHIRT_TO_POINTS`, `_hours_to_points`, patterns
+  - `_discover_custom_fields` agora detecta tshirt fields
+  - `_extract_story_points` reescrito com cadeia de fallback
+  - Telemetria via `_effort_source_counts` + log no fim de batched fetch
+- `pulse/packages/pulse-data/tests/unit/test_effort_fallback_chain.py`:
+  34 testes cobrindo cada hop, cada size, cada bucket de horas
+
+### Anti-surveillance check
+PASS — apenas valores agregados de effort são extraídos; nenhum dado
+identificador de pessoa é coletado.
+
+### Próximo passo (deferido)
+Adicionar coluna `effort_source` em `eng_issues` para auditoria por
+issue (qual hop produziu o valor). Útil para debugging mas não
+bloqueante. Cobertura atual via telemetria batched é suficiente
+para R1.
+
+---
+
+## FDD-DEV-METRICS-001 · Codename "dev-metrics" — proprietary estimation & forecasting model
+
+**Epic:** Product Differentiation · **Release:** R3+ (codename "dev-metrics")
+**Priority:** **P3** (large-scope, visionary) · **Persona:** Eng Manager + Squad Lead
+**Owner class:** `pulse-product-director` + `pulse-data-scientist` + `pulse-engineer`
+**Status:** PLANNED — capture only, do not start
+
+> **Marcador estratégico**: este FDD reserva o espaço no backlog do projeto
+> codinome **"dev-metrics"**, que vai reescrever completamente a UX/UI do
+> PULSE adicionando dezenas de features proprietárias e únicas na indústria.
+> Documentação completa virá no próprio release plan do "dev-metrics" — esta
+> entrada apenas garante que o tema **não se perde** entre R1 e R3.
+
+### Por que existe este card
+
+Hoje (R1) usamos uma cadeia de fallback **automática e implícita** para
+extrair effort estimation (FDD-OPS-016). Isso resolve o problema imediato
+mas **assume convenções** (Fibonacci scale, hours-bucket mapping). Squads
+diferentes têm filosofias diferentes:
+
+- "Story Points são nosso golden standard"
+- "Horas são mais honestas"
+- "Tamanho de camisa só é útil pra refinement, não pra forecast"
+- "Não estimamos. Throughput by item é nosso único KPI"
+
+Cada filosofia gera métricas diferentes. Hoje somos opinionados;
+amanhã queremos ser **configuráveis** por squad e ainda **proativos**:
+sugerir ao squad qual método cabe melhor com base no histórico real.
+
+### Visão (R3 — projeto "dev-metrics")
+
+1. **Per-squad estimation method** (admin UI):
+   - Squad escolhe: SP nativo, T-shirt, Hours, Count-only, ou "Auto"
+   - PULSE respeita a escolha em **toda** a métrica (velocity, forecast,
+     CFD por effort, scatterplot)
+   - Auto-mode: usa fallback chain atual + telemetria
+
+2. **Modelo proprietário de previsão e insights** (vantagem competitiva):
+   - Identifica drift de estimativa (squad marcando tudo como "M" há
+     6 sprints)
+   - Calibra automaticamente: "Vocês marcaram esse card como P, mas
+     histórico de issues do tipo 'bug' com label 'auth' nesta squad
+     teve 73% de chance de virar G/GG"
+   - Insight de método: "73% das squads kanban-puras como vocês têm
+     throughput estável; vocês não — possível causa: variabilidade no
+     refinement"
+   - Forecast com Monte Carlo usando o método nativo do squad
+   - **Anti-surveillance**: insights são sobre o squad/processo,
+     **nunca** sobre indivíduos
+
+3. **UX completa rescritia**:
+   - Dashboard reescrito ao redor do método escolhido
+   - Painel "estimation health" novo
+   - Drill-down comparativo: "como seria sua velocity se vocês tivessem
+     adotado method X há 3 sprints?"
+
+### Diferenciador
+
+Concorrentes (LinearB, Jellyfish, Swarmia, Athenian) hoje são opinionados
+em SP. PULSE será o **único** que respeita filosofia da squad e usa
+isso como entrada de modelo, não como ruído a ser normalizado.
+
+### Pré-requisitos (capturar agora)
+
+Quando "dev-metrics" começar:
+1. **`effort_source`** já estar em `eng_issues` (next step do
+   FDD-OPS-016) — sem isso, modelo proprietário não tem feature de método
+2. **Histórico estatístico** mínimo de ~6 sprints por squad (ou ~30
+   ciclos de Cycle Time pra Kanban) — bootstrap funciona em paralelo
+3. **Multi-tenant scope_key** (FDD-OPS-014) — consolidado, OK
+4. **Anti-surveillance review** rigoroso — modelo NÃO pode personalizar
+   por indivíduo, só por squad/repo
+
+### Lembrete operacional (CRÍTICO)
+
+**Não esquecer ao chegar em R2/R3.** Este FDD existe especificamente
+para resgatar o tema. Reviewer de release plan deve checar:
+- ✅ FDD-DEV-METRICS-001 ainda apontado no roadmap?
+- ✅ `effort_source` adicionado antes do R3 começar?
+- ✅ Telemetria do fallback chain ainda gerando dados utilizáveis?
+
+### Anti-surveillance check
+PASS by design — modelo opera em agregado por squad/issue-type, nunca
+por pessoa. Precisa review formal do CISO antes do release.
+
+### Estimate
+**XL (multi-sprint, R3)** — escopo de release inteiro, não card único.
+
+### Dependencies
+- FDD-OPS-016 (effort fallback chain) — base hoje
+- FDD-OPS-014 (per-scope) — entregue
+- Future migration: adicionar coluna `effort_source` em `eng_issues`
+
+---
+

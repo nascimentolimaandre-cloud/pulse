@@ -330,6 +330,9 @@ class TestMapIssuePreservesChangelogForInlineExtraction:
         connector._base_url = "https://example.atlassian.net"
         connector._sprint_field_id = None
         connector._story_points_field_id = None
+        # FDD-OPS-016 — effort fallback discovery state
+        connector._tshirt_field_ids = []
+        connector._effort_source_counts = {}
         connector._last_changelogs = {}
 
         mapped = connector._map_issue(jira_api_response)

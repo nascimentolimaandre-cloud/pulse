@@ -57,6 +57,59 @@ DESCRIPTION_MAX_CHARS = 4000
 FALLBACK_STORY_POINTS_FIELDS = ("customfield_10016", "customfield_10028")
 FALLBACK_SPRINT_FIELDS = ("customfield_10020", "customfield_10010")
 
+# ---------------------------------------------------------------------------
+# Effort estimation fallback chain (FDD-OPS-016)
+#
+# Webmotors and many enterprise tenants do NOT use story points (validated
+# 2026-04-28: 0% population across all 69 active Jira projects). Different
+# squads use different estimation methods, or none at all. We discover and
+# extract from a fallback chain in priority order:
+#
+#   1. Story Points  (numeric)  → use raw value
+#   2. Story point estimate     → use raw value
+#   3. T-Shirt Size  (option)   → map P/M/G... to Fibonacci scale
+#   4. Tamanho/Impacto (option) → map PP/P/M/G... to Fibonacci scale
+#   5. Original Estimate (sec)  → bucket hours into Fibonacci-aligned points
+#   6. None                     → consumer falls back to count-of-items
+#                                 (Kanban-pure mode)
+#
+# When `story_points` lands as None, downstream metrics (Lean throughput,
+# velocity) MUST count items rather than sum points. The decision to count
+# vs sum lives in the metric layer, not here.
+#
+# Future (codename "dev-metrics"): admin UI to opt into a specific method
+# per source/squad + proprietary forecasting model. See FDD-DEV-METRICS-001
+# in ops-backlog.md.
+# ---------------------------------------------------------------------------
+
+# Field-name keywords used by `_discover_effort_fields` (case-insensitive,
+# matched against Jira `fields` API "name" property).
+EFFORT_NAME_PATTERNS_TSHIRT = ("t-shirt size", "tshirt size", "tamanho/impacto")
+EFFORT_NAME_PATTERNS_TIME = ("original estimate",)  # core field, not custom
+
+# Fibonacci-like mapping for option-typed effort fields. Covers the values
+# observed in Webmotors data + common defaults (XS/S/M/L/XL/XXL).
+TSHIRT_TO_POINTS: dict[str, float] = {
+    # Portuguese sizes
+    "PP": 1.0, "P": 2.0, "M": 3.0, "G": 5.0, "GG": 8.0, "GGG": 13.0,
+    # English sizes
+    "XS": 1.0, "S": 2.0, "L": 5.0, "XL": 8.0, "XXL": 13.0,
+}
+
+# Hour-based estimation buckets → SP equivalent.
+# Aligned with "1 ideal day = ~6h productive, 1 SP ≈ small task < 0.5d" so
+# the steps stay roughly Fibonacci. Calibrated against Webmotors observed
+# values (2h–124h, multiples of 4) so each common value lands in a sensible
+# bucket. Rounded to the SP scale that downstream metrics already speak.
+def _hours_to_points(hours: float) -> float:
+    if hours <= 4:    return 1.0
+    if hours <= 8:    return 2.0
+    if hours <= 16:   return 3.0
+    if hours <= 24:   return 5.0
+    if hours <= 40:   return 8.0
+    if hours <= 80:   return 13.0
+    return 21.0
+
 
 class JiraConnector(BaseConnector):
     """Fetches issues, sprints, and changelogs from Jira Cloud REST API v3.
@@ -102,7 +155,15 @@ class JiraConnector(BaseConnector):
         # _discover_custom_fields() on first fetch_issues() call.
         self._sprint_field_id: str | None = None
         self._story_points_field_id: str | None = None
+        # FDD-OPS-016: discovered effort-fallback field IDs (T-shirt size,
+        # Tamanho/Impacto). Many tenants don't use story points at all.
+        self._tshirt_field_ids: list[str] = []
         self._custom_fields_discovered: bool = False
+        # Telemetry for `_extract_effort` — counts how often each strategy
+        # was the one that produced a value, plus how many issues fell
+        # through to None. Logged at end of each batched fetch so operators
+        # can spot estimation mode shifts without combing through traces.
+        self._effort_source_counts: dict[str, int] = {}
 
     @property
     def source_type(self) -> str:
@@ -223,6 +284,13 @@ class JiraConnector(BaseConnector):
             fields_to_fetch.append(self._sprint_field_id)
         if self._story_points_field_id:
             fields_to_fetch.append(self._story_points_field_id)
+        # FDD-OPS-016: include effort fallback fields (T-shirt size,
+        # Tamanho/Impacto, original estimate)
+        for f in self._tshirt_field_ids:
+            if f not in fields_to_fetch:
+                fields_to_fetch.append(f)
+        if "timeoriginalestimate" not in fields_to_fetch:
+            fields_to_fetch.append("timeoriginalestimate")
         # Always include fallbacks to survive mis-discovery
         for f in FALLBACK_SPRINT_FIELDS + FALLBACK_STORY_POINTS_FIELDS:
             if f not in fields_to_fetch:
@@ -301,11 +369,20 @@ class JiraConnector(BaseConnector):
             fields_to_fetch.append(self._sprint_field_id)
         if self._story_points_field_id:
             fields_to_fetch.append(self._story_points_field_id)
+        # FDD-OPS-016: effort fallback fields
+        for f in self._tshirt_field_ids:
+            if f not in fields_to_fetch:
+                fields_to_fetch.append(f)
+        if "timeoriginalestimate" not in fields_to_fetch:
+            fields_to_fetch.append("timeoriginalestimate")
         for f in FALLBACK_SPRINT_FIELDS + FALLBACK_STORY_POINTS_FIELDS:
             if f not in fields_to_fetch:
                 fields_to_fetch.append(f)
 
         since_by_project = since_by_project or {}
+        # FDD-OPS-016: reset effort telemetry per batched call so the
+        # summary log reflects only this run.
+        self._effort_source_counts = {}
 
         for project_key in project_keys:
             since = since_by_project.get(project_key)
@@ -353,6 +430,22 @@ class JiraConnector(BaseConnector):
             logger.info(
                 "[batched] %s: complete (%d issues, %d pages)",
                 project_key, total_yielded, page,
+            )
+
+        # FDD-OPS-016 — log effort-source distribution so operators can spot
+        # which fields the squad uses (or that they don't estimate at all).
+        if self._effort_source_counts:
+            total = sum(self._effort_source_counts.values())
+            breakdown = ", ".join(
+                f"{src}={cnt} ({100.0*cnt/total:.1f}%)"
+                for src, cnt in sorted(
+                    self._effort_source_counts.items(),
+                    key=lambda kv: -kv[1],
+                )
+            )
+            logger.info(
+                "[batched] effort source distribution (%d issues): %s",
+                total, breakdown,
             )
 
     async def fetch_issue_changelogs(
@@ -603,12 +696,18 @@ class JiraConnector(BaseConnector):
                 self._sprint_field_id = fid
             elif name in ("story points", "story point estimate") and not self._story_points_field_id:
                 self._story_points_field_id = fid
+            elif any(p in name for p in EFFORT_NAME_PATTERNS_TSHIRT):
+                # FDD-OPS-016 — option-typed effort fallback (P/M/G…)
+                if fid not in self._tshirt_field_ids:
+                    self._tshirt_field_ids.append(fid)
 
         self._custom_fields_discovered = True
         logger.info(
-            "Discovered Jira custom fields — sprint=%s, story_points=%s",
+            "Discovered Jira custom fields — sprint=%s, story_points=%s, "
+            "effort_tshirt_fields=%s",
             self._sprint_field_id or "(none — using fallback)",
             self._story_points_field_id or "(none — using fallback)",
+            self._tshirt_field_ids or "(none)",
         )
 
     def _extract_sprint_id(self, fields: dict[str, Any]) -> str | None:
@@ -723,20 +822,89 @@ class JiraConnector(BaseConnector):
         return flat
 
     def _extract_story_points(self, fields: dict[str, Any]) -> float | None:
-        """Extract story points, preferring the discovered custom field."""
-        candidates: list[str] = []
-        if self._story_points_field_id:
-            candidates.append(self._story_points_field_id)
-        candidates.extend(FALLBACK_STORY_POINTS_FIELDS)
-        candidates.append("story_points")
+        """Extract effort estimate, falling back through Story Points →
+        T-shirt size → Original Estimate hours → None.
 
-        for c in candidates:
+        Returns a float on the SP scale so downstream metrics (velocity,
+        throughput) can sum it. Returns None when the issue is genuinely
+        unestimated; the metric layer must then count items rather than
+        sum points (Kanban-pure mode). See FDD-OPS-016.
+
+        Side effect: increments `self._effort_source_counts[source]` so
+        `fetch_issues_batched` can log the distribution per run. The source
+        label is recorded even on None ("unestimated") so coverage can be
+        observed end-to-end.
+        """
+        # 1+2. Native numeric story-point fields (preferred — no conversion).
+        sp_candidates: list[str] = []
+        if self._story_points_field_id:
+            sp_candidates.append(self._story_points_field_id)
+        sp_candidates.extend(FALLBACK_STORY_POINTS_FIELDS)
+        sp_candidates.append("story_points")
+        for c in sp_candidates:
             value = fields.get(c)
-            if value is not None:
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    continue
+            if value is None or value == "":
+                continue
+            try:
+                points = float(value)
+            except (TypeError, ValueError):
+                continue
+            if points > 0:
+                self._effort_source_counts["story_points"] = (
+                    self._effort_source_counts.get("story_points", 0) + 1
+                )
+                return points
+
+        # 3+4. T-shirt sized fields → map P/M/G… to Fibonacci scale.
+        for fid in self._tshirt_field_ids:
+            raw = fields.get(fid)
+            label = self._unwrap_option(raw)
+            if not label:
+                continue
+            mapped = TSHIRT_TO_POINTS.get(label.upper())
+            if mapped is not None:
+                self._effort_source_counts["tshirt_to_sp"] = (
+                    self._effort_source_counts.get("tshirt_to_sp", 0) + 1
+                )
+                return mapped
+            # Unknown size value — don't silently mis-map; fall through.
+
+        # 5. Original Estimate (hours) → SP equivalent buckets.
+        secs = fields.get("timeoriginalestimate")
+        if secs:
+            try:
+                hours = float(secs) / 3600.0
+                if hours > 0:
+                    self._effort_source_counts["hours_to_sp"] = (
+                        self._effort_source_counts.get("hours_to_sp", 0) + 1
+                    )
+                    return _hours_to_points(hours)
+            except (TypeError, ValueError):
+                pass
+
+        # 6. Genuinely unestimated. Track for telemetry; metric layer counts items.
+        self._effort_source_counts["unestimated"] = (
+            self._effort_source_counts.get("unestimated", 0) + 1
+        )
+        return None
+
+    @staticmethod
+    def _unwrap_option(raw: Any) -> str | None:
+        """Extract the string label from a Jira option-typed field.
+
+        Jira returns option fields as `{"value": "P", "id": "..."}` but
+        legacy/edge cases sometimes use "name" or a bare string. Be lenient.
+        """
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            label = raw.strip()
+            return label or None
+        if isinstance(raw, dict):
+            for key in ("value", "name", "displayName"):
+                v = raw.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
         return None
 
     # ------------------------------------------------------------------
