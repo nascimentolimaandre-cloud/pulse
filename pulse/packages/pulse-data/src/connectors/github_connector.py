@@ -196,6 +196,90 @@ class GitHubConnector(BaseConnector):
         repos = await self._get_repos()
         return len(repos)
 
+    async def count_prs_for_repo(
+        self,
+        repo_full_name: str,
+        since: datetime | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> int | None:
+        """FDD-OPS-015 — pre-flight estimate of PRs in a repo.
+
+        Uses GitHub GraphQL `repository.pullRequests.totalCount` which is
+        cheap (single API call, no pagination). totalCount counts ALL states
+        (OPEN/MERGED/CLOSED) regardless of `since` — `since` filtering would
+        require the search API which costs more rate-limit budget.
+
+        Behavior on `since`:
+            - When `since` is provided, totalCount is an OVER-ESTIMATE
+              (returns lifetime PR count for the repo, not just since `since`)
+            - Worker should be aware: ETA at start may overshoot until rate
+              measurements stabilize after a few batches
+            - For full backfill (since=None), it's exact
+
+        Returns:
+            Total PRs in repo, or None on failure/timeout.
+        """
+        owner, name = repo_full_name.split("/", 1) if "/" in repo_full_name else (self._org, repo_full_name)
+
+        query = """
+        query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            pullRequests(states: [OPEN, MERGED, CLOSED]) {
+              totalCount
+            }
+          }
+        }
+        """
+
+        try:
+            import asyncio
+            response = await asyncio.wait_for(
+                self._client.post(
+                    "/graphql",
+                    json_body={
+                        "query": query,
+                        "variables": {"owner": owner, "name": name},
+                    },
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[count] %s: GraphQL totalCount exceeded %.1fs — None",
+                repo_full_name, timeout_seconds,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "[count] %s: GraphQL totalCount failed — None", repo_full_name,
+            )
+            return None
+
+        if "errors" in response and response.get("data") is None:
+            logger.warning(
+                "[count] %s: GraphQL errors %s", repo_full_name,
+                response.get("errors"),
+            )
+            return None
+
+        try:
+            count = response["data"]["repository"]["pullRequests"]["totalCount"]
+        except (KeyError, TypeError):
+            logger.warning(
+                "[count] %s: unexpected GraphQL shape — None", repo_full_name,
+            )
+            return None
+
+        if not isinstance(count, int):
+            return None
+
+        logger.info(
+            "[count] %s: %d total PRs (since filter not applied — "
+            "may over-estimate for incremental)",
+            repo_full_name, count,
+        )
+        return count
+
     async def fetch_pull_requests_batched(
         self,
         since: datetime | None = None,

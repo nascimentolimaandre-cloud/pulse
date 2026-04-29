@@ -197,3 +197,37 @@ class CoverageResponse(_CamelModel):
     pr_issue_link_rate: float  # 0..1
     orphan_prefixes: list[OrphanPrefix]
     active_projects_without_issues: list[ActiveProjectWithoutIssues]
+
+
+# ---------------------------------------------------------------------------
+# FDD-OPS-015 — Per-scope progress (Pipeline Jobs endpoint)
+# ---------------------------------------------------------------------------
+
+ProgressJobStatus = Literal["running", "done", "failed", "paused", "cancelled"]
+ProgressJobPhase = Literal[
+    "pre_flight", "fetching", "normalizing", "persisting", "done", "failed",
+]
+
+
+class ProgressJob(_CamelModel):
+    """One row in `GET /data/v1/pipeline/jobs` — one ingestion scope's progress.
+
+    Mirrors `pipeline_progress` table with a few computed fields:
+      - `progress_pct`: 0-100 when estimate is available, else None
+      - `is_stalled`: True when status='running' AND last_progress_at > 60s ago
+    """
+
+    scope_key: str
+    entity_type: str
+    phase: ProgressJobPhase
+    status: ProgressJobStatus
+    items_done: int
+    items_estimate: int | None  # None = pre-flight count failed/skipped
+    progress_pct: float | None  # computed — None when no estimate
+    items_per_second: float
+    eta_seconds: int | None  # None = unknown
+    started_at: datetime
+    last_progress_at: datetime
+    finished_at: datetime | None
+    is_stalled: bool  # computed — running + no progress for >60s
+    last_error: str | None

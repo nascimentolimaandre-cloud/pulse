@@ -28,6 +28,7 @@ from src.contexts.engineering_data.models import (
 from src.contexts.pipeline.models import (
     PipelineEvent,
     PipelineIngestionProgress,
+    PipelineProgress,
     PipelineSyncLog,
     PipelineWatermark,
 )
@@ -40,6 +41,7 @@ from src.contexts.pipeline.schemas import (
     KPIs,
     OrphanPrefix,
     PipelineHealthResponse,
+    ProgressJob,
     ReposWithDeploy,
     Source,
     Step,
@@ -1059,3 +1061,104 @@ async def get_schema_drift(
         "total_affected_snapshots": total_affected,
         "by_metric": by_metric,
     }
+
+
+# ---------------------------------------------------------------------------
+# FDD-OPS-015 — Per-scope progress endpoint
+# ---------------------------------------------------------------------------
+
+# Threshold (seconds) above which a still-running job is flagged as "stalled".
+# 60s matches the FDD acceptance criterion ("60 seconds without progress").
+_STALL_THRESHOLD_SECONDS = 60
+
+
+@router.get("/jobs", response_model=list[ProgressJob])
+async def get_pipeline_jobs(
+    status: str | None = Query(
+        default=None,
+        description="Filter by status (running | done | failed | paused | cancelled)",
+    ),
+    entity_type: str | None = Query(
+        default=None,
+        description="Filter by entity_type (issues | pull_requests | deployments | sprints)",
+    ),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> list[ProgressJob]:
+    """FDD-OPS-015 — Per-scope ingestion progress.
+
+    Returns one row per active (or recently completed) ingestion scope.
+    During a Webmotors backfill that's ~32+ rows (one per Jira project +
+    one per GitHub repo). Sorted: running first (newest first), then
+    completed (most recent first).
+
+    Computed fields:
+      - `progress_pct`: 0-100 when items_estimate is set
+      - `is_stalled`: True when status='running' and last_progress_at is
+        more than 60 seconds in the past — operator signal that something
+        upstream (network, source API) needs attention
+
+    Operators use this for "is the BG project still progressing or
+    stalled?" type questions. Pipeline Monitor UI consumes the same
+    endpoint via polling.
+    """
+    now = datetime.now(timezone.utc)
+    stall_cutoff = now - timedelta(seconds=_STALL_THRESHOLD_SECONDS)
+
+    async with get_session(_TENANT_ID) as session:
+        conditions = [PipelineProgress.tenant_id == _TENANT_ID]
+        if status:
+            conditions.append(PipelineProgress.status == status)
+        if entity_type:
+            conditions.append(PipelineProgress.entity_type == entity_type)
+
+        # Order: running first (most recent activity), then anything else
+        # by most recent activity. CASE clause for status priority.
+        from sqlalchemy import case as sql_case
+        status_priority = sql_case(
+            (PipelineProgress.status == "running", 0),
+            (PipelineProgress.status == "failed", 1),
+            (PipelineProgress.status == "paused", 2),
+            else_=3,
+        )
+
+        stmt = (
+            select(PipelineProgress)
+            .where(*conditions)
+            .order_by(status_priority, PipelineProgress.last_progress_at.desc())
+            .limit(limit)
+        )
+        rows = await session.execute(stmt)
+        records = rows.scalars().all()
+
+    jobs: list[ProgressJob] = []
+    for r in records:
+        # Computed: progress_pct
+        pct: float | None = None
+        if r.items_estimate and r.items_estimate > 0:
+            pct = min(100.0, 100.0 * r.items_done / r.items_estimate)
+
+        # Computed: is_stalled (running + last update > 60s ago)
+        is_stalled = bool(
+            r.status == "running" and r.last_progress_at < stall_cutoff
+        )
+
+        jobs.append(
+            ProgressJob(
+                scope_key=r.scope_key,
+                entity_type=r.entity_type,
+                phase=r.phase,
+                status=r.status,
+                items_done=r.items_done,
+                items_estimate=r.items_estimate,
+                progress_pct=pct,
+                items_per_second=r.items_per_second,
+                eta_seconds=r.eta_seconds,
+                started_at=r.started_at,
+                last_progress_at=r.last_progress_at,
+                finished_at=r.finished_at,
+                is_stalled=is_stalled,
+                last_error=r.last_error,
+            )
+        )
+
+    return jobs

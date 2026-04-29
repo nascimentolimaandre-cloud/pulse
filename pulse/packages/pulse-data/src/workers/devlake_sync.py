@@ -610,6 +610,36 @@ class DataSyncWorker:
         total_count = 0
         repos_done = 0
 
+        # FDD-OPS-015 — per-repo progress trackers, lazily created.
+        from src.contexts.pipeline.progress_tracker import ProgressTracker
+        pr_trackers: dict[str, ProgressTracker] = {}
+        github_conn = self._reader.get_connector("github")
+
+        async def _start_pr_scope_tracker(repo_name: str) -> None:
+            if repo_name in pr_trackers:
+                return
+            scope_key = make_scope_key("github", "repo", repo_name)
+            tracker = ProgressTracker(
+                tenant_id=self._tenant_id,
+                entity_type="pull_requests",
+                scope_key=scope_key,
+            )
+            estimate: int | None = None
+            if github_conn is not None and hasattr(github_conn, "count_prs_for_repo"):
+                try:
+                    estimate = await github_conn.count_prs_for_repo(
+                        repo_name, since=since_by_repo.get(repo_name) or since,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[progress] %s: count_prs_for_repo raised — "
+                        "tracker without estimate",
+                        repo_name,
+                    )
+                    estimate = None
+            await tracker.start_scope(estimate=estimate, phase="fetching")
+            pr_trackers[repo_name] = tracker
+
         try:
             async for repo_name, raw_prs in self._reader.fetch_pull_requests_batched(
                 since=since,
@@ -635,6 +665,8 @@ class DataSyncWorker:
                         records_ingested=total_count,
                         current_source=repo_name,
                     )
+                    # FDD-OPS-015 — start tracker on the "starting" signal
+                    await _start_pr_scope_tracker(repo_name)
                     continue
 
                 # Normalize this repo's batch
@@ -690,6 +722,15 @@ class DataSyncWorker:
                     current_source=repo_name,
                 )
 
+                # FDD-OPS-015 — tick + finish (one batch == repo done in PR flow)
+                if repo_name in pr_trackers:
+                    await pr_trackers[repo_name].tick(
+                        items_added=batch_count, phase="persisting",
+                    )
+                    # PR connector yields one batch per repo (not paginated
+                    # within a repo at this layer), so we mark done here.
+                    await pr_trackers[repo_name].finish(status="done")
+
                 logger.info(
                     "Batch persisted: %d PRs from %s (total: %d PRs, %d/%d repos)",
                     batch_count, repo_name, total_count, repos_done, total_sources,
@@ -704,6 +745,15 @@ class DataSyncWorker:
                 error_message=str(exc),
                 finished_at=datetime.now(timezone.utc),
             )
+            # FDD-OPS-015 — mark any in-flight tracker as failed.
+            # finish() is idempotent (no-op on already-done trackers).
+            for tr in pr_trackers.values():
+                try:
+                    await tr.finish(status="failed", error=str(exc))
+                except Exception:
+                    logger.exception(
+                        "[progress] failed to mark PR tracker as failed",
+                    )
             raise
 
         # Mark ingestion as completed
@@ -819,6 +869,44 @@ class DataSyncWorker:
         current_project: str | None = None
         per_project_count: dict[str, int] = {pk: 0 for pk in project_keys}
 
+        # FDD-OPS-015 — per-scope progress trackers, lazily created on
+        # first sight of a project_key in the iterator. Each tracker
+        # owns its own ETA computation and persists to pipeline_progress.
+        from src.contexts.pipeline.progress_tracker import ProgressTracker
+        trackers: dict[str, ProgressTracker] = {}
+
+        # Get the underlying Jira connector for pre-flight count calls.
+        # None when Jira isn't configured (then trackers run without estimates).
+        jira_conn = self._reader.get_connector("jira")
+
+        async def _start_scope_tracker(project_key: str) -> None:
+            """Create + start a tracker for a project, with pre-flight count."""
+            if project_key in trackers:
+                return
+            scope_key = make_scope_key("jira", "project", project_key)
+            tracker = ProgressTracker(
+                tenant_id=self._tenant_id,
+                entity_type="issues",
+                scope_key=scope_key,
+            )
+            # Best-effort estimate. None on failure/timeout — UI shows "?"
+            estimate: int | None = None
+            if jira_conn is not None and hasattr(jira_conn, "count_issues_for_project"):
+                try:
+                    estimate = await jira_conn.count_issues_for_project(
+                        project_key,
+                        since=since_by_project.get(project_key),
+                    )
+                except Exception:
+                    logger.exception(
+                        "[progress] %s: count_issues_for_project raised — "
+                        "tracker will run without estimate",
+                        project_key,
+                    )
+                    estimate = None
+            await tracker.start_scope(estimate=estimate, phase="fetching")
+            trackers[project_key] = tracker
+
         async def _advance_project_watermark(project_key: str) -> None:
             """Update watermark for `jira:project:<KEY>` after that project finishes.
 
@@ -851,7 +939,12 @@ class DataSyncWorker:
                         # Previous project finished — advance its scope watermark
                         await _advance_project_watermark(current_project)
                         projects_done.add(current_project)
+                        # FDD-OPS-015 — finish previous tracker (status='done')
+                        if current_project in trackers:
+                            await trackers[current_project].finish(status="done")
                     current_project = project_key
+                    # FDD-OPS-015 — pre-flight count + start tracker for new scope
+                    await _start_scope_tracker(project_key)
                     await _update_ingestion_progress(
                         self._tenant_id, "issues",
                         status="running",
@@ -896,13 +989,23 @@ class DataSyncWorker:
                     self._producer, TOPIC_ISSUE_NORMALIZED, events,
                 )
 
+                # FDD-OPS-015 — tick the tracker for live ETA on this scope
+                if project_key in trackers:
+                    await trackers[project_key].tick(
+                        items_added=batch_count, phase="persisting",
+                    )
+
                 # Per-batch progress update (operator can grep the log to
                 # confirm forward progress)
+                tracker_eta = trackers[project_key].current_eta if project_key in trackers else None
+                tracker_rate = trackers[project_key].current_rate if project_key in trackers else 0
                 logger.info(
                     "[issues] batch persisted: %s +%d (project total: %d, "
-                    "tenant total: %d)",
+                    "tenant total: %d, rate=%.1f/s, eta=%ss)",
                     project_key, batch_count,
                     per_project_count[project_key], total_count,
+                    tracker_rate,
+                    tracker_eta if tracker_eta is not None else "?",
                 )
 
                 await _update_ingestion_progress(
@@ -915,6 +1018,9 @@ class DataSyncWorker:
             if current_project is not None:
                 await _advance_project_watermark(current_project)
                 projects_done.add(current_project)
+                # FDD-OPS-015 — finish the last tracker (status='done')
+                if current_project in trackers:
+                    await trackers[current_project].finish(status="done")
 
             logger.info(
                 "[issues] sync complete: %d issues across %d projects "
@@ -970,6 +1076,17 @@ class DataSyncWorker:
                 finished_at=datetime.now(timezone.utc),
                 error_message=str(exc)[:500],
             )
+            # FDD-OPS-015 — mark the in-flight tracker as failed so operators
+            # see WHICH scope died (not just an aggregate "issues failed").
+            if current_project and current_project in trackers:
+                try:
+                    await trackers[current_project].finish(
+                        status="failed", error=str(exc),
+                    )
+                except Exception:
+                    logger.exception(
+                        "[progress] failed to mark tracker as failed",
+                    )
             logger.exception("[issues] sync cycle failed")
             raise
 

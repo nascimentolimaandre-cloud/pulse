@@ -210,6 +210,65 @@ class JenkinsConnector(BaseConnector):
     # Internal: Fetch and map builds
     # ------------------------------------------------------------------
 
+    async def count_builds_for_job(
+        self,
+        job_name: str,
+        since: datetime | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> int | None:
+        """FDD-OPS-015 — pre-flight estimate of builds in a Jenkins job.
+
+        Uses the same `BUILD_TREE` query but extracts only the count. The
+        Jenkins tree spec `builds[number,timestamp]{0,100}` returns at most
+        100 most recent builds — for jobs that build infrequently this
+        captures everything; for high-frequency jobs we return 100 as
+        floor (worker treats this as a lower-bound estimate).
+
+        When `since` is provided, filters builds whose timestamp >= since.
+        Cheaper than fetching full build details (no result/duration).
+
+        Returns:
+            Build count (possibly capped at 100), or None on failure/timeout.
+        """
+        api_path = f"/job/{job_name.replace('/', '/job/')}/api/json"
+        # Lighter tree than BUILD_TREE — only number + timestamp for filtering.
+        params = {"tree": "builds[number,timestamp]{0,100}"}
+
+        try:
+            import asyncio
+            data = await asyncio.wait_for(
+                self._client.get(api_path, params=params),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[count] %s: Jenkins builds list exceeded %.1fs — None",
+                job_name, timeout_seconds,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "[count] %s: Jenkins builds list failed — None", job_name,
+            )
+            return None
+
+        builds = data.get("builds") or []
+        if not since:
+            logger.info(
+                "[count] %s: %d builds (capped at 100 most recent)",
+                job_name, len(builds),
+            )
+            return len(builds)
+
+        # Filter by timestamp client-side (Jenkins doesn't filter natively).
+        since_ms = int(since.timestamp() * 1000)
+        filtered = [b for b in builds if (b.get("timestamp") or 0) >= since_ms]
+        logger.info(
+            "[count] %s: %d builds since %s (of %d returned)",
+            job_name, len(filtered), since.isoformat(), len(builds),
+        )
+        return len(filtered)
+
     async def _fetch_job_builds(
         self, job_name: str, since: datetime | None = None,
     ) -> list[dict[str, Any]]:

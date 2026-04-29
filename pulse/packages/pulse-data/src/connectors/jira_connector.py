@@ -336,6 +336,90 @@ class JiraConnector(BaseConnector):
         logger.info("Fetched %d issues from Jira (%d projects, %d pages)", len(all_issues), len(effective_projects), page)
         return all_issues
 
+    async def count_issues_for_project(
+        self,
+        project_key: str,
+        since: datetime | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> int | None:
+        """FDD-OPS-015 — pre-flight estimate of issues to fetch in a project.
+
+        Uses POST /rest/api/3/search/approximate-count (Jira Cloud's dedicated
+        cheap-count endpoint) with the same JQL that fetch_issues_batched
+        will use. Returns the total count without paginating through items.
+
+        Args:
+            project_key: Jira project key (e.g., "BG").
+            since: Watermark for incremental count. None = full project size.
+            timeout_seconds: If the count call exceeds this budget, return None
+                so the worker falls back to a heuristic estimate. Default 10s
+                follows the FDD recommendation; tunable per call.
+
+        Returns:
+            Estimated issue count, or None if the count call failed/timed out.
+            None is a defensive signal — worker MUST handle gracefully (use
+            historical rate × elapsed as fallback).
+
+        Notes:
+            - Jira's `total` field on /search/jql is being phased out by
+              Atlassian; approximate-count is the supported successor.
+            - Approximate counts may be off by ±5% during heavy index churn.
+              Acceptable for ETA — we only need order-of-magnitude.
+            - Rate limit: counts towards Jira API quota (1 call per scope
+              per cycle). For 32 active projects, ~32 extra calls/cycle —
+              negligible vs the per-issue fetch cost.
+        """
+        # Same JQL shape as fetch_issues_batched for consistency.
+        jql = f'project = "{project_key}"'
+        if since:
+            since_str = since.strftime("%Y-%m-%d %H:%M")
+            jql += f' AND updated >= "{since_str}"'
+
+        body = {"jql": jql}
+
+        try:
+            # Wrap in a timeout — if Jira's index is slow, don't block ingestion.
+            import asyncio
+            data = await asyncio.wait_for(
+                self._client.post(
+                    f"{REST_API}/search/approximate-count",
+                    json_body=body,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[count] %s: approximate-count exceeded %.1fs timeout — "
+                "worker will use heuristic estimate",
+                project_key, timeout_seconds,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "[count] %s: approximate-count failed — falling back to None",
+                project_key,
+            )
+            return None
+
+        # Jira returns { "count": N }. Defensive against shape drift.
+        count = data.get("count")
+        if count is None:
+            # Older Jira responses may use "total" — accept either.
+            count = data.get("total")
+        if count is None or not isinstance(count, int):
+            logger.warning(
+                "[count] %s: unexpected response shape %r — None",
+                project_key, list(data.keys())[:5],
+            )
+            return None
+
+        logger.info(
+            "[count] %s: estimated %d issues (since=%s)",
+            project_key, count,
+            since.isoformat() if since else "full-history",
+        )
+        return count
+
     async def fetch_issues_batched(
         self,
         project_keys: list[str],
