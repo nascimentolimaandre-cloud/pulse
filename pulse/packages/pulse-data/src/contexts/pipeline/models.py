@@ -161,3 +161,69 @@ class PipelineIngestionProgress(TenantModel):
     source_details: Mapped[dict] = mapped_column(
         JSONB, server_default=sa.text("'{}'::jsonb"), nullable=False,
     )
+
+
+class PipelineProgress(TenantModel):
+    """FDD-OPS-015 — per-scope ingestion progress tracking.
+
+    Distinct from `PipelineIngestionProgress` (per-`entity_type` aggregate,
+    4 rows total). This table holds one row per active SCOPE during a sync
+    cycle: per Jira project, per GitHub repo, per Jenkins job. During a
+    Webmotors backfill that is ~32+ rows in flight.
+
+    Workers upsert by (tenant, entity_type, scope_key) on every batch tick:
+    update items_done, items_per_second, eta_seconds, last_progress_at.
+    On done/failed, set status + finished_at.
+
+    Operators query via `GET /data/v1/pipeline/jobs` to see per-scope
+    progress, rate, ETA, and detect stalls (last_progress_at > 60s ago
+    while status='running').
+
+    Retention: live + historical. External cron should
+    `DELETE WHERE status IN ('done','failed') AND last_progress_at <
+    now() - interval '7 days'` to bound table size.
+    """
+
+    __tablename__ = "pipeline_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "entity_type", "scope_key",
+            name="uq_pipeline_progress_scope",
+        ),
+    )
+
+    # FDD-OPS-014 scope_key convention: '<source>:<dimension>:<value>'
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_type: Mapped[str] = mapped_column(
+        String(64), nullable=False,
+    )  # pull_requests | issues | deployments | sprints
+    # Phase: pre_flight | fetching | normalizing | persisting | done | failed
+    phase: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pre_flight",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="running",
+    )  # running | done | failed | paused | cancelled
+    items_done: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0",
+    )
+    # NULLABLE — estimate may not be available (count call too expensive
+    # or unsupported). Worker falls back to heuristic when None.
+    items_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    items_per_second: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.0",
+    )
+    # ETA in seconds remaining. None = unknown (no estimate or rate yet).
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+    )
+    last_progress_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
