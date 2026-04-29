@@ -1404,6 +1404,124 @@ para R1.
 
 ---
 
+## FDD-OPS-017 · Status normalization with statusCategory fallback
+
+**Epic:** Data Quality (foundational) · **Release:** R1
+**Priority:** **P0** (corrupts every flow metric) · **Persona:** All metric consumers
+**Owner class:** `pulse-data-engineer` · **Status:** SHIPPED 2026-04-29
+
+### Problema confirmado
+
+Audit do panorama em 2026-04-28 mostrou distribuição absurda de
+`normalized_status` em 311k issues:
+
+  - 96,5% `done` · 3,3% `todo` · 0,2% `in_progress` · 0,1% `in_review`
+
+A Webmotors tem **104 status raw distintos** em workflows ativos. Nosso
+`DEFAULT_STATUS_MAPPING` cobria ~50, então 50+ status caíam silenciosamente
+no fallback "Unknown → todo" — incluindo:
+
+| Status raw | Issues afetadas | Bucket atual | Bucket correto |
+|---|---|---|---|
+| `FECHADO EM PROD` | 2.881 | todo | done |
+| `Em Progresso` | 6 | todo | in_progress |
+| `Em desenv` | 4 | todo | in_progress |
+| `Em Deploy Produção` | 14 | todo | in_progress |
+| `Em Monitoramento Produção` | 3 | todo | done |
+| `Homologação` | 9 | todo | in_review |
+| `Em Verificação` | 4 | todo | in_review |
+| ... | ... | ... | ... |
+
+**Impacto em CASCATA**: status_transitions herdam a classificação errada,
+então o último estado de uma issue concluída ficava registrado como
+`todo`. Resultado:
+
+- **Cycle Time** infinito (não há transição para `done`)
+- **Throughput** sub-conta (issues entregues não aparecem)
+- **WIP** super-conta (issues finalizadas continuam "em fluxo")
+- **CFD** distorcido (área de "todo" inflada)
+- **Lead Time** indeterminado
+
+Sem o fix, **todo o pilar Lean** está comprometido para qualquer projeto
+que use status PT-BR fora do nosso mapping.
+
+### Solução implementada
+
+**Estratégia híbrida** em 3 camadas:
+
+1. **Mapping textual** (`DEFAULT_STATUS_MAPPING`) — preserva a
+   granularidade `in_progress` vs `in_review` que as métricas curadas
+   precisam. Expandido para cobrir os top 80+ status PT-BR observados.
+
+2. **Fallback `statusCategory.key` da Jira** — fonte autoritativa para
+   a dimensão `done` vs `não-done`. Descoberto via `/rest/api/3/status`
+   (chamada única por lifetime do conector, ~326 status definitions na
+   Webmotors).
+   - `done` → `done`
+   - `indeterminate` → `in_progress`
+   - `new` → `todo`
+
+3. **Default final** `todo` com WARN log — só atinge status sem
+   categoria (extremamente raro).
+
+### Arquivos modificados
+
+- `pulse/packages/pulse-data/src/connectors/jira_connector.py`:
+  - `_discover_status_categories()` — descobre + cacheia `name → category`
+  - `_map_issue` anexa `status_category` (current) e
+    `status_categories_map` (todos, para histórico de transitions)
+- `pulse/packages/pulse-data/src/contexts/engineering_data/normalizer.py`:
+  - `normalize_status(raw, mapping, status_category=...)` — assinatura nova
+  - `build_status_transitions(..., status_categories_map=...)` — classifica
+    cada `to_status` histórica via map
+  - `DEFAULT_STATUS_MAPPING` expandido (~80 entradas novas PT-BR)
+- `pulse/packages/pulse-data/tests/unit/test_status_normalization.py`:
+  44 testes novos (textual ganha quando definido, category fallback,
+  Webmotors regression cases, transitions integração)
+
+### Validação live
+
+Cross-check do mapping contra DB atual mostrou que **3.151 issues
+reclassificarão** quando o sync re-tocar (1% do total):
+
+  - 2.923 `todo → done` (FECHADO EM PROD/HML, etc.)
+  - 161 `todo → in_review` (Homologação, Verificação, etc.)
+  - 67 `todo → in_progress` (Em Progresso, Em desenv, etc.)
+
+Esses 3.151 representam o "long tail" cuja má classificação distorcia
+métricas individuais. Os ~300k issues `done` corretos continuam corretos.
+
+### Backfill dos legados
+
+Como o upsert sobrescreve `normalized_status` e `status_transitions`,
+issues vão se reclassificar conforme cada projeto receber updates
+incrementais. Para acelerar há duas opções:
+
+1. **Reset watermark por projeto** (custo: re-fetch da API Jira)
+2. **Migration script futuro** — recalcular `normalized_status` e
+   `status_transitions[].status` direto via SQL (sem refetch). Decidido
+   deixar para issue separada — muda dado em produção, requer plano.
+
+### Anti-surveillance check
+PASS — apenas valores de status agregados; nenhum dado pessoal.
+
+### Test coverage
+116/116 verde (44 novos + 72 existentes). Cobertura inclui:
+- Textual mapping ganha sobre category mismatch
+- Cada categoria Jira fallback (`done` / `indeterminate` / `new`)
+- Casos PT-BR Webmotors regressão
+- Backward compat (legacy callers sem category)
+- `build_status_transitions` integrado com category map
+
+### Decisão de produto registrada
+
+`FECHADO EM HML` foi mapeado como `done` (segue Jira) em vez de
+`in_review`. Workflow author classifica como done; respeitamos. Se
+Webmotors quiser mantê-lo em fluxo, pode renomear para "Aguardando
+Deploy Produção" (já mapeado como in_progress).
+
+---
+
 ## FDD-DEV-METRICS-001 · Codename "dev-metrics" — proprietary estimation & forecasting model
 
 **Epic:** Product Differentiation · **Release:** R3+ (codename "dev-metrics")
