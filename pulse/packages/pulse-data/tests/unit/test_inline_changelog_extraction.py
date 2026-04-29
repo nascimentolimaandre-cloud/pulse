@@ -333,6 +333,9 @@ class TestMapIssuePreservesChangelogForInlineExtraction:
         # FDD-OPS-016 — effort fallback discovery state
         connector._tshirt_field_ids = []
         connector._effort_source_counts = {}
+        # FDD-OPS-017 — status category cache (empty in this test)
+        connector._status_categories = {}
+        connector._status_categories_discovered = True
         connector._last_changelogs = {}
 
         mapped = connector._map_issue(jira_api_response)
