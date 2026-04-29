@@ -168,6 +168,12 @@ class EngSprint(TenantModel):
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     board_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # FDD-OPS-018 — sprint lifecycle: active | closed | future | NULL.
+    # Was missing from the ORM model despite existing in the DB schema
+    # (schema drift). Without this Mapped column, every attempt to upsert
+    # `status` raised "Unconsumed column names: status" and the field
+    # silently stayed empty for all 216 Webmotors sprints.
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     goal: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1522,6 +1522,101 @@ Deploy Produção" (já mapeado como in_progress).
 
 ---
 
+## FDD-OPS-018 · Sprint status pipeline — 4-layer cheese fix
+
+**Epic:** Data Quality (sprint metrics) · **Release:** R1
+**Priority:** **P1** · **Persona:** Sprint metric consumers
+**Owner class:** `pulse-data-engineer` · **Status:** SHIPPED 2026-04-29
+
+### Problema confirmado
+
+100% das 216 sprints na Webmotors estavam com `status=''` no `eng_sprints`.
+O `goal` também totalmente vazio. Investigação revelou um clássico
+"swiss cheese alignment" — **4 bugs independentes** em camadas diferentes,
+cada um sozinho garantia que o status nunca fosse populado:
+
+| Camada | Bug | Sintoma sozinho |
+|---|---|---|
+| 1. Connector | `_map_sprint` mapeava OK (ACTIVE/CLOSED/FUTURE) | — |
+| 2. Normalizer | `normalize_sprint` retornava dict SEM `status` | Status nunca chega no upsert |
+| 3. Worker upsert | `_upsert_sprints` ON CONFLICT não atualizava `status`/`goal` | Sprints existentes nunca atualizam |
+| 4. Connector watermark | `_fetch_board_sprints` filtrava por `started_date < since` | Sprints antigas nunca re-fetchadas |
+| 5. ORM model | `EngSprint` no SQLAlchemy não tinha campo `status` (schema drift) | `Unconsumed column names: status` |
+
+A camada 4 é particularmente insidiosa: sprint state transitions
+(`active` → `closed`) acontecem em `endDate`, não `startDate`. Filtrar
+por started_date significa que uma sprint que começou em março e
+fechou em maio nunca tem o status atualizado depois de março.
+
+### Impacto métrico (atual e futuro)
+
+Atualmente nenhum métrico consome `eng_sprints.status` diretamente —
+por isso o bug ficou silencioso. Mas:
+- **Sprint Comparison / Velocity Trend** (já em código) precisa filtrar
+  sprints `closed` para excluir sprints em andamento da regressão linear
+- **Dashboard "current sprint"** (planejado) precisa de `status='active'`
+- **Carryover Rate** já usa heurística de `endDate < now()` mas o ideal
+  é confiar em status='closed'
+- **Goal** é input visual importante para a página da sprint
+
+### Solução implementada
+
+**Fix em todas as 4 camadas**:
+
+1. `JiraConnector._map_sprint` agora também passa `goal` adiante
+2. `normalizer.normalize_sprint` inclui `status` (lowercase: `active`/
+   `closed`/`future`/None) e `goal` (com strip de null bytes)
+3. `_upsert_sprints` ON CONFLICT atualiza `status` + `goal`
+4. `_fetch_board_sprints` removeu o filtro de watermark (volume baixo,
+   sprints mudam estado ao longo do tempo, sempre re-fetch é correto)
+5. `EngSprint` model adiciona `status: Mapped[str|None]` (corrige drift)
+
+Helper `_normalize_sprint_status` mapeia aliases comuns (open→active,
+completed→closed, planned→future) e devolve `None` para valores
+desconhecidos — não bucketiza silenciosamente.
+
+### Validação live
+
+Após o fix + ad-hoc backfill direto:
+
+| Status | Quantidade | Tem goal? |
+|---|---|---|
+| `closed` | 187 | sim |
+| `active` | 3 | sim |
+| `future` | 5 | sim |
+| (vazio) | 22 | — board órfão 873 sem projeto ativo |
+
+**195/217 = 89,9%** das sprints com status correto + 70% com goal real
+(ex: "Gestão de banner no backoffice de CNC e TEMPO para novas
+especificações técnicas"). As 22 vazias são de board órfão, fora do
+escopo deste fix.
+
+### Tests
+- `tests/unit/test_sprint_normalization.py` — 26 testes novos:
+  - status field presente no dict (5 cenários)
+  - unknown values retornam None (4)
+  - aliases (13 mapeamentos)
+  - goal passthrough (3)
+  - structural anti-regression: `_upsert_sprints.set_` inclui status + goal
+- 142/142 verde (pyramid completo)
+
+### Lição aprendida — guard against future drift
+
+ORM model drift was the most insidious of the 4 bugs. The DB had the
+column for ages; only the SQLAlchemy `EngSprint` was missing it. Any
+upsert path that included `status` would crash; any path that omitted
+it would silently produce empty data. Prevention going forward:
+
+- Pyramid test step "schema introspection vs ORM model" (deferred —
+  candidate for FDD-OPS-001 line of defense)
+- Migration review checklist: every new column → corresponding
+  Mapped column in SQLAlchemy model
+
+### Anti-surveillance check
+PASS — `goal` is squad/sprint-level free text, no individual attribution.
+
+---
+
 ## FDD-DEV-METRICS-001 · Codename "dev-metrics" — proprietary estimation & forecasting model
 
 **Epic:** Product Differentiation · **Release:** R3+ (codename "dev-metrics")
