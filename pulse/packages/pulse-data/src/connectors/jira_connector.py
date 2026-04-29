@@ -1056,17 +1056,18 @@ class JiraConnector(BaseConnector):
             for sprint in sprints:
                 mapped = self._map_sprint(sprint, board_id)
 
-                # Apply watermark filter
-                if since:
-                    start_date = mapped.get("started_date")
-                    if start_date and isinstance(start_date, str):
-                        try:
-                            dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-                            if dt < since:
-                                continue
-                        except ValueError:
-                            pass
-
+                # FDD-OPS-018 — DELIBERATELY NOT applying a `since` watermark
+                # filter here. Sprint state transitions (future→active→closed)
+                # happen on `endDate`, not `startDate`. The previous filter
+                # `if started_date < since: continue` meant a sprint that
+                # started in March and closed in May would never have its
+                # status updated past March's snapshot — every Webmotors
+                # sprint landed with empty status because the watermark was
+                # advanced past their start date.
+                #
+                # Volume is bounded (~216 total, ~5 active at any time across
+                # 27 squads), so always re-fetching every sprint per cycle
+                # is cheap and correct.
                 all_sprints.append(mapped)
 
             if data.get("isLast", True) or not sprints:
@@ -1094,6 +1095,9 @@ class JiraConnector(BaseConnector):
             "name": sprint.get("name", ""),
             "url": self._base_url,
             "status": status,
+            # FDD-OPS-018 — sprint goal (free-text, set by squad lead).
+            # Jira returns this as a string; pass through for normalizer.
+            "goal": sprint.get("goal"),
             "started_date": sprint.get("startDate"),
             "ended_date": sprint.get("endDate"),
             "completed_date": sprint.get("completeDate"),

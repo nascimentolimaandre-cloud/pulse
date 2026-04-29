@@ -1254,6 +1254,12 @@ class DataSyncWorker:
                         index_elements=["tenant_id", "external_id"],
                         set_={
                             "name": sprint_data["name"],
+                            # FDD-OPS-018 — status + goal were missing from
+                            # this ON CONFLICT set, so existing sprints kept
+                            # their stale (empty) status forever. Active
+                            # sprints transitioning to closed never updated.
+                            "status": sprint_data.get("status"),
+                            "goal": sprint_data.get("goal"),
                             "started_at": sprint_data["started_at"],
                             "completed_at": sprint_data["completed_at"],
                             "committed_items": sprint_data["committed_items"],
