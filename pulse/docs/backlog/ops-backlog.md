@@ -1617,6 +1617,122 @@ PASS — `goal` is squad/sprint-level free text, no individual attribution.
 
 ---
 
+## FDD-OPS-019 · Investigate Jira JQL pagination cap on large projects (BG short-fetch)
+
+**Epic:** Data Pipeline Reliability · **Release:** R1
+**Priority:** **P1** (impacts data completeness on largest tenants) · **Persona:** Operators + downstream metric consumers
+**Owner class:** `pulse-data-engineer`
+**Status:** OPEN — observed 2026-04-30 during full backfill
+
+### Sintoma observado
+
+Durante o backfill comprehensive de 2026-04-30 (reset de watermarks `entity_type='issues'` para 2020-01-01 + restart sync-worker), o projeto **BG** terminou com `status='done'` mas **incomplete**:
+
+| Métrica | Valor |
+|---|---|
+| `eng_issues WHERE issue_key LIKE 'BG-%'` | **197.760** (estável, do backfill original) |
+| `count_issues_for_project(BG, since=None)` retorna | **197.762** (Jira approximate-count) |
+| Items processed este cycle | **126.000** (`pipeline_progress.items_done`) |
+| Coverage transitions BG após cycle | **125.911 / 197.760 (63,7%)** |
+| Cycle duration estimado vs real | rate ~50/s × 197k = ~66min esperado; cycle terminou em ~46min |
+| `last_error` no progress row | **NULL** — finalização limpa, sem exception |
+
+`tracker.finish('done')` foi chamado normalmente — significa que o iterator `fetch_issues_batched` **terminou normalmente** (loop sai quando `nextPageToken` é vazio ou `issues=[]` no response). Não houve crash, retry, timeout, nem erro de rede.
+
+### Hipóteses (a investigar)
+
+1. **Hard cap interno da Jira em buscas com cursor pagination** quando ORDER BY `updated` é usado com `since` muito antigo. Possível cap em ~125k results por query.
+2. **`approximate-count` over-conta** issues archived/deleted que não são retornadas pelo `/search/jql`. Mas `eng_issues WHERE issue_key LIKE 'BG-%'` mostra 197.760 issues que JÁ foram ingeridas algum dia, então elas existem.
+3. **Race condition** — algum nextPageToken retornou empty prematuramente devido a refresh de índice durante o sweep.
+4. **Limit não-documentado** no novo endpoint `/rest/api/3/search/jql` (que substituiu o deprecated `/search` em 2025).
+
+### Reprodução
+
+```bash
+# 1. Reset BG watermark
+docker compose exec postgres psql -U pulse -d pulse -c \
+  "UPDATE pipeline_watermarks SET last_synced_at='2020-01-01' \
+   WHERE entity_type='issues' AND scope_key='jira:project:BG';"
+
+# 2. Trigger sync via restart
+docker compose restart sync-worker
+
+# 3. Tail logs, count "[batched] BG: complete" line — should report total_yielded
+```
+
+Se reproduzir 126k consistentemente, é cap determinístico. Se variar, é race.
+
+### Investigation plan (proposed, scope: ~1d)
+
+**Step 1 — Confirmar cap via instrumentação**:
+- Adicionar log mais granular em `fetch_issues_batched`: a cada N páginas, logar `total_yielded` + quanto retornou
+- Capturar resposta crua quando `nextPageToken` retorna vazio (ver se há `isLast: true` ou similar)
+
+**Step 2 — Workaround comprovado: chunking por data**:
+Se cap for confirmado, partir o JQL em janelas de tempo:
+
+```python
+# Em fetch_issues_batched, when projeto é "grande" (>50k pelo pre-flight):
+date_chunks = [
+    (None, "2022-01-01"),       # tudo antes de 2022
+    ("2022-01-01", "2024-01-01"),
+    ("2024-01-01", None),       # tudo após 2024
+]
+for start, end in date_chunks:
+    jql_chunk = f'project = "{key}" AND updated >= "{start}"'
+    if end: jql_chunk += f' AND updated < "{end}"'
+    # paginate normally; merge results
+```
+
+Threshold para chunking: `count > 100k` no pre-flight.
+
+**Step 3 — Atomic JQL counting**:
+Validar via `cf-search-count` chunk: se `count_issues_for_project(BG, since="2024-01-01")` + `... since=null AND updated < 2024-01-01` somar = 197k, confirma que cap é por-query. Se não somar, é approximate-count que mente.
+
+**Step 4 — Fallback em produção**:
+Se cap não for resolvido, adicionar telemetria que detecta: `if items_done < items_estimate × 0.9 at end-of-stream`, log WARN + create event no `pipeline_events` para revisão.
+
+### Workaround imediato
+
+**Sem código novo**: aceitar coverage ~54% pós-backfill. Os ~72k BG issues "missing" têm dados antigos (`status_transitions=[]`, `story_points=NULL`) mas:
+- Métricas downstream funcionam para os 240k issues que TÊM dados frescos
+- Issues "missing" são do BG long-tail (issues antigas, raramente updated). Quando alguém edita uma delas no Jira, watermark incremental pega e corrige.
+- Coverage cresce naturalmente ao longo do tempo via incremental sync.
+
+### Acceptance Criteria
+
+```
+Given a Jira project with > 100k issues
+ When sync_worker runs full backfill (since=2020)
+ Then either:
+   (a) all >99% issues are fetched and persisted, OR
+   (b) a clear WARN log + pipeline_event identifies the under-fetch,
+       AND the next cycle automatically retries the missing window
+
+Given the date-chunking workaround is implemented
+ When backfill runs on BG (197k issues)
+ Then items_done >= 197000 (within 1% of items_estimate)
+  AND total cycle duration < 90 min
+  AND no batches lost or duplicated (idempotent upserts)
+```
+
+### Anti-surveillance check
+PASS — investigation operates on ingestion mechanics, no individual data exposure.
+
+### Estimate
+**S (1 day)** — investigation steps 1-3 + chunking workaround if cap confirmed.
+
+### Dependencies
+- FDD-OPS-014 (per-scope watermarks) — already shipped, supports per-project chunking
+- FDD-OPS-015 (per-scope progress) — already shipped, useful for monitoring chunked runs
+
+### Notas
+- **Não bloqueia R1** — coverage atual de 54% é suficiente para PoC e demos com Webmotors. Críticio para enterprise tenants com projetos >100k.
+- Pode ser **resolvido inteiramente client-side** (date chunking) sem mudanças no backend Jira ou em outro source.
+- Caso similar pode ocorrer em GitHub (org com >100k PRs) — mas hoje a `count_prs_for_repo` é per-repo, então o cap por-query não é dominante. Só vira problema se um único repo passar de 100k PRs.
+
+---
+
 ## FDD-DEV-METRICS-001 · Codename "dev-metrics" — proprietary estimation & forecasting model
 
 **Epic:** Product Differentiation · **Release:** R3+ (codename "dev-metrics")
