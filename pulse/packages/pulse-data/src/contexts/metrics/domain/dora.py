@@ -104,6 +104,15 @@ class DoraMetrics:
     lead_time_strict_eligible_count: int = 0
     lead_time_strict_total_count: int = 0
     lt_strict_level: DoraLevel | None = None
+    # NEW (FDD-DSH-050): MTTR sample-size visibility. Frontend renders
+    # "n=49 incidents (3 still open)" subtitle so users know the median
+    # weight + which failures haven't reached recovery yet.
+    # `mttr_incident_count` = resolved incidents in the period (the median
+    # is computed over these).
+    # `mttr_open_incident_count` = failure rows in the period with
+    # incident_status='open' — excluded from median, surfaced separately.
+    mttr_incident_count: int = 0
+    mttr_open_incident_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -264,32 +273,57 @@ def calculate_change_failure_rate(
     return failures / total
 
 
+# FDD-DSH-050 — minimum recovery time below which we treat the row as
+# a flaky-test re-trigger rather than a real production incident. 5 minutes
+# matches Webmotors' typical Jenkins re-trigger cadence and avoids
+# inflating MTTR sample with transient test/network blips.
+_MTTR_MIN_RECOVERY_HOURS = 5.0 / 60.0  # 0.0833...
+
+# FDD-DSH-050 — minimum sample size before computing MTTR. Below this
+# threshold we return None to avoid reporting unstable medians from
+# tiny incident counts (e.g., single 30-day window with 2 incidents).
+# Aligned with `_LT_STRICT_MIN_SAMPLE` precedent.
+_MTTR_MIN_SAMPLE = 5
+
+
 def calculate_mttr(
     failed_deployments: list[DeploymentData],
 ) -> float | None:
     """Calculate median time to recovery in hours.
 
-    Formula:
-        MTTR = median(recovery_time_hours) for failed deployments
-               where recovery_time_hours is not None
+    Formula (DORA 2023 State of DevOps Report):
+        MTTR = median(recovery_time_hours) for resolved failure deployments
 
     MTTR measures how quickly the team restores service after an incident.
     Only deployments with is_failure=True AND a recorded recovery_time_hours
     contribute to the calculation.
 
+    Filters applied (FDD-DSH-050):
+      - recovery_time_hours >= 5 minutes — discards flaky-test re-triggers
+        that would inflate the incident count and compress the median.
+      - At least 5 resolved incidents required — below that threshold the
+        median is statistically unstable; return None.
+
+    Note: failure rows with `incident_status='superseded'` (back-to-back
+    failures absorbed into an earlier anchor) carry recovery_time_hours=None
+    by design and are filtered out by the None check below.
+
     Args:
         failed_deployments: Deployment events where is_failure=True.
 
     Returns:
-        Median recovery time in hours, or None when no resolved failures exist.
+        Median recovery time in hours, or None when sample size is too
+        small or no resolved failures exist.
     """
     recovery_times: list[float] = [
         d.recovery_time_hours
         for d in failed_deployments
-        if d.is_failure and d.recovery_time_hours is not None and d.recovery_time_hours >= 0
+        if d.is_failure
+        and d.recovery_time_hours is not None
+        and d.recovery_time_hours >= _MTTR_MIN_RECOVERY_HOURS
     ]
 
-    if not recovery_times:
+    if len(recovery_times) < _MTTR_MIN_SAMPLE:
         return None
 
     return statistics.median(recovery_times)
@@ -479,6 +513,18 @@ def calculate_dora_metrics(
     failed = [d for d in deployments if d.is_failure]
     mttr_hours = calculate_mttr(failed)
     mttr_level = _classify_mttr(mttr_hours) if mttr_hours is not None else None
+    # FDD-DSH-050 — sample-size visibility: count resolved (recovery_time
+    # set + above flaky threshold) and open (no recovery_time, but failure)
+    # so the UI can render "n=49 incidents (3 still open)".
+    mttr_resolved_count = sum(
+        1
+        for d in failed
+        if d.recovery_time_hours is not None
+        and d.recovery_time_hours >= _MTTR_MIN_RECOVERY_HOURS
+    )
+    mttr_open_count = sum(
+        1 for d in failed if d.recovery_time_hours is None
+    )
 
     # --- Overall classification ---
     levels: list[DoraLevel] = [
@@ -503,4 +549,6 @@ def calculate_dora_metrics(
         cfr_level=cfr_level,
         mttr_level=mttr_level,
         overall_level=overall,
+        mttr_incident_count=mttr_resolved_count,
+        mttr_open_incident_count=mttr_open_count,
     )

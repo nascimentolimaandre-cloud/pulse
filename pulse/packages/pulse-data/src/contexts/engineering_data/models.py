@@ -4,9 +4,10 @@ Tables: eng_pull_requests, eng_issues, eng_deployments, eng_sprints.
 All tables enforce tenant_id (NOT NULL) for RLS.
 """
 
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, column_property
 from sqlalchemy import case, extract
@@ -180,6 +181,17 @@ class EngDeployment(TenantModel):
     trigger_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     recovery_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # FDD-DSH-050 (INC-005) — MTTR incident pairing columns.
+    # `recovered_by_deploy_id` points at the eng_deployments row whose
+    # is_failure=false success resolved THIS failure (set on failure rows).
+    # `superseded_by_deploy_id` is set when this row is a back-to-back
+    # failure absorbed into an earlier incident anchor (avoids inflating
+    # MTTR sample with multiple failures during one outage).
+    # `incident_status` lifecycle: open → resolved | superseded.
+    # NULL on success-only rows or rows that are not failure-anchors yet.
+    recovered_by_deploy_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    superseded_by_deploy_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    incident_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class EngSprint(TenantModel):
