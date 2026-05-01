@@ -405,11 +405,45 @@ For CTO quarterly reviews. Read-only, no external trigger.
 
 ## Feature Set 6 — 4th DORA Metric (R1)
 
-### FDD-DSH-050 · MTTR / Time to Restore (4ª métrica DORA)
+### FDD-DSH-050 · MTTR / Time to Restore (4ª métrica DORA) — ✅ PHASE 1 SHIPPED 2026-04-29
 **Release:** R1 · **Priority:** P1 · **Persona:** Carlos (EM) · Ana (CTO)
 **Owner:** Data Engineer + Data Scientist + Backend + Frontend
+**Status:** Phase 1 done — see `docs/fdd/FDD-DSH-050-mttr-design.md`. Resolves INC-005.
 
-**Contexto:** O dashboard hoje renderiza o card "Time to Restore" como "—" com badge "R1"
+**Phase 1 entrega (resumo):**
+- Migration `013_mttr_incident_pairing` — 3 colunas em `eng_deployments`
+  (`recovered_by_deploy_id`, `superseded_by_deploy_id`, `incident_status`) +
+  CHECK constraint + 2 partial indexes.
+- `services/backfill_mttr.py` — pareia FAILURE → next SUCCESS em
+  `(repo, environment='production')` dentro de janela de 7d.
+  Classifica `resolved` / `open` / `superseded` (back-to-back). Idempotente.
+- Forward-hook em `_sync_deployments` mantém pairing fresh.
+- Admin endpoint `POST /data/v1/admin/deployments/refresh-mttr`
+  (X-Admin-Token, scope `all` | `stale` | `last-90d`, dry_run).
+- `domain/dora.calculate_mttr` ganha flaky filter (≥ 5 min) + sample
+  mínimo `n ≥ 5`; `DoraMetrics` expõe `mttr_incident_count` +
+  `mttr_open_incident_count`.
+- 16 testes unit (mediana, sample guard, flaky, open incidents,
+  anti-surveillance source-grep). 183/183 regressão.
+- **Live Webmotors:** 255 falhas classificadas em 1,14s → 84 resolved +
+  148 superseded + 23 open; após flaky filter: 73 incidentes reais,
+  **P50 = 0,50h (Elite)**, P90 = 16,58h.
+
+**Phase 2 deferido (backlog):**
+1. Jira "Bug" / "Incident" overlay (depende INC-026/INC-027).
+2. GitHub label enrichment (`hotfix`, `revert`, `P0`, `P1`).
+3. Webhooks PagerDuty / Opsgenie.
+4. Per-team MTTR breakdown (segue FDD-DSH-060).
+5. `open_window_days` configurável por team.
+
+**Frontend follow-up pendente:** remover `pendingLabel="R1"` do card,
+renderizar P50 + counts (`n=73 resolved, 3 open`). Ver §13 do design doc.
+
+---
+
+**Contexto original (preservado para histórico):**
+
+O dashboard hoje renderiza o card "Time to Restore" como "—" com badge "R1"
 e tooltip explicativo. O backend (`/data/v1/metrics/home`) já retorna `time_to_restore`
 como `null` de forma explícita (campo existe no schema `HomeMetricCard`). Falta a fonte:
 calcular MTTR exige **detectar incidentes** e medir o tempo até a resolução.

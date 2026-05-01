@@ -43,6 +43,9 @@ from src.contexts.engineering_data.models import (
 from src.contexts.engineering_data.services.backfill_deployed_at import (
     link_recent_deploys_to_prs,
 )
+from src.contexts.engineering_data.services.backfill_mttr import (
+    pair_recent_incidents,
+)
 from src.contexts.engineering_data.normalizer import (
     apply_pr_issue_links,
     build_issue_key_map,
@@ -1199,6 +1202,26 @@ class DataSyncWorker:
             # Never fail the sync cycle because of the linker — it's a
             # DB-only UPDATE that we can always reapply via the admin endpoint.
             logger.exception("INC-004 forward-path linker failed (non-fatal)")
+
+        # FDD-DSH-050 forward hook: pair newly-arrived deploys with their
+        # incident anchors. Re-classifies failures whose state may have
+        # changed because a new success ingested closed an open incident.
+        # Same non-fatal pattern as INC-004 — never breaks the sync cycle.
+        try:
+            mttr_updated = await pair_recent_incidents(
+                tenant_id=self._tenant_id,
+                since_at=datetime.now(timezone.utc),
+            )
+            if mttr_updated:
+                logger.info(
+                    "INC-005/MTTR forward-pair: %d failure rows reclassified",
+                    mttr_updated,
+                )
+        except Exception:
+            logger.exception(
+                "INC-005/MTTR forward-pair failed (non-fatal) — admin "
+                "backfill endpoint can always reapply",
+            )
 
         # Publish to Kafka
         events = []

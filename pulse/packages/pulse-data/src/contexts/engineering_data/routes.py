@@ -33,6 +33,9 @@ from src.config import settings
 from src.contexts.engineering_data.services.backfill_first_commits import (
     run_backfill as _run_first_commits_backfill,
 )
+from src.contexts.engineering_data.services.backfill_mttr import (
+    run_backfill as _run_mttr_backfill,
+)
 from src.contexts.engineering_data.services.backfill_deployed_at import (
     run_backfill as _run_deployed_at_backfill,
 )
@@ -566,5 +569,100 @@ async def admin_refresh_descriptions(
         "skipped": result.skipped,
         "duration_sec": result.duration_sec,
         "sample": result.sample,
+        "errors": result.errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin — FDD-DSH-050 / INC-005 backfill MTTR (incident pairing)
+# ---------------------------------------------------------------------------
+#
+# Separate router prefix `/data/v1/admin/deployments` since the existing
+# admin routers are scoped to `/prs` and `/issues`. Same admin token check.
+
+deployments_admin_router = APIRouter(
+    prefix="/data/v1/admin/deployments",
+    tags=["engineering-data-admin"],
+)
+
+
+@deployments_admin_router.post("/refresh-mttr")
+async def admin_refresh_mttr(
+    scope: str = Query(
+        "stale",
+        description="all|stale|last-90d — which failure rows to classify",
+    ),
+    open_window_days: int = Query(
+        7,
+        ge=1, le=90,
+        description="Days to wait for a recovery deploy before tagging 'open'",
+    ),
+    dry_run: bool = Query(False, description="Classify without writing"),
+    max_failures: int | None = Query(
+        None, description="Cap processed failure rows (smoke testing)",
+    ),
+    tenant_id: UUID = Depends(get_tenant_id),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    """FDD-DSH-050 — Pair `is_failure=true` deploys with their next
+    successful deploy on the same (repo, environment) and populate
+    `recovery_time_hours` + `incident_status` on the failure rows.
+
+    Closes INC-005 (MTTR always NULL → DORA overall_level missing 1 of 4).
+
+    Behavior:
+      - For each prod failure: lookup next prod success on same repo
+        within `open_window_days`.
+      - Single failure with recovery in window → status='resolved' +
+        recovery_time_hours computed.
+      - Back-to-back failures (no success between them) → only the FIRST
+        is the anchor; subsequent get status='superseded' pointing to
+        the chain anchor (avoids inflating MTTR sample).
+      - Failure with no recovery in window → status='open' (excluded
+        from MTTR median, counted in mttr_open_incident_count).
+
+    Idempotent: re-running on the same scope is safe (skips unchanged rows).
+
+    scope:
+      - `stale` (default): rows where `incident_status IS NULL` (un-classified)
+      - `all`: every prod deploy regardless of current status
+      - `last-90d`: prod deploys in the last 90 days (fast smoke)
+    """
+    _check_admin_token(x_admin_token)
+
+    if scope not in {"all", "stale", "last-90d"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid scope. Use: all | stale | last-90d",
+        )
+
+    logger.warning(
+        "[admin] refresh-mttr tenant=%s scope=%s window=%dd dry_run=%s "
+        "max_failures=%s",
+        tenant_id, scope, open_window_days, dry_run, max_failures,
+    )
+
+    result = await _run_mttr_backfill(
+        tenant_id=tenant_id,
+        scope=scope,  # type: ignore[arg-type]
+        open_window_days=open_window_days,
+        dry_run=dry_run,
+        max_failures=max_failures,
+    )
+
+    return {
+        "status": "completed" if not result.errors else "completed_with_errors",
+        "scope": result.scope,
+        "open_window_days": result.open_window_days,
+        "dry_run": result.dry_run,
+        "tenant_id": str(tenant_id),
+        "deploys_scanned": result.deploys_scanned,
+        "failures_anchored": result.failures_anchored,
+        "failures_resolved": result.failures_resolved,
+        "failures_open": result.failures_open,
+        "failures_superseded": result.failures_superseded,
+        "failures_unchanged": result.failures_unchanged,
+        "duration_sec": result.duration_sec,
+        "sample_pairings": result.sample_pairings,
         "errors": result.errors,
     }
