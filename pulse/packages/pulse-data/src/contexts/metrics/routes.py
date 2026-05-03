@@ -687,6 +687,33 @@ async def _get_previous_period_snapshots(
         return result
 
 
+def _build_mttr_card(
+    dora_all: dict[str, Any],
+    prev_dora_all: dict[str, Any],
+) -> HomeMetricCard:
+    """Build the Time-to-Restore (MTTR) card from a dora_all snapshot dict.
+
+    FDD-DSH-050. Reads `mean_time_to_recovery_hours` + `mttr_level` plus the
+    two new counters (`mttr_incident_count`, `mttr_open_incident_count`).
+    Returns an empty card (value=None) when MTTR is below sample threshold.
+    """
+    mttr_val = dora_all.get("mean_time_to_recovery_hours")
+    prev_mttr_val = prev_dora_all.get("mean_time_to_recovery_hours")
+    mttr_pct, mttr_dir = _compute_trend(mttr_val, prev_mttr_val)
+    incident_count_raw = dora_all.get("mttr_incident_count")
+    open_count_raw = dora_all.get("mttr_open_incident_count")
+    return HomeMetricCard(
+        value=mttr_val,
+        unit="hours",
+        level=dora_all.get("mttr_level"),
+        trend_direction=mttr_dir,
+        trend_percentage=mttr_pct,
+        previous_value=prev_mttr_val,
+        incident_count=int(incident_count_raw) if incident_count_raw is not None else None,
+        open_incident_count=int(open_count_raw) if open_count_raw is not None else None,
+    )
+
+
 def _build_home_response(
     *,
     period: str,
@@ -787,7 +814,7 @@ def _build_home_response(
                 value=ct_p85, unit="hours",
                 trend_direction=ct85_dir, trend_percentage=ct85_pct, previous_value=prev_ct_p85,
             ),
-            time_to_restore=HomeMetricCard(unit="hours"),
+            time_to_restore=_build_mttr_card(dora_all, prev_dora),
             wip=HomeMetricCard(
                 value=wip_count, unit="items",
                 trend_direction=wip_dir, trend_percentage=wip_pct, previous_value=prev_wip_count,
@@ -1017,10 +1044,11 @@ async def get_home_metrics(
                 trend_percentage=ct85_pct,
                 previous_value=prev_ct_p85,
             ),
-            # Time to Restore (MTTR) requires incident ingestion pipeline (R1 roadmap).
-            # Returns an empty card so the frontend renders "—" with explanatory tooltip.
-            # See backlog: FDD-DSH-050 — MTTR/Time to Restore.
-            time_to_restore=HomeMetricCard(unit="hours"),
+            # Time to Restore (MTTR) — FDD-DSH-050 Phase 1 shipped 2026-04-29.
+            # Card pulls from `dora_all` snapshot (mean_time_to_recovery_hours +
+            # mttr_level + counts). Returns value=None when n<5 resolved
+            # incidents (sample-size guard), so the UI gracefully shows "—".
+            time_to_restore=_build_mttr_card(dora_all, prev_dora_all),
             wip=HomeMetricCard(
                 value=lean_wip,
                 unit="items",

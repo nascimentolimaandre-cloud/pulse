@@ -141,6 +141,13 @@ const BENCHMARKS: Record<string, BenchmarkThresholds> = {
     medium: '< 1 month',
     low: '\u2265 1 month',
   },
+  // FDD-DSH-050 \u2014 DORA 2023 MTTR thresholds
+  mttr: {
+    elite: '< 1h',
+    high: '< 24h',
+    medium: '< 1 week',
+    low: '\u2265 1 week',
+  },
   change_failure_rate: {
     elite: '< 5%',
     high: '< 10%',
@@ -213,6 +220,9 @@ interface RawHomeMetricItem {
   previous_value: number | null;
   /** Present only on lead_time_strict. */
   coverage?: RawLeadTimeCoverage | null;
+  /** Present only on time_to_restore (FDD-DSH-050). */
+  incident_count?: number | null;
+  open_incident_count?: number | null;
 }
 
 interface RawHomeResponse {
@@ -346,8 +356,10 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
     benchmarks: BENCHMARKS['lead_time'],
   };
 
-  // MTTR/Time to Restore: backend returns null until incident pipeline ships.
-  // We surface the card with value=null so the UI can render "—" + tooltip.
+  // MTTR/Time to Restore — FDD-DSH-050 Phase 1 shipped 2026-04-29.
+  // Backend pairs failure→success on (repo, prod) within 7d window; computes
+  // median over resolved incidents (post 5-min flaky filter, n>=5 sample).
+  // When n<5, value=null and the card renders "—" + sample-too-small tooltip.
   const ttr = d.time_to_restore ?? {
     value: null,
     unit: 'hours',
@@ -355,6 +367,8 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
     trend_direction: null,
     trend_percentage: null,
     previous_value: null,
+    incident_count: null,
+    open_incident_count: null,
   };
 
   return {
@@ -378,9 +392,11 @@ export function transformHomeMetrics(raw: RawHomeResponse): HomeMetrics {
       value: ttr.value,
       unit: ttr.unit ?? 'hours',
       trend: buildTrendFromApi(ttr.trend_percentage, ttr.trend_direction, 'lower-is-better'),
-      classification: null,
+      classification: ttr.level ? mapClassification(ttr.level) : null,
       sparklineData: [],
-      benchmarks: BENCHMARKS['lead_time'], // same time-scale benchmarks
+      benchmarks: BENCHMARKS['mttr'],
+      incidentCount: ttr.incident_count ?? null,
+      openIncidentCount: ttr.open_incident_count ?? null,
     },
     cycleTime: {
       label: 'Cycle Time',
