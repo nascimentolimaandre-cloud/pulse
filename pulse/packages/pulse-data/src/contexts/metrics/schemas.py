@@ -217,6 +217,12 @@ class HomeMetricCard(BaseModel):
     previous_value: float | None = None  # value from previous equivalent period
     # Optional — populated only on lead_time_strict for the home dashboard.
     coverage: LeadTimeCoverage | None = None
+    # Optional — populated only on `time_to_restore` (FDD-DSH-050). Number of
+    # resolved incidents that contributed to the median (post flaky-filter)
+    # and number of failures still "open" (no recovery in window). Frontend
+    # renders these as a sub-line under the value: "n=73 resolved · 3 open".
+    incident_count: int | None = None
+    open_incident_count: int | None = None
 
 
 class HomeMetricsData(BaseModel):

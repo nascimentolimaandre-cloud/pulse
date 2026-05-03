@@ -46,6 +46,10 @@ export interface HomeMetricItem {
   classification: DoraClassification | null;
   sparklineData: number[];
   benchmarks?: BenchmarkThresholds;
+  /** MTTR-only (FDD-DSH-050). Resolved incidents that contributed to the median. */
+  incidentCount?: number | null;
+  /** MTTR-only (FDD-DSH-050). Failures still open (no recovery in window). */
+  openIncidentCount?: number | null;
 }
 
 export interface DoraMetrics {

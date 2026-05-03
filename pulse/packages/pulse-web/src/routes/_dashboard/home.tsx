@@ -41,11 +41,11 @@ const TOOLTIP: Record<string, string> = {
     'Dados: eng_deployments com is_failure=true (Jenkins FAILURE/UNSTABLE em production)\n' +
     'DORA 2023: Elite ≤5% · High ≤10% · Medium ≤15% · Low >15%',
   timeToRestore:
-    'Mediana de tempo entre detecção e resolução de incidentes.\n' +
-    'Fórmula: mediana(resolved_at − incident_started_at)\n' +
-    'Dados: requer ingestão de incidentes (deploys com rollback + issues Blocker) — R1\n' +
-    'Status: aguardando pipeline de incidentes (FDD-DSH-050)\n' +
-    'DORA 2023: Elite <1h · High <24h · Medium <1sem · Low ≥1sem',
+    'Mediana de tempo entre falha em produção e o próximo deploy bem-sucedido.\n' +
+    'Fórmula: mediana(next_success_at − failure_at) por (repo, environment=production)\n' +
+    'Dados: eng_deployments — pareamento failure→success em janela de 7 dias\n' +
+    'Filtros: descarta recoveries < 5min (re-trigger de teste flaky); n ≥ 5 incidentes\n' +
+    'DORA 2023: Elite <1h · High <24h · Medium <1sem · Low ≥1sem (FDD-DSH-050)',
   cycleTimeP50:
     'Tempo do primeiro commit até o merge do PR — metade dos PRs são mais rápidos que isso.\n' +
     'Fórmula: mediana(merged_at − first_commit_at)\n' +
@@ -292,6 +292,19 @@ function HomePage() {
                     {(() => {
                       const ttr = homeMetricsQ.data.timeToRestore;
                       const fmt = formatDuration(ttr.value);
+                      // FDD-DSH-050: render incident counts as a subline so users
+                      // can judge the value's representativeness ("n=73 resolved · 3 open").
+                      const resolved = ttr.incidentCount;
+                      const open = ttr.openIncidentCount;
+                      const noteParts: string[] = [];
+                      if (typeof resolved === 'number' && resolved > 0) {
+                        noteParts.push(`n=${resolved} resolvidos`);
+                      }
+                      if (typeof open === 'number' && open > 0) {
+                        noteParts.push(`${open} em aberto`);
+                      }
+                      const extraNote = noteParts.length > 0 ? noteParts.join(' · ') : null;
+                      const isEmpty = ttr.value === null;
                       return (
                         <KpiCard
                           label="Time to Restore"
@@ -301,7 +314,12 @@ function HomePage() {
                           trend={ttr.trend}
                           classification={ttr.classification}
                           infoTooltip={TOOLTIP.timeToRestore}
-                          pendingLabel="R1"
+                          extraNote={extraNote}
+                          // Render "Sem dado" when below sample threshold (n<5 resolved
+                          // or no incidents in window). The MTTR backend (FDD-DSH-050)
+                          // shipped 2026-04-29; the only reason value=null now is
+                          // genuinely insufficient data, not "feature pending".
+                          pendingLabel={isEmpty ? 'Sem dado' : undefined}
                         />
                       );
                     })()}
