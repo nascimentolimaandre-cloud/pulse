@@ -327,6 +327,11 @@ class JenkinsConnector(BaseConnector):
         # Resolve GitHub repo name from job→repo mapping
         repo_name = self._job_to_repo.get(job_name, job_name)
 
+        # INC-024 — surface the Jenkins build URL so the UI can deep-link from
+        # deploy rows / Pipeline Monitor cells back to the source build page.
+        # Jenkins exposes `url` per build (we already fetch it via BUILD_TREE).
+        build_url = build.get("url") if isinstance(build, dict) else None
+
         return {
             "id": f"jenkins:JenkinsBuild:{self._connection_id}:{job_name}:{build_number}",
             "cicd_deployment_id": f"jenkins:JenkinsJob:{self._connection_id}:{job_name}",
@@ -336,6 +341,7 @@ class JenkinsConnector(BaseConnector):
             "result": result,  # SUCCESS, FAILURE, UNSTABLE, ABORTED, NOT_BUILT
             "status": "DONE",
             "environment": environment,
+            "url": build_url,  # INC-024 — Jenkins build deep-link
             "created_date": started.isoformat() if started else None,
             "started_date": started.isoformat() if started else None,
             "finished_date": finished.isoformat() if finished else None,

@@ -420,6 +420,20 @@ def normalize_pull_request(
     # is_merged: true when PR has a merged_date
     is_merged = merged_date is not None
 
+    # INC-025 — canonical PR deep-link (GitHub `html_url` / GitLab `web_url`)
+    # so the UI can navigate from Throughput / Cycle Time scatterplot rows
+    # straight to the source PR. Connectors already populate the field.
+    url_raw = devlake_pr.get("url")
+    url = url_raw if isinstance(url_raw, str) and url_raw.strip() else None
+
+    # INC-025 — closed_at: the PR was closed (merged OR closed-without-merge).
+    # Distinct from `merged_at` (which is null for rejected PRs) — closed_at
+    # is the canonical "PR is done" timestamp regardless of outcome. Useful for
+    # Throughput-by-closed metrics + age-of-open-PR computations.
+    # GitHub/DevLake field name is `closed_date` (REST) / `closedAt` (GraphQL,
+    # already mapped to closed_date by the connector).
+    closed_at = _parse_datetime(devlake_pr.get("closed_date"))
+
     return {
         "external_id": str(devlake_pr["id"]),
         "tenant_id": tenant_id,
@@ -433,7 +447,9 @@ def normalize_pull_request(
         "first_review_at": first_review_at,
         "approved_at": approved_at,
         "merged_at": merged_date,
+        "closed_at": closed_at,  # INC-025 — merged OR closed-without-merge timestamp
         "deployed_at": None,  # Linked via deployment data later
+        "url": url,  # INC-025 — canonical PR deep-link
         "additions": devlake_pr.get("additions", 0) or 0,
         "deletions": devlake_pr.get("deletions", 0) or 0,
         "files_changed": files_changed,
@@ -523,6 +539,23 @@ def normalize_issue(
     # for encoding "UTF8": 0x00`. Real-world Jira data has them — observed
     # 2026-04-28 in ENO-3296 description (likely paste from buggy source).
     # Without this, a single bad row breaks the whole batch upsert.
+    # INC-026 — priority is an effort-prioritization signal (P0/P1/Highest/Blocker
+    # used downstream by MTTR Phase 2 incident overlay and by Flow Health filters).
+    # Jira connector returns "" when priority is unset; coerce to None for
+    # cleaner downstream filtering (`WHERE priority IS NOT NULL`).
+    priority_raw = devlake_issue.get("priority")
+    priority = (
+        _strip_null_bytes(priority_raw).strip()
+        if isinstance(priority_raw, str) and priority_raw.strip()
+        else None
+    )
+
+    # INC-026 (deep-link) — surface the canonical Jira ticket URL so the UI
+    # can link rows in the Flow Health drawer / WIP list to the source ticket.
+    # Connector already builds it as f"{base_url}/browse/{issue_key}".
+    url_raw = devlake_issue.get("url")
+    url = url_raw if isinstance(url_raw, str) and url_raw.strip() else None
+
     return {
         "external_id": str(devlake_issue["id"]),
         "tenant_id": tenant_id,
@@ -535,6 +568,8 @@ def normalize_issue(
         "status": raw_status,
         "normalized_status": normalized,
         "assignee": _strip_null_bytes(devlake_issue.get("assignee_name")),
+        "priority": priority,  # INC-026 — Jira priority name (Highest/High/Medium/...)
+        "url": url,  # INC-026 — canonical Jira ticket deep-link
         "story_points": devlake_issue.get("story_point"),
         "sprint_id": sprint_id,
         "status_transitions": transitions,
@@ -609,6 +644,12 @@ def normalize_deployment(
             None,
         )
 
+    # INC-024 — canonical deploy deep-link (Jenkins build URL today; GitHub
+    # Actions run URL / GitLab pipeline URL when those connectors expose it).
+    # Absent in legacy DevLake rows; safe to leave None.
+    url_raw = devlake_deploy.get("url")
+    url = url_raw if isinstance(url_raw, str) and url_raw.strip() else None
+
     return {
         "external_id": str(devlake_deploy["id"]),
         "tenant_id": tenant_id,
@@ -620,6 +661,7 @@ def normalize_deployment(
         "is_failure": is_failure,
         "deployed_at": deployed_at,
         "recovery_time_hours": None,  # Calculated by metrics worker
+        "url": url,  # INC-024 — deploy deep-link (Jenkins build URL today)
         "created_at": deployed_at,
         "updated_at": datetime.now(timezone.utc),
     }
