@@ -1828,3 +1828,120 @@ por pessoa. Precisa review formal do CISO antes do release.
 
 ---
 
+
+## FDD-OPS-020 · Jira API token expired — blocking issue resync (INC-006 rollout)
+
+**Epic:** Operational Reliability · **Release:** Imediato (R1 enabler)
+**Priority:** **P0** (bloqueia INC-006 + INC-022/INC-023 backfills + qualquer
+re-sync de Jira)
+**Owner class:** Ops / Platform admin (não-código)
+**Discovered:** 2026-05-04 durante INC-006 (PR #15) operational rollout
+
+### Sintoma
+
+Sync-worker chama `/rest/api/3/search/jql` por projeto, recebe `200 OK` mas
+com `issues=[]` mesmo quando `since=2020-01-01`. Confirmado:
+
+```
+POST /rest/api/3/search/jql
+  body: {"jql": "project = \"FID\"", "maxResults": 5}
+  response: {"issues": [], "isLast": true}
+
+POST /rest/api/3/search/approximate-count
+  body: {"jql": "project = FID"}
+  response: {"count": 0}
+
+GET /rest/api/3/myself
+  response: 401 Unauthorized
+
+GET /rest/api/3/issue/FID-1
+  response: 404 Not Found
+```
+
+`/myself` 401 confirma: o `JIRA_API_TOKEN` em `pulse/.env` está expirado
+ou foi revogado. As chamadas autenticadas voltam vazias em vez de 401
+porque o `/search/jql` é mais tolerante que `/myself` na resposta de
+auth-fail.
+
+### Impacto
+
+- INC-006: rollout bloqueado. `eng_issues.sprint_transitions` permanece
+  `[]` em 311.667 issues. `POST /admin/sprints/refresh-scope` retorna
+  `sprints_skipped=217` (todos pulados — sem dados pra processar).
+- Bug retrofit em backfills de status_transitions / story_points /
+  description também ficam pausados.
+- PRs e Jenkins continuam syncando (tokens separados, ainda válidos).
+
+### Solução (operator action — Claude NÃO toca credenciais)
+
+1. Rotacionar token na Jira:
+   - https://id.atlassian.com/manage-profile/security/api-tokens
+   - "Create API token" → label `pulse-data-{date}`
+   - Copiar token (só aparece uma vez)
+2. Editar `pulse/.env` localmente (NÃO colar no chat):
+   ```
+   JIRA_API_TOKEN=<novo-token>
+   ```
+3. Validar: `make rotate-secrets && make check-secrets`
+4. `docker compose restart sync-worker pulse-data discovery-worker`
+5. Smoke via diagnostic (sem expor o token):
+   ```bash
+   docker compose exec -T pulse-data python -c "
+   import asyncio
+   from src.connectors.jira_connector import JiraConnector, REST_API
+   async def t():
+       c = JiraConnector()
+       try:
+           m = await c._client.get(f'{REST_API}/myself')
+           print('auth ok:', m.get('displayName',[:30])
+       finally: await c.close()
+   asyncio.run(t())
+   "
+   ```
+6. Reset watermarks dos projetos com sprint:
+   ```sql
+   UPDATE pipeline_watermarks SET last_synced_at='2020-01-01 00:00+00'
+   WHERE entity_type='issues';
+   ```
+7. Aguardar sync (~horas dependendo de volume — ~311k issues)
+8. Rodar admin endpoint:
+   ```
+   POST /data/v1/admin/sprints/refresh-scope?scope=all&planning_grace_days=1
+   ```
+
+### Acceptance Criteria
+
+```
+Given the new token is active
+ When sync-worker fetches issues for any project
+ Then GET /search/jql returns issues > 0 (where they exist)
+
+Given sync completes for FID + PTURB
+ When the admin endpoint runs scope=all
+ Then sprints_updated > 0
+  And eng_sprints.added_items / removed_items reflect Jira changelog history
+  And the Sprint Comparison page shows real Scope Creep numbers
+```
+
+### Riscos de não fazer
+
+- Sprint Comparison page continua mostrando "Added (Scope Creep) 0 (0%)"
+- Outros backfills históricos pendentes ficam parados
+- Ingestão Jira congelada — qualquer issue criada/atualizada não chega ao DB
+
+### Estimate
+
+XS (operator only) — 5 min de rotação + horas de re-sync background.
+
+### Dependencies
+
+- Acesso ao painel Atlassian (id.atlassian.com)
+- `pulse/.env` writable
+
+### Notas
+
+- INC-006 PR #15 está mergeado e validado por:
+  - 28 unit tests
+  - Synthetic data smoke: Sprint 144 com 4 transitions injetados →
+    classificou exatamente como esperado (3 committed, 1 added, 1 removed)
+- Quando o token rotacionar, o backfill é uma chamada curl — sem código novo.
