@@ -676,52 +676,132 @@ async def get_sprint_metrics(
 ) -> SprintResponse:
     """Get sprint overview and comparison metrics.
 
-    The worker writes overview snapshots as "overview_{sprint_id}" and
-    a single "comparison" snapshot. This endpoint finds the most recent
-    overview and combines it with the comparison data.
+    The "current" sprint overview is queried directly from `eng_sprints`
+    (status / started_at / completed_at) — the worker writes one snapshot
+    per sprint, but they all share `calculated_at` so picking by snapshot
+    timestamp returned a random sprint. INC-006 follow-up: pick the
+    genuinely active sprint, fall back to the most recently completed.
+
+    The comparison block (recent N sprints + velocity trend) still comes
+    from the worker-written "comparison" snapshot — that calculation is
+    period-aware and correct.
     """
     _ = (squad_key, sprint_id, period, start_date, end_date)  # Accepted for URL compat
+
+    # ── 1. Pick the right "current" sprint from eng_sprints ──────────
+    # Priority order:
+    #   (a) Genuine active sprint: status='active' AND timeline overlaps now
+    #   (b) Any active sprint (most recent started_at) — handles status drift
+    #   (c) Most recently completed sprint — historical fallback
+    now = datetime.now(timezone.utc)
+    overview: SprintOverviewData | None = None
+    calculated_at: datetime | None = None
+
+    async with get_session(tenant_id) as session:
+        from sqlalchemy import or_, select as _select
+        from src.contexts.engineering_data.models import EngSprint
+
+        active_now_stmt = (
+            _select(EngSprint)
+            .where(
+                EngSprint.tenant_id == tenant_id,
+                EngSprint.status == "active",
+                EngSprint.started_at.isnot(None),
+                EngSprint.started_at <= now,
+                or_(EngSprint.completed_at.is_(None), EngSprint.completed_at >= now),
+            )
+            .order_by(EngSprint.started_at.desc())
+            .limit(1)
+        )
+        sprint_row = (await session.execute(active_now_stmt)).scalar_one_or_none()
+
+        if sprint_row is None:
+            # Fallback (b): any active sprint with the latest started_at.
+            any_active_stmt = (
+                _select(EngSprint)
+                .where(
+                    EngSprint.tenant_id == tenant_id,
+                    EngSprint.status == "active",
+                    EngSprint.started_at.isnot(None),
+                )
+                .order_by(EngSprint.started_at.desc())
+                .limit(1)
+            )
+            sprint_row = (await session.execute(any_active_stmt)).scalar_one_or_none()
+
+        if sprint_row is None:
+            # Fallback (c): most recently completed.
+            recent_completed_stmt = (
+                _select(EngSprint)
+                .where(
+                    EngSprint.tenant_id == tenant_id,
+                    EngSprint.status == "closed",
+                    EngSprint.started_at.isnot(None),
+                )
+                .order_by(EngSprint.started_at.desc())
+                .limit(1)
+            )
+            sprint_row = (await session.execute(recent_completed_stmt)).scalar_one_or_none()
+
+        if sprint_row is not None:
+            committed = sprint_row.committed_items or 0
+            added = sprint_row.added_items or 0
+            removed = sprint_row.removed_items or 0
+            completed = sprint_row.completed_items or 0
+            committed_pts = sprint_row.committed_points or 0.0
+            completed_pts = sprint_row.completed_points or 0.0
+            final_scope = max(committed + added - removed, 0)
+
+            overview = SprintOverviewData(
+                committed_items=committed,
+                added_items=added,
+                removed_items=removed,
+                completed_items=completed,
+                carried_over_items=max(committed - completed, 0),
+                final_scope_items=final_scope,
+                completion_rate=(
+                    round(completed / final_scope, 4) if final_scope > 0 else None
+                ),
+                scope_creep_pct=(
+                    round((added / committed) * 100, 1) if committed > 0 else None
+                ),
+                carryover_rate=(
+                    round(max(committed - completed, 0) / committed, 4)
+                    if committed > 0 else None
+                ),
+                committed_points=committed_pts,
+                completed_points=completed_pts,
+                completion_rate_points=(
+                    round(completed_pts / committed_pts, 4)
+                    if committed_pts > 0 else None
+                ),
+                sprint_name=sprint_row.name,
+                started_at=(
+                    sprint_row.started_at.isoformat()
+                    if sprint_row.started_at else None
+                ),
+                completed_at=(
+                    sprint_row.completed_at.isoformat()
+                    if sprint_row.completed_at else None
+                ),
+            )
+            calculated_at = sprint_row.updated_at or now
+
+    # ── 2. Comparison snapshot (still snapshot-based — correct already) ──
     all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
         metric_type="sprint",
         team_id=team_id,
     )
-
-    if not all_snaps:
-        return SprintResponse(
-            team_id=team_id,
-            calculated_at=None,
-            data=SprintMetricsData(),
-        )
-
-    # Find the latest overview_* snapshot (most recent period_end)
-    overview = None
-    latest_overview_time = None
-    for key, snap in all_snaps.items():
-        if not key.startswith("overview_"):
-            continue
-        snap_time = snap.get("calculated_at")
-        if latest_overview_time is None or (snap_time and snap_time > latest_overview_time):
-            latest_overview_time = snap_time
-            ov = snap.get("value", {})
-            if ov:
-                overview = SprintOverviewData(**{
-                    k: v for k, v in ov.items()
-                    if k in SprintOverviewData.model_fields
-                })
-
-    # Comparison snapshot
-    comparison = None
+    comparison: SprintComparisonData | None = None
     comparison_snap = all_snaps.get("comparison", {})
     cv = comparison_snap.get("value", {})
     if cv:
         comparison = SprintComparisonData(**cv)
-
-    # Pick the most recent calculated_at
-    calc_times = [
-        s["calculated_at"] for s in all_snaps.values() if s.get("calculated_at")
-    ]
-    calculated_at = max(calc_times) if calc_times else None
+        # Use the freshest of overview/comparison timestamps.
+        comp_calc = comparison_snap.get("calculated_at")
+        if comp_calc and (calculated_at is None or comp_calc > calculated_at):
+            calculated_at = comp_calc
 
     return SprintResponse(
         team_id=team_id,
