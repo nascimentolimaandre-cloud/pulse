@@ -41,9 +41,17 @@ export function TeamCombobox({ teams, value, onChange }: TeamComboboxProps) {
   const grouped = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const map = new Map<string, TeamHealth[]>();
-    for (const t of teams) {
+    // FDD-PIPE-001: sort by tier first (active before marginal/dormant), then PRs.
+    const sorted = [...teams].sort((a, b) => {
+      const tierOrder = { active: 0, marginal: 1, dormant: 2 } as const;
+      const ta = tierOrder[a.tier] ?? 1;
+      const tb = tierOrder[b.tier] ?? 1;
+      if (ta !== tb) return ta - tb;
+      return (b.prCount ?? 0) - (a.prCount ?? 0);
+    });
+    for (const t of sorted) {
       if (needle) {
-        const hay = `${t.name} ${t.tribe ?? ''}`.toLowerCase();
+        const hay = `${t.name} ${t.tribe ?? ''} ${t.squadKey}`.toLowerCase();
         if (!hay.includes(needle)) continue;
       }
       const tribe = t.tribe ?? '—';
@@ -52,6 +60,29 @@ export function TeamCombobox({ teams, value, onChange }: TeamComboboxProps) {
     }
     return Array.from(map.entries());
   }, [teams, query]);
+
+  // FDD-PIPE-001: Tier badge styling — surfaces "marginal/dormant" as a subtle
+  // hint without hiding the squad. "active" gets no badge to avoid noise.
+  const tierBadge = (tier: TeamHealth['tier']) => {
+    if (tier === 'active') return null;
+    const label = tier === 'marginal' ? 'Marginal' : 'Dormante';
+    const cls =
+      tier === 'marginal'
+        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+    return (
+      <span
+        className={`ml-1.5 inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
+        title={
+          tier === 'marginal'
+            ? 'Atividade baixa de PRs — métricas podem não ser confiáveis'
+            : 'Sem PRs recentes — squad com atividade só em issues'
+        }
+      >
+        {label}
+      </span>
+    );
+  };
 
   const currentName =
     value === 'default'
@@ -141,7 +172,10 @@ export function TeamCombobox({ teams, value, onChange }: TeamComboboxProps) {
                             : 'text-content-primary hover:bg-surface-secondary'
                         }`}
                       >
-                        <span className="truncate">{t.name}</span>
+                        <span className="flex min-w-0 items-center">
+                          <span className="truncate">{t.name}</span>
+                          {tierBadge(t.tier)}
+                        </span>
                       </li>
                     ))}
                   </ul>

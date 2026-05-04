@@ -88,6 +88,9 @@ export interface Integration {
 
 /* ── Teams ── */
 
+export type SquadTier = 'active' | 'marginal' | 'dormant';
+export type SquadQualificationSource = 'auto' | 'override';
+
 export interface TeamHealth {
   id: string;
   name: string;
@@ -103,6 +106,10 @@ export interface TeamHealth {
   linkRate: number;
   lastSync: string;
   lagSec: number;
+  /** FDD-PIPE-001 — activity tier (orthogonal to qualification) */
+  tier: SquadTier;
+  /** FDD-PIPE-001 — 'auto' (heuristic) | 'override' (operator-forced) */
+  qualificationSource: SquadQualificationSource;
 }
 
 /* ── Timeline ── */
