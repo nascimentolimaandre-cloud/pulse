@@ -110,7 +110,13 @@ class Integration(_CamelModel):
 # ---------------------------------------------------------------------------
 
 class TeamHealth(_CamelModel):
-    """Health status for a squad/team derived from Jira project activity."""
+    """Health status for a squad/team derived from Jira project activity.
+
+    FDD-PIPE-001: only QUALIFIED squads are returned by `/pipeline/teams`.
+    The `tier` field tells the UI how to weight the squad in displays
+    (active/marginal/dormant) — never used to hide rows here, only to
+    style/sort them in the combobox / lists.
+    """
 
     id: str  # project_key lowercased
     name: str
@@ -126,6 +132,10 @@ class TeamHealth(_CamelModel):
     link_rate: float  # 0..1
     last_sync: datetime | None = None
     lag_sec: int
+    # FDD-PIPE-001 — Activity tier (orthogonal to qualification)
+    tier: Literal["active", "marginal", "dormant"] = "active"
+    # FDD-PIPE-001 — How this squad qualified ('auto' = heuristic; 'override' = forced by operator)
+    qualification_source: Literal["auto", "override"] = "auto"
 
 
 # ---------------------------------------------------------------------------
