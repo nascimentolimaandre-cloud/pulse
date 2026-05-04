@@ -21,9 +21,13 @@ from src.config import settings
 from src.contexts.metrics.infrastructure.models import MetricsSnapshot
 from src.contexts.metrics.repositories import MetricsRepository
 from src.contexts.metrics.services.flow_health_on_demand import compute_flow_health
-from src.contexts.metrics.services.home_on_demand import (
+from src.contexts.metrics.services.on_demand import (
+    compute_cycle_time_on_demand,
+    compute_dora_on_demand,
     compute_home_metrics_on_demand,
+    compute_lean_on_demand,
     compute_previous_period,
+    compute_throughput_on_demand,
 )
 from src.contexts.metrics.services.recalculate import recalculate as _recalc_service
 from src.contexts.metrics.schemas import (
@@ -282,8 +286,31 @@ async def get_dora_metrics(
     snapshots; for deep-dive accuracy on custom windows, use /metrics/home
     which computes on demand.
     """
-    _ = squad_key  # documented no-op on this endpoint
     period_start, period_end = _parse_period(period, start_date, end_date)
+
+    # INC-015 — squad_key or custom period → on-demand. Same hybrid pattern
+    # as `/metrics/home`: snapshot fast-path is the default; on-demand is
+    # the fallback for scopes the worker hasn't pre-computed.
+    if squad_key or period == "custom":
+        value = await compute_dora_on_demand(
+            tenant_id,
+            period_start=period_start,
+            period_end=period_end,
+            squad_key=squad_key,
+        )
+        if not value:
+            return DoraResponse(
+                period=period,
+                period_start=period_start,
+                period_end=period_end,
+                team_id=team_id,
+                calculated_at=datetime.now(timezone.utc),
+                data=DoraMetricsData(),
+            )
+        return _build_dora_response_from_value(
+            period, period_start, period_end, team_id,
+            calculated_at=datetime.now(timezone.utc), value=value,
+        )
 
     snapshot = await _get_snapshot_by_period(
         tenant_id=tenant_id,
@@ -304,8 +331,22 @@ async def get_dora_metrics(
             data=DoraMetricsData(),
         )
 
-    value = snapshot.value or {}
+    return _build_dora_response_from_value(
+        period, period_start, period_end, team_id,
+        calculated_at=snapshot.calculated_at, value=snapshot.value or {},
+    )
 
+
+def _build_dora_response_from_value(
+    period: str,
+    period_start: datetime,
+    period_end: datetime,
+    team_id: UUID | None,
+    *,
+    calculated_at: datetime | None,
+    value: dict[str, Any],
+) -> DoraResponse:
+    """Shared response builder — used by both snapshot path and on-demand."""
     classifications = None
     if any(value.get(k) for k in ("df_level", "lt_level", "cfr_level", "mttr_level")):
         classifications = DoraClassifications(
@@ -314,13 +355,12 @@ async def get_dora_metrics(
             change_failure_rate=value.get("cfr_level"),
             mttr=value.get("mttr_level"),
         )
-
     return DoraResponse(
         period=period,
         period_start=period_start,
         period_end=period_end,
         team_id=team_id,
-        calculated_at=snapshot.calculated_at,
+        calculated_at=calculated_at,
         data=DoraMetricsData(
             deployment_frequency_per_day=value.get("deployment_frequency_per_day"),
             deployment_frequency_per_week=value.get("deployment_frequency_per_week"),
@@ -353,9 +393,33 @@ async def get_lean_metrics(
     lead_time_distribution, throughput, scatterplot). This endpoint
     combines them into a single response.
     """
-    _ = squad_key  # See FDD-DSH-060
     period_start, period_end = _parse_period(period, start_date, end_date)
     period_days = (period_end - period_start).days
+
+    # INC-015 — on-demand for squad / custom period; snapshot for default.
+    if squad_key or period == "custom":
+        on_demand = await compute_lean_on_demand(
+            tenant_id,
+            period_start=period_start,
+            period_end=period_end,
+            squad_key=squad_key,
+        )
+        cfd_value = on_demand.get("cfd") or {}
+        wip_value = on_demand.get("wip") or {}
+        return LeanResponse(
+            period=period,
+            period_start=period_start,
+            period_end=period_end,
+            team_id=team_id,
+            calculated_at=datetime.now(timezone.utc),
+            data=LeanMetricsData(
+                cfd=cfd_value.get("points"),
+                wip=wip_value.get("wip_count"),
+                lead_time_distribution=on_demand.get("lead_time_distribution"),
+                throughput=(on_demand.get("throughput") or {}).get("points"),
+                scatterplot=on_demand.get("scatterplot"),
+            ),
+        )
 
     all_snaps = await _get_all_latest_snapshots(
         tenant_id=tenant_id,
@@ -425,9 +489,34 @@ async def get_cycle_time_metrics(
     end_date: str | None = Query(None),
 ) -> CycleTimeResponse:
     """Get cycle time breakdown and trend."""
-    _ = squad_key  # See FDD-DSH-060
     period_start, period_end = _parse_period(period, start_date, end_date)
     period_days = (period_end - period_start).days
+
+    # INC-015 — on-demand for squad / custom period.
+    if squad_key or period == "custom":
+        on_demand = await compute_cycle_time_on_demand(
+            tenant_id,
+            period_start=period_start,
+            period_end=period_end,
+            squad_key=squad_key,
+        )
+        breakdown_raw = on_demand.get("breakdown")
+        breakdown = (
+            CycleTimeBreakdownData(**breakdown_raw)
+            if isinstance(breakdown_raw, dict)
+            else None
+        )
+        return CycleTimeResponse(
+            period=period,
+            period_start=period_start,
+            period_end=period_end,
+            team_id=team_id,
+            calculated_at=datetime.now(timezone.utc),
+            data=CycleTimeMetricsData(
+                breakdown=breakdown,
+                trend=on_demand.get("trend"),
+            ),
+        )
 
     # Worker writes separate snapshots: (cycle_time, breakdown) and (cycle_time, trend)
     all_snaps = await _get_all_latest_snapshots(
@@ -497,9 +586,28 @@ async def get_throughput_metrics(
     end_date: str | None = Query(None),
 ) -> ThroughputResponse:
     """Get throughput trend and PR analytics."""
-    _ = squad_key  # See FDD-DSH-060
     period_start, period_end = _parse_period(period, start_date, end_date)
     period_days = (period_end - period_start).days
+
+    # INC-015 — on-demand for squad / custom period.
+    if squad_key or period == "custom":
+        on_demand = await compute_throughput_on_demand(
+            tenant_id,
+            period_start=period_start,
+            period_end=period_end,
+            squad_key=squad_key,
+        )
+        return ThroughputResponse(
+            period=period,
+            period_start=period_start,
+            period_end=period_end,
+            team_id=team_id,
+            calculated_at=datetime.now(timezone.utc),
+            data=ThroughputMetricsData(
+                trend=on_demand.get("trend"),
+                pr_analytics=on_demand.get("pr_analytics"),
+            ),
+        )
 
     # Worker writes separate snapshots: (throughput, trend) and (throughput, pr_analytics)
     all_snaps = await _get_all_latest_snapshots(
@@ -1144,7 +1252,11 @@ _RELOAD_TARGETS: tuple[str, ...] = (
     "src.contexts.metrics.domain.throughput",
     "src.contexts.metrics.domain.sprint",
     "src.contexts.metrics.services.recalculate",
-    "src.contexts.metrics.services.home_on_demand",
+    "src.contexts.metrics.services.on_demand.home",
+    "src.contexts.metrics.services.on_demand.dora",
+    "src.contexts.metrics.services.on_demand.lean",
+    "src.contexts.metrics.services.on_demand.cycle_time",
+    "src.contexts.metrics.services.on_demand.throughput",
     "src.contexts.metrics.services.flow_health_on_demand",
 )
 
