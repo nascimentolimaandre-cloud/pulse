@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from sqlalchemy import func, select, text
 
 from src.config import settings
@@ -686,9 +686,48 @@ async def get_teams() -> list[TeamHealth]:
 
     try:
         async with get_session(_TENANT_ID) as session:
-            # 1. Aggregate PR activity per squad via title regex (SINGLE query, fast)
+            # 1. Aggregate PR activity per squad via title regex + apply
+            #    qualification rule. FDD-PIPE-001 — only QUALIFIED squads
+            #    are returned. The activity tier (active/marginal/dormant)
+            #    is computed alongside so the UI can sort/badge.
+            #
+            # Qualification rule (default config — see migration 014):
+            #   has_metadata = (catalog.name IS NOT NULL AND name != '')
+            #     → Jira API confirmed the project exists. Filters regex
+            #       noise (RC, CVE, REDIRECTS, RELEASE, AXIOS — names empty
+            #       because they were never enriched).
+            #   has_any_activity = (issue_count >= 1 OR pr_count_90d >= 1)
+            #     → Some sign of life.
+            #   qualified = has_metadata AND has_any_activity
+            #              UNLESS qualification_override='excluded'
+            #              OR qualification_override='qualified' (forced in)
+            #
+            # Activity tier (orthogonal — never excludes, just labels):
+            #   active   = pr_count_90d >= min_prs_90d_active_tier
+            #   marginal = 1 <= pr_count_90d < min_prs_90d_active_tier
+            #   dormant  = pr_count_90d == 0 AND issue_count >= 1
+            #
+            # `min_prs_90d_active_tier` reads from
+            # `tenant_jira_config.squad_qualification_config` per tenant.
             agg_rows = await session.execute(text(r"""
-                WITH pr_refs AS (
+                WITH config AS (
+                    SELECT
+                        COALESCE(
+                            (squad_qualification_config->>'min_prs_90d_active_tier')::int,
+                            5
+                        ) AS min_prs_active,
+                        COALESCE(
+                            (squad_qualification_config->>'qualification_requires_metadata')::boolean,
+                            TRUE
+                        ) AS req_metadata,
+                        COALESCE(
+                            (squad_qualification_config->>'qualification_requires_any_activity')::boolean,
+                            TRUE
+                        ) AS req_activity
+                    FROM tenant_jira_config
+                    LIMIT 1
+                ),
+                pr_refs AS (
                     SELECT
                         UPPER((regexp_match(pr.title, '\m([A-Za-z][A-Za-z0-9]+)-\d+'))[1]) AS project_key,
                         pr.id AS pr_id,
@@ -697,25 +736,80 @@ async def get_teams() -> list[TeamHealth]:
                          AND pr.linked_issue_ids != '[]'::jsonb) AS is_linked
                     FROM eng_pull_requests pr
                     WHERE pr.created_at >= NOW() - INTERVAL '90 days'
+                ),
+                pr_aggregated AS (
+                    SELECT
+                        project_key,
+                        COUNT(*) AS prs_referenced,
+                        COUNT(*) FILTER (WHERE is_linked) AS prs_linked,
+                        COUNT(DISTINCT repo) AS repos
+                    FROM pr_refs
+                    WHERE project_key IS NOT NULL
+                    GROUP BY project_key
+                ),
+                -- Outer join: a squad qualifies via PRs OR via issues alone
+                -- (data-only squad like Engenharia de Dados — INC-015).
+                candidates AS (
+                    SELECT
+                        c.project_key,
+                        c.name,
+                        COALESCE(c.issue_count, 0) AS issue_count,
+                        c.status AS catalog_status,
+                        c.qualification_override,
+                        COALESCE(p.prs_referenced, 0) AS prs_referenced,
+                        COALESCE(p.prs_linked,     0) AS prs_linked,
+                        COALESCE(p.repos,          0) AS repos
+                    FROM jira_project_catalog c
+                    LEFT JOIN pr_aggregated p ON p.project_key = c.project_key
+                    WHERE c.status IN ('active', 'discovered')
+                ),
+                classified AS (
+                    SELECT
+                        cand.*,
+                        cfg.min_prs_active,
+                        -- Has Jira metadata? (Jira API confirmed project exists)
+                        (cand.name IS NOT NULL AND cand.name != '') AS has_metadata,
+                        -- Any sign of engineering life?
+                        (cand.issue_count >= 1 OR cand.prs_referenced >= 1) AS has_activity,
+                        -- Activity tier (computed even if not qualified — UI uses for sort)
+                        CASE
+                            WHEN cand.prs_referenced >= cfg.min_prs_active THEN 'active'
+                            WHEN cand.prs_referenced BETWEEN 1 AND cfg.min_prs_active - 1 THEN 'marginal'
+                            WHEN cand.prs_referenced = 0 AND cand.issue_count >= 1 THEN 'dormant'
+                            ELSE 'marginal'
+                        END AS tier
+                    FROM candidates cand
+                    CROSS JOIN config cfg
                 )
                 SELECT
                     project_key,
-                    COUNT(*) AS prs_referenced,
-                    COUNT(*) FILTER (WHERE is_linked) AS prs_linked,
-                    COUNT(DISTINCT repo) AS repos
-                FROM pr_refs
-                -- Only include keys that exist in jira_project_catalog
-                -- (filters out noise like CVE, LODASH, REGEXP, RELEASE, etc.)
-                WHERE project_key IS NOT NULL
-                  AND project_key IN (
-                      SELECT project_key FROM jira_project_catalog
-                      WHERE status IN ('active', 'discovered')
-                  )
-                GROUP BY project_key
-                HAVING COUNT(*) > 0
-                ORDER BY COUNT(*) DESC
+                    name,
+                    issue_count,
+                    catalog_status,
+                    qualification_override,
+                    prs_referenced,
+                    prs_linked,
+                    repos,
+                    has_metadata,
+                    has_activity,
+                    tier,
+                    -- Final qualification decision: override wins, otherwise heuristic.
+                    CASE
+                        WHEN qualification_override = 'excluded' THEN FALSE
+                        WHEN qualification_override = 'qualified' THEN TRUE
+                        ELSE (has_metadata AND has_activity)
+                    END AS qualified,
+                    CASE
+                        WHEN qualification_override IN ('qualified','excluded') THEN 'override'
+                        ELSE 'auto'
+                    END AS qualification_source
+                FROM classified
+                ORDER BY tier ASC, prs_referenced DESC
             """))
-            squads = agg_rows.fetchall()
+            all_candidates = agg_rows.fetchall()
+
+            # Filter: only qualified squads reach the response.
+            squads = [s for s in all_candidates if s.qualified]
 
             if not squads:
                 return []
@@ -827,6 +921,9 @@ async def get_teams() -> list[TeamHealth]:
                     link_rate=link_rate,
                     last_sync=last_sync,
                     lag_sec=lag_sec,
+                    # FDD-PIPE-001 — propagate qualification metadata
+                    tier=s.tier,
+                    qualification_source=s.qualification_source,
                 ))
 
     except Exception:
@@ -1162,3 +1259,128 @@ async def get_pipeline_jobs(
         )
 
     return jobs
+
+
+# ===========================================================================
+# Admin router — squad qualification override (FDD-PIPE-001)
+# ===========================================================================
+# Lets an operator force a squad into or out of the qualified list,
+# bypassing the heuristic. Persisted as `jira_project_catalog.qualification_override`.
+
+squad_admin_router = APIRouter(
+    prefix="/data/v1/admin/squads",
+    tags=["pipeline-admin"],
+)
+
+
+def _check_admin_token(x_admin_token: str | None) -> None:
+    """Validate admin token (constant-time compare). Mirrors the pattern in
+    other admin routers — `_check_admin_token` is duplicated rather than
+    shared because the token-check helper is intentionally local to each
+    router so removal of one router doesn't break the others.
+    """
+    import hmac
+
+    expected = getattr(settings, "internal_api_token", "") or ""
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin endpoint disabled: INTERNAL_API_TOKEN not configured",
+        )
+    if x_admin_token is None or not hmac.compare_digest(
+        x_admin_token.encode(), expected.encode()
+    ):
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+
+
+_VALID_OVERRIDES = {"qualified", "excluded", None}
+
+
+@squad_admin_router.post("/{squad_key}/qualification")
+async def admin_set_squad_qualification(
+    squad_key: str,
+    override: str | None = Query(
+        None,
+        description="'qualified' | 'excluded' | null (clear). Null restores automatic heuristic.",
+    ),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    """FDD-PIPE-001 — Force-include or force-exclude a squad from the
+    qualified list. Set `override=null` to restore automatic qualification.
+
+    Use cases:
+      - `qualified`: include a squad whose Jira metadata is missing
+        (e.g. project moved to a different Jira instance, sync gap).
+      - `excluded`: hide a squad that auto-qualifies but isn't engineering
+        (e.g. a tribe-wide tag matched the regex).
+      - `null` (clear): return to heuristic — most common after data quality
+        issues are fixed.
+
+    Persists in `jira_project_catalog.qualification_override`. Reflected in
+    the next `GET /pipeline/teams` response (no caching).
+    """
+    _check_admin_token(x_admin_token)
+
+    # Validate squad_key format (mirrors pattern in metrics/routes.py).
+    if not squad_key or len(squad_key) > 32 or not squad_key[0].isalpha():
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid squad_key. Must be 2-32 alphanumeric chars starting with a letter.",
+        )
+    squad_key_upper = squad_key.upper()
+
+    # Normalize override: empty string from query coerces to None.
+    if override == "" or override == "null":
+        override = None
+
+    if override not in _VALID_OVERRIDES:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid override. Use 'qualified' | 'excluded' | null.",
+        )
+
+    logger.warning(
+        "[admin] set_squad_qualification squad=%s override=%s",
+        squad_key_upper, override,
+    )
+
+    async with get_session(_TENANT_ID) as session:
+        # Verify squad exists in catalog (don't silently create rows).
+        existing = await session.execute(
+            text("""
+                SELECT project_key, qualification_override, name, status
+                FROM jira_project_catalog
+                WHERE project_key = :key
+            """),
+            {"key": squad_key_upper},
+        )
+        row = existing.first()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Squad '{squad_key_upper}' not in jira_project_catalog. "
+                       "Activate the project first or wait for discovery.",
+            )
+
+        previous = row.qualification_override
+
+        # Update — Postgres handles NULL correctly here.
+        await session.execute(
+            text("""
+                UPDATE jira_project_catalog
+                SET qualification_override = :override,
+                    updated_at = now()
+                WHERE project_key = :key
+            """),
+            {"override": override, "key": squad_key_upper},
+        )
+        await session.commit()
+
+    return {
+        "status": "updated",
+        "squad_key": squad_key_upper,
+        "previous_override": previous,
+        "current_override": override,
+        "name": row.name or "",
+        "catalog_status": row.status,
+    }
