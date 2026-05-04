@@ -466,6 +466,7 @@ def normalize_issue(
     tenant_id: UUID,
     status_mapping: dict[str, str] | None = None,
     changelogs: list[dict[str, Any]] | None = None,
+    sprint_transitions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize a DevLake issue row into PULSE EngIssue fields.
 
@@ -474,6 +475,12 @@ def normalize_issue(
         tenant_id: The PULSE tenant UUID.
         status_mapping: Optional custom status mapping.
         changelogs: Optional status transition changelogs from DevLake.
+        sprint_transitions: INC-006 — list of {sprint_id, action, at} dicts
+            extracted from the inline Jira changelog. Each entry records
+            an issue entering or exiting a sprint at a specific timestamp.
+            Used downstream by the sprint scope service to derive
+            committed/added/removed counts per sprint. Empty list when the
+            issue never touched a sprint.
 
     Returns:
         Dict matching EngIssue model columns.
@@ -573,6 +580,9 @@ def normalize_issue(
         "story_points": devlake_issue.get("story_point"),
         "sprint_id": sprint_id,
         "status_transitions": transitions,
+        # INC-006 — Sprint membership history (entered/exited events).
+        # Empty list when the inline changelog has no Sprint field changes.
+        "sprint_transitions": sprint_transitions or [],
         "started_at": started_at,
         "completed_at": completed_at,
         "created_at": created_date or datetime.now(timezone.utc),

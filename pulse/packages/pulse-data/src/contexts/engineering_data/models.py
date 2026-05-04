@@ -125,6 +125,12 @@ class EngIssue(TenantModel):
     # Status transition log for CFD / flow metrics
     status_transitions: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
 
+    # INC-006 — Sprint membership history (entered/exited per sprint with
+    # timestamp). Used by the sprint scope service to derive committed /
+    # added / removed counts from real timeline data — no new ingestion
+    # process needed. Migration 015.
+    sprint_transitions: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+
     # FDD-OPS-001 L5 — `linked_pr_ids` exists in DB but ORM lacked it.
     # Reverse of `eng_pull_requests.linked_issue_ids`: lists PR external_ids
     # that reference this issue. Populated by the PR linker.
