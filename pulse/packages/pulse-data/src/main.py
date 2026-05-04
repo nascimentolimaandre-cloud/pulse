@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.contexts.engineering_data.routes import admin_router as engineering_data_admin_router
 from src.contexts.engineering_data.routes import deployments_admin_router as engineering_data_deployments_admin_router
+from src.contexts.engineering_data.routes import sprints_admin_router as engineering_data_sprints_admin_router
 from src.contexts.engineering_data.routes import issues_admin_router as engineering_data_issues_admin_router
 from src.contexts.engineering_data.routes import router as engineering_data_router
 from src.contexts.metrics.routes import admin_router as metrics_admin_router
@@ -58,6 +59,7 @@ app.include_router(engineering_data_router)
 app.include_router(engineering_data_admin_router)
 app.include_router(engineering_data_issues_admin_router)
 app.include_router(engineering_data_deployments_admin_router)
+app.include_router(engineering_data_sprints_admin_router)
 app.include_router(metrics_router)
 app.include_router(metrics_admin_router)
 app.include_router(pipeline_router)

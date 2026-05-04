@@ -42,6 +42,9 @@ from src.contexts.engineering_data.services.backfill_deployed_at import (
 from src.contexts.engineering_data.services.backfill_descriptions import (
     run_backfill as _run_descriptions_backfill,
 )
+from src.contexts.engineering_data.services.backfill_sprint_scope import (
+    run_backfill as _run_sprint_scope_backfill,
+)
 from src.database import get_session
 from src.shared.tenant import get_tenant_id
 
@@ -664,5 +667,94 @@ async def admin_refresh_mttr(
         "failures_unchanged": result.failures_unchanged,
         "duration_sec": result.duration_sec,
         "sample_pairings": result.sample_pairings,
+        "errors": result.errors,
+    }
+
+
+# ===========================================================================
+# Sprint admin router — INC-006 scope creep recompute
+# ===========================================================================
+# Same X-Admin-Token pattern as the other admin routers. Mounted at
+# /data/v1/admin/sprints since /admin/issues already exists for
+# description backfills (different concern).
+
+sprints_admin_router = APIRouter(
+    prefix="/data/v1/admin/sprints",
+    tags=["engineering-data-admin"],
+)
+
+
+@sprints_admin_router.post("/refresh-scope")
+async def admin_refresh_sprint_scope(
+    scope: str = Query(
+        "all",
+        description="all|closed|last-90d — which sprints to recompute",
+    ),
+    planning_grace_days: int = Query(
+        1,
+        ge=0, le=14,
+        description="Tolerance window after sprint start during which entries still count as 'committed'",
+    ),
+    dry_run: bool = Query(False, description="Compute without writing"),
+    max_sprints: int | None = Query(
+        None, description="Cap processed sprints (smoke testing)",
+    ),
+    tenant_id: UUID = Depends(get_tenant_id),
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    """INC-006 — Recompute committed/added/removed counts for sprints from
+    the eng_issues.sprint_transitions log (populated forward by every sync
+    cycle since INC-006 shipped).
+
+    The heuristic:
+      committed = #issues whose LAST entry into the sprint was within
+                  `planning_grace_days` of `started_at`.
+      added     = #issues whose LAST entry was AFTER the grace window.
+      removed   = #issues whose LAST exit was AFTER grace AND DURING the
+                  sprint (exits after `completed_at` are normal closure,
+                  not removal).
+      scope_creep_pct = added / committed (at API layer, when committed > 0)
+
+    Idempotent: re-running on the same scope is safe.
+
+    scope:
+      - `all` (default): every sprint with started_at populated
+      - `closed`: only status='closed' (faster — historical sprints)
+      - `last-90d`: started_at within last 90 days
+    """
+    _check_admin_token(x_admin_token)
+
+    if scope not in {"all", "closed", "last-90d"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid scope. Use: all | closed | last-90d",
+        )
+
+    logger.warning(
+        "[admin] refresh-sprint-scope tenant=%s scope=%s grace=%dd dry_run=%s "
+        "max_sprints=%s",
+        tenant_id, scope, planning_grace_days, dry_run, max_sprints,
+    )
+
+    result = await _run_sprint_scope_backfill(
+        tenant_id=tenant_id,
+        scope=scope,  # type: ignore[arg-type]
+        planning_grace_days=planning_grace_days,
+        dry_run=dry_run,
+        max_sprints=max_sprints,
+    )
+
+    return {
+        "status": "completed" if not result.errors else "completed_with_errors",
+        "scope": result.scope,
+        "planning_grace_days": result.planning_grace_days,
+        "dry_run": result.dry_run,
+        "tenant_id": str(tenant_id),
+        "sprints_scanned": result.sprints_scanned,
+        "sprints_updated": result.sprints_updated,
+        "sprints_unchanged": result.sprints_unchanged,
+        "sprints_skipped": result.sprints_skipped,
+        "duration_sec": result.duration_sec,
+        "sample_diffs": result.sample_diffs,
         "errors": result.errors,
     }

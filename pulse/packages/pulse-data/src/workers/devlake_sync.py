@@ -106,6 +106,91 @@ def extract_status_transitions_inline(raw_issue: dict[str, Any]) -> list[dict[st
     return transitions
 
 
+def _normalize_sprint_id(raw_id: str, connection_id: str | int) -> str:
+    """Build the canonical PULSE sprint external_id from a raw Jira sprint id.
+
+    Mirrors `JiraConnector._extract_sprint_id` so that ids stored in
+    `sprint_transitions` match `EngSprint.external_id` and
+    `EngIssue.sprint_id`. Idempotent — passing an already-normalized id
+    short-circuits.
+    """
+    raw_id = str(raw_id).strip()
+    if not raw_id:
+        return ""
+    if raw_id.startswith("jira:JiraSprint:"):
+        return raw_id
+    return f"jira:JiraSprint:{connection_id}:{raw_id}"
+
+
+def extract_sprint_transitions_inline(
+    raw_issue: dict[str, Any],
+    connection_id: str | int = "1",
+) -> list[dict[str, Any]]:
+    """INC-006 — extract Sprint membership transitions from inline changelog.
+
+    Jira changelog records Sprint field changes as a single history item
+    with comma-separated sprint IDs in `from`/`to` (or `fromString`/`toString`
+    for names). To detect creep we decompose each diff into atomic
+    enter/exit events:
+
+      - Each id present in `to` but NOT in `from`  → action='entered' at `created`
+      - Each id present in `from` but NOT in `to`  → action='exited'  at `created`
+
+    The `from`/`to` are id-based (preferred) — names can collide across
+    boards, ids are globally unique within a Jira instance. We normalize
+    each id to PULSE's `jira:JiraSprint:<conn>:<id>` form so it joins
+    cleanly to `eng_sprints.external_id`.
+
+    Output entries are sorted by `at` ASC. Field names match the storage
+    contract documented in migration 015. Always returns a list (possibly
+    empty for issues that never touched a sprint).
+
+    Defensive parsing — Jira occasionally returns:
+      - `from`/`to` = None (issue removed from all sprints)
+      - whitespace inside comma-separated lists ("1, 2, 3" vs "1,2,3")
+      - the field labelled by the customfield id ("customfield_10020")
+        rather than the human name "Sprint"
+    All three are handled.
+    """
+    transitions: list[dict[str, Any]] = []
+    for history in raw_issue.get("changelog", {}).get("histories", []):
+        created = history.get("created")
+        if not created:
+            continue
+        for item in history.get("items", []):
+            field_name = (item.get("field") or "").strip().lower()
+            field_id = (item.get("fieldId") or "").strip().lower()
+            if field_name != "sprint" and not field_id.startswith("customfield_"):
+                continue
+            # Only treat customfield items as Sprint when the human name says so;
+            # other custom fields (Epic Link, etc.) also use customfield ids.
+            if field_name != "sprint":
+                # Heuristic: Jira's own Sprint customfield items always carry
+                # field='Sprint' in the changelog. If we're here with just a
+                # customfield id and no name match, skip — false positive.
+                continue
+
+            from_raw = item.get("from") or ""
+            to_raw = item.get("to") or ""
+            from_ids = {x.strip() for x in str(from_raw).split(",") if x.strip()}
+            to_ids = {x.strip() for x in str(to_raw).split(",") if x.strip()}
+
+            for sid in to_ids - from_ids:
+                transitions.append({
+                    "sprint_id": _normalize_sprint_id(sid, connection_id),
+                    "action": "entered",
+                    "at": created,
+                })
+            for sid in from_ids - to_ids:
+                transitions.append({
+                    "sprint_id": _normalize_sprint_id(sid, connection_id),
+                    "action": "exited",
+                    "at": created,
+                })
+    transitions.sort(key=lambda t: (t.get("at") or "", t.get("sprint_id") or ""))
+    return transitions
+
+
 # ---------------------------------------------------------------------------
 # Watermark helpers — persistent DB storage via pipeline_watermarks
 #
@@ -958,15 +1043,23 @@ class DataSyncWorker:
 
                 # FDD-OPS-013: changelogs are INLINE from JQL expand=changelog.
                 # No extra HTTP round-trip per issue.
+                # INC-006: same changelog also drives sprint_transitions.
+                # `connection_id` mirrors JiraConnector._connection_id so the
+                # ids in sprint_transitions match `EngSprint.external_id`.
+                jira_connection_id = getattr(jira_conn, "_connection_id", "1") if jira_conn else "1"
                 normalized: list[dict[str, Any]] = []
                 for raw in raw_batch:
                     try:
                         issue_changelogs = extract_status_transitions_inline(raw)
+                        issue_sprint_transitions = extract_sprint_transitions_inline(
+                            raw, connection_id=jira_connection_id,
+                        )
                         issue_data = normalize_issue(
                             raw,
                             self._tenant_id,
                             self._status_mapping,
                             changelogs=issue_changelogs,
+                            sprint_transitions=issue_sprint_transitions,
                         )
                         normalized.append(issue_data)
                     except Exception:
@@ -1350,6 +1443,8 @@ class DataSyncWorker:
                             # INC-026 — keep priority + deep-link fresh on every sync
                             "priority": issue_data.get("priority"),
                             "url": issue_data.get("url"),
+                            # INC-006 — sprint membership history for scope creep
+                            "sprint_transitions": issue_data.get("sprint_transitions", []),
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
