@@ -1307,6 +1307,9 @@ class DataSyncWorker:
                             "commits_count": data.get("commits_count", 0),
                             "reviewers": data.get("reviewers", []),
                             "linked_issue_ids": data["linked_issue_ids"],
+                            # INC-025 — keep deep-link + closed timestamp fresh on every sync
+                            "url": data.get("url"),
+                            "closed_at": data.get("closed_at"),
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
@@ -1344,6 +1347,9 @@ class DataSyncWorker:
                             "status_transitions": issue_data["status_transitions"],
                             "started_at": issue_data["started_at"],
                             "completed_at": issue_data["completed_at"],
+                            # INC-026 — keep priority + deep-link fresh on every sync
+                            "priority": issue_data.get("priority"),
+                            "url": issue_data.get("url"),
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
@@ -1370,6 +1376,8 @@ class DataSyncWorker:
                             "is_failure": deploy_data["is_failure"],
                             "environment": deploy_data["environment"],
                             "deployed_at": deploy_data["deployed_at"],
+                            # INC-024 — keep deep-link fresh on every sync
+                            "url": deploy_data.get("url"),
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
