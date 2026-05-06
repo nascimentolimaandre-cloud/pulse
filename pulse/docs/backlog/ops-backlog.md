@@ -1945,3 +1945,212 @@ XS (operator only) — 5 min de rotação + horas de re-sync background.
   - Synthetic data smoke: Sprint 144 com 4 transitions injetados →
     classificou exatamente como esperado (3 committed, 1 added, 1 removed)
 - Quando o token rotacionar, o backfill é uma chamada curl — sem código novo.
+
+---
+
+## FDD-OBS-001-RISK-1 · Master encryption key blast radius (R4 KMS migration)
+
+**Epic:** Observability integration · **Release:** R4 (trigger-driven)
+**Priority:** P2 (deferred — accepted for R2-R3) · **Owner class:** `pulse-ciso` + `pulse-data-engineer`
+**Source:** ADR-021 (per-tenant credentials)
+
+### Problem
+
+ADR-021 stores Datadog/NR credentials in Postgres with `pgcrypto` encryption,
+master key in `PULSE_OBS_MASTER_KEY` env var. Compromise of the env var =
+all tenants' observability credentials decryptable. Same risk profile as
+`INTERNAL_API_TOKEN` today, **accepted while we're a single deployment unit**.
+
+### Trigger conditions to migrate
+
+Migrate to **AWS Secrets Manager** (or KMS-backed key) when ANY:
+
+1. First regulated tenant onboards (HIPAA / PCI / SOC2 explicit requirement).
+2. Tenant count exceeds 500 (operational rotation toil > $0.40/mo/tenant Secrets Manager cost).
+3. CISO escalation about master-key blast radius (separate FDD).
+
+### Migration plan (when triggered)
+
+- Schema becomes `tenant_observability_credentials_secret_arn` (TEXT) replacing encrypted columns.
+- Provider abstraction layer (ADR-023) hides the change from connectors.
+- Pure data move — no business logic changes.
+
+### Estimate
+
+S — schema migration + secret backfill + connector rewire (~2 days).
+
+---
+
+## FDD-OBS-001-RISK-2 · Service Ownership data quality
+
+**Epic:** Observability integration · **Release:** R2 (mitigation in MVP)
+**Priority:** P0 (blocks MVP usefulness) · **Owner class:** `pulse-product-director` + `pulse-engineer`
+**Source:** ADR-022 (ownership inference)
+
+### Problem
+
+If tenant doesn't tag services in Datadog (no `service.owner` / `team`),
+the Service Ownership Map and ALL downstream Squad Reliability metrics
+become useless. Real-world data: ~30% of services typically lack tags.
+
+### Mitigation (R2)
+
+1. **Onboarding flow**: when tenant connects Datadog, run inference + show
+   Service Ownership Map FIRST. Block other Signals views until coverage > 50%.
+2. **Heuristic Tier-2** (repo↔service intersection from PR titles) catches
+   ~60% of unmapped services automatically.
+3. **Bulk confirm action** in admin UI: "Confirm all heuristic-mapped" button
+   promotes Tier-2 inferences to overrides in 1 click.
+4. **Coverage % visible permanently** in `/settings/integrations/observability`
+   so admin sees what's degraded.
+
+### Acceptance Criteria
+
+- [ ] After 30-day onboarding, average tenant has ≥80% service ownership coverage.
+- [ ] Tenants with <50% coverage see contextual nudge in every Signals view.
+
+### Estimate
+
+M (already designed in ADR-022) — implementation lives within FDD-OBS-001 R2 scope.
+
+---
+
+## FDD-OBS-001-RISK-3 · Cost surprise from Datadog API consumption
+
+**Epic:** Observability integration · **Release:** R2 (mitigation built into MVP)
+**Priority:** P1 · **Owner class:** `pulse-engineer` + `pulse-data-engineer`
+**Source:** ADR-024 (cache strategy)
+
+### Problem
+
+PULSE polls Datadog API on tenant's behalf. If naive, can spike DD billing
+($0.05-$0.10 per indexed log query for some plans). Tenant may not realize
+PULSE is consuming their org-level quota.
+
+### Mitigation (R2)
+
+1. **Hard cap**: rollup worker token-bucket per tenant (250 req/hr soft, 300/hr DD limit).
+2. **Conservative defaults**: 5min granularity, 7-day window for ad-hoc drill-downs.
+3. **Tenant-facing transparency**: `/settings/integrations/observability` shows
+   "API calls today: X / 300 (Y%)" with explanatory tooltip.
+4. **Power-user knob**: longer window queries possible but with explicit warning.
+
+### Acceptance Criteria
+
+- [ ] No tenant exceeds DD's 300 req/hr cap (soft alert at 80%, hard cap at 95%).
+- [ ] Admin UI shows current consumption vs cap, refreshing every 60s.
+
+### Estimate
+
+S — covered in ADR-024 implementation.
+
+---
+
+## FDD-OBS-001-RISK-4 · Tenant tier disparity (DD Pro vs Enterprise)
+
+**Epic:** Observability integration · **Release:** R2 (defensive, partial mitigation)
+**Priority:** P1 · **Owner class:** `pulse-engineer`
+**Source:** Product director risk inventory (FDD-OBS-001 §8)
+
+### Problem
+
+Datadog's free/Pro plan **does not expose Events API** or has limited
+Service Catalog access. PULSE features may degrade silently for tenants on
+lower DD tiers. New Relic similar (Standard tier has limited NRQL retention).
+
+### Mitigation (R2)
+
+1. **Capability detection** at validation time: PULSE attempts a minimal
+   probe of each required API. Records which features the tenant's plan supports.
+2. **Honest empty states** (per ADR-026 Principle 4): UI explicitly shows
+   "Seu plano Datadog Standard não expõe Events API. Faça upgrade ou
+   conecte alternative para Deploy Health Timeline."
+3. **Feature flags per-tenant** based on detected capabilities — never
+   silent failures.
+
+### Acceptance Criteria
+
+- [ ] Onboarding flow detects DD plan tier within 30s.
+- [ ] Per-feature capability matrix visible in admin UI.
+- [ ] No 5xx errors for unsupported plan tier — only graceful empty states.
+
+### Estimate
+
+M — capability probe + matrix + UI states.
+
+---
+
+## FDD-OBS-001-RISK-5 · Spurious correlation (deploy ↔ error spike)
+
+**Epic:** Observability integration · **Release:** R2 (mathematical guards in MVP)
+**Priority:** P1 (correctness blocker) · **Owner class:** `pulse-data-scientist`
+**Source:** Data scientist analysis §4.1
+
+### Problem
+
+A deploy can correlate with an error spike that has nothing to do with the
+deploy (concurrent deploy on dependency, traffic surge, external upstream).
+If our enhanced metrics treat all coincidences as causation, we'll publish
+false positives that destroy trust ("PULSE blamed my deploy for an outage
+that was AWS!").
+
+### Mitigation (R2)
+
+1. **Causal window**: only consider error spikes within `[-2min, +30min]` of
+   deploy. Spikes outside window → `not_attributable`.
+2. **Concurrent deploy filter**: if ≥2 deploys hit the same service or
+   dependent services within 15min, mark `ambiguous_causation = true` and
+   exclude from CFR Enhanced + DCS calculation. Log the reason.
+3. **Baseline comparison**: compare error rate post-deploy with **same
+   day-of-week + hour-of-day** in last 7 days, not raw value. Normalizes
+   sazonalidade.
+4. **Always show method**: response includes `causation_method` field so
+   UI can render "± confidence" in tooltip.
+
+### Acceptance Criteria
+
+- [ ] No deploy attributed to spike >30min later.
+- [ ] CFR Enhanced excludes `ambiguous_causation = true` cases.
+- [ ] Unit tests cover: no spike, spike attributable, spike outside window,
+      concurrent deploy, baseline comparison.
+
+### Estimate
+
+M — already designed in data scientist's spec, ~2 days implementation.
+
+---
+
+## FDD-OBS-001-RISK-6 · Vendor concentration risk for R3 prioritization
+
+**Epic:** Observability integration · **Release:** Pre-R2 (validation gate)
+**Priority:** P0 (gates R3 planning) · **Owner class:** `pulse-product-director`
+**Source:** Product director risk inventory (FDD-OBS-001 §8)
+
+### Problem
+
+If 60%+ of design partners are Datadog-only, R3 (New Relic) connector
+becomes lower priority than expected, and we may delay committed customers.
+Conversely, if NR adoption is higher than estimated, we may have shipped
+DD-first wastefully.
+
+### Mitigation (pre-R2 close)
+
+1. **Discovery interviews** (5 design partners — see FDD-OBS-001 §8 hand-off plan):
+   - 2 Webmotors squads (DD anchor)
+   - 1 fintech mid-market (likely DD)
+   - 1 retail e-commerce (likely NR)
+   - 1 SaaS (mixed NR/Grafana)
+2. **Mix validation**: if results show >70% DD, confirm DD-first; if 50/50
+   split, plan dual R2 (DD primary, NR shadow).
+3. **R3 trigger condition**: NR connector starts dev when ≥3 confirmed
+   prospects/customers use NR exclusively.
+
+### Acceptance Criteria
+
+- [ ] 5 discovery interviews completed before R2 development closes.
+- [ ] Mix data published to roadmap alignment doc.
+- [ ] R3 NR connector start date confirmed in roadmap.
+
+### Estimate
+
+XS for ops (interviews); the actual R3 connector estimate lives elsewhere.
