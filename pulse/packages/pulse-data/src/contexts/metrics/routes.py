@@ -1338,6 +1338,16 @@ _RELOAD_TARGETS: tuple[str, ...] = (
     "src.contexts.metrics.services.on_demand.cycle_time",
     "src.contexts.metrics.services.on_demand.throughput",
     "src.contexts.metrics.services.flow_health_on_demand",
+    # FDD-OBS-001 PR 0 — pre-register observability paths so module
+    # reload picks up fresh bytecode for the new BC + adapters.
+    # Modules don't exist yet (PR 1 creates contexts/observability/
+    # and connectors/observability/); _force_reload_metrics_modules
+    # uses importlib.import_module(...) which raises ModuleNotFoundError
+    # for missing paths — caller already wraps in try/except per target.
+    "src.shared.feature_flags",
+    "src.contexts.observability.services.capability_detection",
+    "src.connectors.observability.base",
+    "src.connectors.observability._anti_surveillance",
 )
 
 
