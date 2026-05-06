@@ -66,6 +66,12 @@ services:
       JENKINS_BASE_URL: ${JENKINS_BASE_URL:-}
       JENKINS_USERNAME: ${JENKINS_USERNAME:-}
       JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+      # FDD-OBS-001 PR 2 — KEK that protects per-tenant DD/NR credentials
+      # in `tenant_observability_credentials` (encrypted via pgcrypto).
+      # Required for `/admin/integrations/datadog/validate?persist=true`
+      # and for the rollup worker (PR 4). Settings validator rejects
+      # values <32 chars at startup (CISO H-001).
+      PULSE_OBS_MASTER_KEY: ${PULSE_OBS_MASTER_KEY:-}
     volumes:
       - ./packages/pulse-data/src:/app/src
     depends_on:

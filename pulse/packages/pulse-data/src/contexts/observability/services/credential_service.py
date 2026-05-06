@@ -163,10 +163,20 @@ async def upsert_credential(
                 )
                 VALUES (
                     :tenant_id, :provider,
-                    pgp_sym_encrypt(:api_key, :master_key),
+                    pgp_sym_encrypt(CAST(:api_key AS text), CAST(:master_key AS text)),
+                    -- Explicit text casts: asyncpg can't infer the type of
+                    -- :app_key when the same parameter appears in `IS NULL`
+                    -- and as `pgp_sym_encrypt(text, text)` arg. Without the
+                    -- cast we get `AmbiguousParameterError: could not
+                    -- determine data type of parameter $N` (caught live
+                    -- during PR 2 testing 2026-05-06 — SQLAlchemy then
+                    -- formatted the bound params into the exception
+                    -- message, leaking plaintext keys to logs; H-002 above
+                    -- + `hide_parameters=True` mitigates the log path,
+                    -- this cast prevents the error in the first place).
                     CASE
-                        WHEN :app_key IS NULL THEN NULL
-                        ELSE pgp_sym_encrypt(:app_key, :master_key)
+                        WHEN CAST(:app_key AS text) IS NULL THEN NULL
+                        ELSE pgp_sym_encrypt(CAST(:app_key AS text), CAST(:master_key AS text))
                     END,
                     :site, :validated_at, :now, :fp
                 )
@@ -223,10 +233,10 @@ async def get_credential_keys(tenant_id: UUID, provider: str) -> tuple[str, str 
             text(
                 """
                 SELECT
-                    pgp_sym_decrypt(api_key_encrypted, :master_key) AS api_key,
+                    pgp_sym_decrypt(api_key_encrypted, CAST(:master_key AS text)) AS api_key,
                     CASE
                         WHEN app_key_encrypted IS NULL THEN NULL
-                        ELSE pgp_sym_decrypt(app_key_encrypted, :master_key)
+                        ELSE pgp_sym_decrypt(app_key_encrypted, CAST(:master_key AS text))
                     END AS app_key
                 FROM tenant_observability_credentials
                 WHERE tenant_id = :tenant_id AND provider = :provider

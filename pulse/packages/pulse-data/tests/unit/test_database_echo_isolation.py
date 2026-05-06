@@ -55,3 +55,21 @@ class TestSqlEchoIsolation:
         s = Settings(debug=True)
         assert s.debug is True
         assert s.sqlalchemy_echo is False
+
+    def test_engine_uses_hide_parameters(self):
+        """CISO H-002 (FDD-OBS-001 PR 2): SQLAlchemy must not include bound
+        parameter values in EXCEPTION messages.
+
+        Caught live during PR 2 testing on 2026-05-06: an
+        `AmbiguousParameterError` from asyncpg traveled up through
+        SQLAlchemy with the full `[parameters: (...)]` block in the
+        message — leaking the master key and plaintext Datadog API key
+        to docker logs. `hide_parameters=True` is INDEPENDENT of `echo`
+        (different code path), so H-001's fix did not cover this.
+        """
+        source = _DATABASE_PY.read_text()
+        assert "hide_parameters=True" in source, (
+            "CISO H-002: expected `hide_parameters=True` in the engine "
+            "config so SQL exceptions never include bound parameter "
+            "values (master key + plaintext API key)."
+        )
