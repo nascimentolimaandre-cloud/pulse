@@ -529,9 +529,15 @@ def sample_jenkins_deployment_raw() -> dict:
 
 @pytest.fixture
 def mock_observability_provider():
-    """Factory fixture returning an `AsyncMock` shaped like
+    """Factory fixture returning a spec'd mock shaped like
     `ObservabilityProvider` (ADR-023). Mirrors the `_make_connector`
     helper in `test_aggregator.py`.
+
+    CISO L-004 fix — uses `MagicMock(spec=ObservabilityProvider)`
+    instead of bare `MagicMock()`. This means accessing methods NOT on
+    the Protocol raises `AttributeError` instead of silently returning
+    a new mock — catches "test references method that doesn't exist on
+    real provider" bugs at test-author time.
 
     Usage:
         async def test_something(mock_observability_provider):
@@ -545,12 +551,10 @@ def mock_observability_provider():
       - `services`    → `list_services` returns this list
       - `metric`      → `query_metric` returns this MetricSeries
       - `health`      → `health_check` returns this bool (default True)
-
-    Lazy-imported so the fixture works even before PR 2 ships
-    `ObservabilityProvider` instances (Protocol is structural typing —
-    we just match the method names).
     """
     from unittest.mock import AsyncMock, MagicMock
+
+    from src.connectors.observability.base import ObservabilityProvider
 
     def _build(
         *,
@@ -560,7 +564,10 @@ def mock_observability_provider():
         metric=None,
         health: bool = True,
     ) -> MagicMock:
-        provider = MagicMock()
+        # `spec=Protocol` enforces that only Protocol-declared attrs +
+        # methods can be accessed. Wrong method name fails at access time,
+        # not silently in tests (CISO L-004 fix).
+        provider = MagicMock(spec=ObservabilityProvider)
         provider.provider_id = provider_id
         provider.list_deployments = AsyncMock(return_value=deployments or [])
         provider.list_services = AsyncMock(return_value=services or [])

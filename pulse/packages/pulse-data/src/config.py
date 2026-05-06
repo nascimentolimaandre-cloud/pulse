@@ -185,6 +185,14 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
+    # CISO PR2 review H-001 — DO NOT enable in any environment that
+    # processes credentials. SQLAlchemy `echo=True` logs every bound
+    # parameter, including pgcrypto plaintext keys passed to
+    # `pgp_sym_encrypt(:api_key, :master_key)`. Kept distinct from
+    # `debug` so flipping app-level debug never accidentally turns on
+    # SQL parameter logging.
+    sqlalchemy_echo: bool = False
+
     @model_validator(mode="after")
     def _validate_obs_master_key(self) -> "Settings":
         """FDD-OBS-001 H-001 (CISO review) — fail fast on weak master key.

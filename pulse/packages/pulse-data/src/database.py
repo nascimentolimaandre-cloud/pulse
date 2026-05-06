@@ -13,9 +13,14 @@ from sqlalchemy import text
 
 from src.config import settings
 
+# CISO FDD-OBS-001 PR2 H-001 — `echo` is wired to a DEDICATED
+# `sqlalchemy_echo` setting, NOT to `debug`. SQL `echo=True` logs all
+# bound parameters, which includes the pgcrypto master key and plaintext
+# API keys flowing through `credential_service.upsert_credential`.
+# Flipping app `debug` to True must never silently enable SQL logging.
 engine = create_async_engine(
     settings.async_database_url,
-    echo=settings.debug,
+    echo=settings.sqlalchemy_echo,
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,
