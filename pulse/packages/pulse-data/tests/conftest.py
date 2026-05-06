@@ -521,3 +521,52 @@ def sample_jenkins_deployment_raw() -> dict:
         "started_date": "2024-03-05T22:00:00Z",
         "finished_date": "2024-03-05T22:08:45Z",
     }
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 1 — Observability provider mock fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_observability_provider():
+    """Factory fixture returning an `AsyncMock` shaped like
+    `ObservabilityProvider` (ADR-023). Mirrors the `_make_connector`
+    helper in `test_aggregator.py`.
+
+    Usage:
+        async def test_something(mock_observability_provider):
+            provider = mock_observability_provider(
+                deployments=[my_marker], services=[my_svc],
+            )
+            result = await use_case(provider)
+
+    Each kwarg pre-loads the matching `AsyncMock` return value:
+      - `deployments` → `list_deployments` returns this list
+      - `services`    → `list_services` returns this list
+      - `metric`      → `query_metric` returns this MetricSeries
+      - `health`      → `health_check` returns this bool (default True)
+
+    Lazy-imported so the fixture works even before PR 2 ships
+    `ObservabilityProvider` instances (Protocol is structural typing —
+    we just match the method names).
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    def _build(
+        *,
+        provider_id: str = "datadog",
+        deployments: list | None = None,
+        services: list | None = None,
+        metric=None,
+        health: bool = True,
+    ) -> MagicMock:
+        provider = MagicMock()
+        provider.provider_id = provider_id
+        provider.list_deployments = AsyncMock(return_value=deployments or [])
+        provider.list_services = AsyncMock(return_value=services or [])
+        provider.query_metric = AsyncMock(return_value=metric)
+        provider.health_check = AsyncMock(return_value=health)
+        return provider
+
+    return _build
+
