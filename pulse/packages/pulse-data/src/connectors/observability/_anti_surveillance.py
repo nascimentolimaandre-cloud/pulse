@@ -32,10 +32,51 @@ FORBIDDEN_FIELD_NAMES: frozenset[str] = frozenset({
     "modified_by", "trace.user_id", "rum.user_id", "usr.email",
 })
 
+# CISO M-001 fix — vendors sometimes return PII as nested dicts where
+# the dotted form is forbidden but the structured equivalent is not:
+#   {"usr.email": "..."}   ← caught by FORBIDDEN_FIELD_NAMES (top-level)
+#   {"usr": {"email": ...}} ← bypasses without this set (Datadog APM
+#                              spans use this form for `usr.*` attrs)
+#
+# Each tuple is `(parent_key_lowered, child_key_lowered)`. When `strip_pii`
+# encounters a dict whose KEY is `parent_key_lowered` and whose VALUE is a
+# dict CONTAINING `child_key_lowered`, the entire parent subtree is dropped.
+FORBIDDEN_PARENT_CHILD_PAIRS: frozenset[tuple[str, str]] = frozenset({
+    ("usr", "email"),       # Datadog APM
+    ("usr", "id"),
+    ("usr", "name"),
+    ("user", "email"),
+    ("user", "id"),
+    ("trace", "user_id"),
+    ("rum", "user_id"),
+    ("rum", "user_email"),
+    ("incident", "assignee"),
+    ("alert", "assignee"),
+})
+
 
 def _is_forbidden(key: str) -> bool:
     """Case-insensitive match against `FORBIDDEN_FIELD_NAMES`."""
     return key.lower() in FORBIDDEN_FIELD_NAMES
+
+
+def _has_forbidden_child(parent_key: str, value: dict) -> bool:
+    """True when `value` is a dict containing a child key that, paired
+    with `parent_key`, matches `FORBIDDEN_PARENT_CHILD_PAIRS`.
+
+    Used by `strip_pii` to drop entire `{"usr": {"email": ...}}` subtrees
+    even when neither `usr` nor `email` are individually in
+    `FORBIDDEN_FIELD_NAMES` (this is the M-001 nested-PII fix).
+    """
+    if not isinstance(value, dict):
+        return False
+    parent_lower = parent_key.lower()
+    for child_key in value.keys():
+        if not isinstance(child_key, str):
+            continue
+        if (parent_lower, child_key.lower()) in FORBIDDEN_PARENT_CHILD_PAIRS:
+            return True
+    return False
 
 
 def strip_pii(record: Any) -> Any:
@@ -60,6 +101,15 @@ def strip_pii(record: Any) -> Any:
             if _is_forbidden(k):
                 logger.debug(
                     "anti-surveillance: stripped forbidden key %r at ingestion", k,
+                )
+                continue
+            # CISO M-001 — drop parent subtree when child pair is forbidden.
+            # E.g. parent="usr" + child="email" → drop the whole "usr" subtree
+            # so {"usr": {"email": "..."}} doesn't survive Layer 1 just
+            # because neither key is individually forbidden.
+            if _has_forbidden_child(k, v):
+                logger.debug(
+                    "anti-surveillance: stripped parent key %r with PII child", k,
                 )
                 continue
             cleaned[k] = strip_pii(v)

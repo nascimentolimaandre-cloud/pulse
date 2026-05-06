@@ -2306,3 +2306,57 @@ parens; PR # in which they must be addressed.
 ### Estimate
 
 Bundled — total ~2 days spread across PR 2 / PR 4 / R1.
+
+
+## FDD-OBS-001-RISK-10 · Deferred CISO findings from PR 2 review
+
+**Epic:** Observability integration · **Release:** PR 4 / R1
+**Priority:** P1-P2 · **Source:** `docs/security-reviews/FDD-OBS-001-pr2-datadog-review.md`
+
+Items the CISO reviewer flagged in the PR 2 (Datadog connector) review
+that are **not** must-fix-pre-merge but must close before R2 GA or R1
+SaaS rollout. H-001 (sqlalchemy_echo isolation) was resolved in PR 2
+itself.
+
+### Pre-PR 4 must-fix
+
+- **M-001 (PR 4)**: `provider` path parameter on
+  `GET /admin/integrations/{provider}/metadata` is an unvalidated
+  `str` (`routes.py:174`). Tighten to `Literal["datadog", "newrelic"]`
+  before multi-provider GA so FastAPI rejects unknown values with 422
+  instead of letting them flow into the 404 detail string.
+- **M-002 (PR 4)**: DSL injection guard for `query_metric` — when the
+  rollup worker starts calling Datadog's metric query API, add a regex
+  guard `^[a-zA-Z0-9_.\-]{1,200}$` on the `service` argument before
+  `template.format(service=...)`. Empirically demonstrated:
+  `checkout}{env:prod` silently expands the Datadog filter scope.
+  Today's exposure is theoretical because `query_metric` has no HTTP
+  surface; PR 4 (rollup worker) makes it reachable.
+
+### R1 SaaS hardening
+
+- **I-001**: No auth gate on admin endpoints. Soft-recommended pattern
+  for PR 3: introduce a `Depends(require_admin)` stub that returns
+  `True` in R0 so the injection point is wired without a refactor when
+  R1 ships SSO. Aligns with the existing R0-debt (single tenant, no
+  AuthN/AuthZ) across the rest of `pulse-data`.
+- **I-002**: No rate limit on `/validate`. Brute-force exposure is
+  theoretical without auth, but ship `slowapi` at 10 req/min per
+  tenant alongside I-001 (rate limit without auth is theatre).
+- **L-001**: `logger.exception(...)` in `routes.py:90` (defensive
+  catch around `health_check`) could serialize provider locals in a
+  pathological failure path. Switch to
+  `logger.error(..., exc_info=False)` in R1.
+- **L-002**: Fingerprint oracle — `key_fingerprint` is sha256[:32]
+  exposed via metadata endpoint. Pre-image search against the 32-hex
+  prefix is computationally infeasible for high-entropy keys, but
+  documented for completeness. R1 hardening: derive fingerprint via
+  HMAC(server_secret, api_key) so it can't be precomputed.
+- **L-003**: Permissive `api_key` Pydantic validator (10–512 chars).
+  Tighten to provider-specific regex once Datadog/NR schemas split
+  (DD = `^[0-9a-f]{32}$`, NR = different).
+
+### Estimate
+
+PR 4 work: ~2h (M-001 + M-002).
+R1 hardening: ~1d (auth gate + rate limit + audit polish).
