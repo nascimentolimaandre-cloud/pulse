@@ -4,7 +4,7 @@
 - **Date:** 2026-04-13
 - **Deciders:** Main session (orchestrator) + pulse-data-engineer + pulse-ciso + pulse-product-director
 - **Supersedes:** Static `JIRA_PROJECTS` env-var scope configuration
-- **Related:** ADR-005 (DevLake vs custom), ADR-011 (metadata-only security), ADR-002 (RLS multi-tenancy)
+- **Related:** ADR-015 (DevLake replaced by custom connectors — ex-ADR-005), ADR-011 (metadata-only security), ADR-002 (RLS multi-tenancy)
 
 ---
 
@@ -66,7 +66,7 @@ Feature flag `DYNAMIC_JIRA_DISCOVERY_ENABLED=false` reverts sync workers to read
 **Rejected.** Ignores privacy/compliance requirements. A bank client would not tolerate automatic ingestion of an "HR-Confidential" Jira project. Governance is non-negotiable.
 
 ### A3 — DevLake-native project discovery
-**Rejected per ADR-005.** We migrated off DevLake for Jira ingestion; adding a DevLake dependency back contradicts that decision.
+**Rejected per ADR-015.** We migrated off DevLake for Jira ingestion; adding a DevLake dependency back contradicts that decision.
 
 ### A4 — Per-project cron configs (config file)
 **Rejected.** Still requires ops intervention, doesn't solve multi-tenant, doesn't solve drift.

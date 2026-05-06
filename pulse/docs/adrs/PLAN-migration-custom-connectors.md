@@ -1,9 +1,29 @@
 # Plano de Migracao: DevLake → Conectores Proprietarios
 
-**Status:** Aprovado  
-**Data:** 2026-04-09  
-**Referencia:** ADR-005  
-**Estimativa total:** 2-3 semanas  
+**Status:** ✅ **DONE** (executado em 1 dia, não 2-3 semanas — escopo
+foi cirúrgico graças à abstração já prevista no ADR-001)
+**Data plan:** 2026-04-09
+**Data execução:** 2026-04-10 (3 commits: `ee34b6a` replace, `b10fdfa`
+remove dead code, `c206b7d` 321 unit tests)
+**Referência:** **ADR-015** (renumerado de ADR-005, ver nota abaixo)
+**Estimativa original:** 2-3 semanas · **Real:** ~1 dia
+
+> **Renumbering note (2026-05-06):** O ADR original que fundamentou
+> este plano foi escrito com numeração `ADR-005` colidindo com o
+> existente `005-polyglot-nestjs-fastapi.md`. Em 2026-05-06 foi
+> renumerado para **ADR-015** (`015-devlake-superseded-by-custom-connectors.md`).
+> Todas as referências neste plano agora apontam pra ADR-015.
+
+> **Outcome resumido:** A recomendação do ADR (Opção B — substituição
+> total) foi seguida. Em ~1 dia: 3 connectors shipped (`github_connector.py`,
+> `jira_connector.py`, `jenkins_connector.py`), DevLake removido do
+> docker-compose, `devlake_reader.py` deletado, normalizer reusado
+> ~100% como previsto, 321 testes unitários adicionados. A migração
+> validou a tese central do ADR-001 (DevLake como detalhe atrás de
+> abstração — exit strategy executado sem impacto em downstream).
+>
+> Este documento permanece como histórico do plano — não há mais
+> ações pendentes.
 
 ---
 

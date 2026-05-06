@@ -1,9 +1,42 @@
-# ADR-005: DevLake vs. Ingestao Proprietaria
+# ADR-015: DevLake Replaced by Custom Source Connectors
 
-**Status:** Proposto (aguardando decisao)  
-**Data:** 2026-04-09  
-**Decisores:** Andre Nascimento + Time PULSE  
-**Contexto:** Problemas recorrentes com DevLake bloqueiam o pipeline de dados
+**Status:** Accepted + Implemented (migração concluída 2026-04-10)
+**Date:** 2026-04-09 (proposto) · **Implemented:** 2026-04-10
+**Deciders:** Andre Nascimento + PULSE team
+**Supersedes:** ADR-003 (Apache DevLake as Internal Pipeline Engine)
+**Implementation commits:** `ee34b6a` (replace), `b10fdfa` (remove dead code), `c206b7d` (321 unit tests)
+**Related plan:** `docs/adrs/PLAN-migration-custom-connectors.md` (status: DONE)
+
+> **Renumbering note (2026-05-06):** This document was originally
+> filed as `ADR-005-devlake-vs-custom-ingestion.md`, which collided
+> with the existing `005-polyglot-nestjs-fastapi.md`. Renumbered to
+> ADR-015 (next free slot when written in 2026-04). The filename was
+> the only change; all decisions, commits, and code already reference
+> this content.
+
+**Contexto original:** Problemas recorrentes com DevLake bloqueavam o
+pipeline de dados (Jira API v2 deprecada, upgrade quebrava no
+PostgreSQL, 99,3% perda de dados Jira tool→domain). Análise completa
+abaixo permanece para histórico — a decisão tomada (Opção B,
+substituição total) foi executada conforme planejado.
+
+## Outcome (post-implementation, 2026-05-06)
+
+A recomendação foi seguida exatamente:
+- **Conectores próprios shipped** em `packages/pulse-data/src/connectors/`:
+  `github_connector.py`, `jira_connector.py`, `jenkins_connector.py`.
+- **DevLake removido** do `docker-compose.yml` (commit `b10fdfa`).
+- **`devlake_reader.py` deletado**; `devlake_sync.py` renamed
+  internamente para `DataSyncWorker` (alias `DevLakeSyncWorker`
+  mantido por backward compat — pode ser removido em release de limpeza).
+- **321 unit tests** cobrindo os 3 connectors (commit `c206b7d`).
+- **Normalizer reused** ~100% como previsto.
+
+ADR-003 marcado como **Superseded by ADR-015**.
+
+---
+
+## Análise original (preservada como histórico)
 
 ---
 

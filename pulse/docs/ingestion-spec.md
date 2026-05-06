@@ -151,7 +151,7 @@ async def sync(self):
 | Decision | Rationale | ADR / Commit |
 |----------|-----------|--------------|
 | **Discovery-only source configuration** | See §2.3 — explicit lists kill SaaS scalability and link rate | 2026-04-27 |
-| Replaced DevLake with proprietary connectors | 99.3% issue data loss in DevLake PostgreSQL layer | ADR-005 |
+| Replaced DevLake with proprietary connectors | 99.3% issue data loss in DevLake PostgreSQL layer | ADR-015 (ex-ADR-005, renumbered 2026-05-06) |
 | GraphQL primary for GitHub, REST fallback | 40x faster PR fetch (50 PRs + reviews + stats in 1 call) | Commit `60fe576` |
 | Per-repo batch upsert (not all-at-end) | Memory efficiency + real-time progress visibility | Commit `7f9f339` |
 | Global watermark per entity (not per-project) | Simpler model, but requires reset for project scope expansion. **Tradeoff documented in §3.7 + Problem 5.** | Migration 002 |
@@ -295,7 +295,7 @@ e abertura acontecem no mesmo segundo são casos legítimos de igualdade).
 
 ### Problem 1: DevLake Data Loss (99.3% Issues Lost)
 
-**Context:** Initial architecture used Apache DevLake as ingestion engine (ADR-003). DevLake collected data from GitHub and Jira into its own PostgreSQL domain tables, and a Sync Worker ETL'd from DevLake to PULSE DB.
+**Context:** Initial architecture used Apache DevLake as ingestion engine (ADR-003 — superseded by ADR-015 in 2026-04-10). DevLake collected data from GitHub and Jira into its own PostgreSQL domain tables, and a Sync Worker ETL'd from DevLake to PULSE DB.
 
 **Symptoms:**
 - DevLake Tool Layer: 32,621 issues
@@ -303,7 +303,7 @@ e abertura acontecem no mesmo segundo são casos legítimos de igualdade).
 - Root cause: DevLake's PostgreSQL support is "second-class citizen" (designed for MySQL)
 - Jira API v2 deprecation (HTTP 410) — only fixed in DevLake beta, no stable release
 
-**Solution:** Full proprietary connector replacement (ADR-005, Option B).
+**Solution:** Full proprietary connector replacement (ADR-015, Option B — originally filed as ADR-005, renumbered 2026-05-06 to resolve collision with the polyglot-backend ADR).
 - Built `JiraConnector`, `GitHubConnector`, `JenkinsConnector` implementing `BaseConnector` interface
 - Reused 100% of `normalizer.py` (539 lines), 80% of sync orchestration
 - Added 321 unit tests for new connectors
@@ -1388,7 +1388,7 @@ IngestionPipeline:
 
 | Commit | Description |
 |--------|-------------|
-| `c9b5cf6` | Replace DevLake with direct source connectors (ADR-005) |
+| `c9b5cf6` | Replace DevLake with direct source connectors (ADR-015 — ex-ADR-005) |
 | `54d7002` | Harden connectors (Jira POST search, board filtering) |
 | `221db7c` | Add 321 unit tests for connectors |
 | `60fe576` | Migrate PR fetch to GraphQL (40x faster) |

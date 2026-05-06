@@ -507,7 +507,7 @@ not 100× more code paths.**
 - **No connector rewrites.** GitHub/Jira/Jenkins connectors stay as-is;
   they have well-tested correctness logic. Only the orchestration layer
   changes.
-- **No DevLake re-introduction.** ADR-005 is settled.
+- **No DevLake re-introduction.** ADR-015 (ex-ADR-005, renumbered 2026-05-06) is settled.
 - **No event sourcing.** Outbox pattern (Phase 1.5+) is sufficient
   for our Kafka guarantee.
 - **No SaaS multi-tenant orchestration.** Phase 3 makes it possible;
@@ -618,7 +618,7 @@ political cost.
 
 This is not blame. The current state is the natural accretion of:
 
-- ADR-005 (replace DevLake): the focus was correctness, not throughput.
+- ADR-015 (replace DevLake; originally ADR-005, renumbered 2026-05-06): the focus was correctness, not throughput.
   Bulk-then-persist was acceptable when datasets were small and we were
   proving feasibility.
 - Commit `7f9f339` (PR batch refactor): proved the streaming pattern
@@ -645,7 +645,7 @@ default."
   building SaaS infra under customer time pressure is how outages
   happen at acquisition demos.
 - "Use a 3rd-party data platform (Airbyte, Fivetran)" — explicitly
-  rejected in ADR-005 (DevLake had the same coverage gap on Postgres).
+  rejected in ADR-015 (DevLake had the same coverage gap on Postgres).
   Adding another opaque layer doesn't solve our problems.
 - "The 10× number is hand-wavy" — fair, but each lever is decomposed
   in §5. Falsifiable acceptance criteria in §9.
