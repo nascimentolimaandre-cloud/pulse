@@ -1,7 +1,20 @@
 # ADR-003: Apache DevLake as Internal Pipeline Engine
 
-**Status:** Accepted
+**Status:** ⛔ **Superseded by ADR-015** (DevLake Replaced by Custom Source Connectors, 2026-04-09 / implemented 2026-04-10)
 **Date:** 2026-03-24
+**Superseded:** 2026-04-10 (`b10fdfa` — "remove dead DevLake code and dependencies")
+
+> **Historical note:** This ADR's hybrid approach (DevLake as
+> accelerator + Sync Worker bridging into PULSE DB) shipped in R0 and
+> served its purpose during the MVP bootstrap. By 2026-04, recurring
+> DevLake-on-PostgreSQL incompatibility issues, beta-only releases for
+> critical fixes (Jira API v3), and 99.3% data loss in the
+> tool→domain transformation made the cost prohibitive. ADR-015
+> documents the replacement decision and outcome.
+>
+> The architecture preserved here is **no longer in production**. It
+> is kept for historical context — the exit strategy promised in
+> "Decision" below was the one we exercised.
 
 ## Context
 

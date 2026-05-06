@@ -796,18 +796,26 @@ pulse/
 |---|---|---|
 | ADR-001 | **Modular Monolith em Lambdas** | Start small. DDD boundaries permitem extração futura |
 | ADR-002 | **PostgreSQL + RLS** | Multi-tenancy simples e eficaz |
-| ADR-003 | **DevLake como pipeline engine** | Acelera MVP. Exit strategy embutida |
+| ADR-003 | ~~**DevLake como pipeline engine**~~ — **Superseded by ADR-015** | Acelera MVP. Exit strategy embutida (e exercida em 2026-04-10) |
 | ADR-004 | **MSK Serverless + Lambda triggers** | Event-driven. Lambda escala com eventos. Zero management |
 | ADR-005 | **NestJS + FastAPI (polyglot)** | Melhor tool para cada job. API GW unifica |
 | ADR-006 | **React + Vite (SPA)** | Dashboard SaaS não precisa de SSR. Simplicidade, performance, ecossistema de charting inigualável |
-| ADR-007 | **Lambda + 1 ECS Fargate (DevLake)** | Serverless first. Custo mínimo. DevLake é o único stateful |
+| ADR-007 | **Lambda + 1 ECS Fargate** | Serverless first. Custo mínimo. (Fargate exception era para DevLake — removido após ADR-015) |
 | ADR-008 | **Tremor + Recharts** | Dashboard-specific components + React-native charting. Tailwind-native. Cobrem 95% dos charts |
 | ADR-009 | **Monorepo (packages/)** | Shared types, atomic PRs, CI unificado |
 | ADR-010 | **Testcontainers para integration** | Testes contra PG + Kafka reais |
 | ADR-011 | **Metadata-only, nunca código** | Diferencial de segurança |
 | ADR-012 | **S3 + CloudFront para SPA** | ~$5/mês, edge global, zero servers |
 | ADR-013 | **RDS Proxy obrigatório** | Lambda connection pooling para PostgreSQL |
+| ADR-014 | **Dynamic Jira project discovery** | 4-mode hybrid (auto / allowlist / blocklist / smart) — supersede static `JIRA_PROJECTS` env |
+| ADR-015 | **Custom source connectors** (supersede ADR-003) | DevLake removido em 2026-04-10. PyGithub + jira-python + python-jenkins. ~1.500 LoC vs 1.363 de DevLake plumbing |
+| ADR-021 | **Per-tenant observability credentials** | Postgres + pgcrypto for R2-R3; AWS Secrets Manager R4 (FDD-OBS-001) |
+| ADR-022 | **Service-to-squad inference (hybrid)** | Tag → repo-intersection heuristic → operator override (FDD-OBS-001) |
+| ADR-023 | **ObservabilityProvider abstraction** | Coarse 3-method interface, normalized dicts, vendor specifics in adapters (FDD-OBS-001) |
+| ADR-024 | **Observability cache strategy** | Hybrid: rollups + Redis 5min/1h + token bucket 250/hr (FDD-OBS-001) |
+| ADR-025 | **Observability anti-surveillance** | 5 layers: strip_pii + DB CHECK + aggregate API + CI lint + RLS (FDD-OBS-001) |
+| ADR-026 | **Graceful degradation** | Capability detection + always-available fallback + honest empty states when observability disconnected (FDD-OBS-001) |
 
 ---
 
-*Documento de arquitetura técnica v2.0 — Serverless (Lambda) + React/Vite SPA.*
+*Documento de arquitetura técnica v2.1 — Serverless (Lambda) + React/Vite SPA + custom connectors (post ADR-015).*
