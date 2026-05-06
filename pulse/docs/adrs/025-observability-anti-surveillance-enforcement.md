@@ -66,7 +66,19 @@ The `obs_metric_snapshots` and `service_squad_ownership` tables have
 **no columns** that could carry per-user data. We refuse to add them.
 
 For tables that have free-form `metadata JSONB` (escape hatch from
-`vendor_raw` in ADR-023), we add a database trigger:
+`vendor_raw` in ADR-023), we add a database trigger.
+
+> **Known limitation (CISO review 2026-05-04, H-002):** the trigger
+> implementation in migration 018 uses Postgres's `?` operator, which
+> matches **top-level JSONB keys only**. Nested PII like
+> `metadata = '{"attributes": {"user.email": "..."}}'` survives Layer 2
+> silently. Compensating controls: Layer 1 (`strip_pii`) recursively
+> strips nested keys, and Layer 4 (CI lint) blocks code-level references.
+> The DB trigger gap only matters when Layer 1 has a bug. Filed for
+> follow-up: replace the `?` check with `jsonb_path_exists` +
+> recursive jsonpath (`$..**.<key>`) in a future migration before R2
+> GA. Tracked in `docs/security-reviews/FDD-OBS-001-foundation-review.md`
+> §H-002 and `docs/backlog/ops-backlog.md` FDD-OBS-001-RISK-7.
 
 ```sql
 CREATE OR REPLACE FUNCTION obs_no_pii_in_metadata() RETURNS trigger AS $$

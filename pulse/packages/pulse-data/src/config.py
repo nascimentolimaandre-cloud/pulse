@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -170,11 +171,36 @@ class Settings(BaseSettings):
     dynamic_jira_discovery_enabled: bool = False
     internal_api_token: str = ""
 
+    # FDD-OBS-001 (ADR-021) — Observability credentials master encryption key.
+    # Encrypts `tenant_observability_credentials.api_key_encrypted` /
+    # `app_key_encrypted` via Postgres `pgp_sym_encrypt`.
+    # Empty default during R2 development; validator below enforces minimum
+    # length of 32 chars when SET (CISO H-001 fix). Generate via:
+    #   openssl rand -base64 32
+    pulse_obs_master_key: str = ""
+
     # Application
     app_name: str = "pulse-data"
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
+
+    @model_validator(mode="after")
+    def _validate_obs_master_key(self) -> "Settings":
+        """FDD-OBS-001 H-001 (CISO review) — fail fast on weak master key.
+
+        When `PULSE_OBS_MASTER_KEY` is set, it must be ≥ 32 chars to provide
+        sufficient entropy for `pgp_sym_encrypt`'s S2K KDF. Empty string is
+        accepted (R2 development phase); PR 2's `CredentialService` raises
+        if encryption is attempted with an empty master key.
+        """
+        key = self.pulse_obs_master_key
+        if key and len(key) < 32:
+            raise ValueError(
+                "PULSE_OBS_MASTER_KEY must be at least 32 characters when "
+                "set. Generate one with: openssl rand -base64 32"
+            )
+        return self
 
     @property
     def async_database_url(self) -> str:

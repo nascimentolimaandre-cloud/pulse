@@ -2168,3 +2168,141 @@ makes NR adapter a 1-file (~600 LoC) lift the day we decide.
 
 XS for ops (5 × 30min post-R2 interviews); R3 NR connector estimate
 lives in its own future FDD card.
+
+---
+
+## FDD-OBS-001-RISK-7 · Layer 2 PII trigger uses `?` operator (top-level JSONB only)
+
+**Epic:** Observability integration · **Release:** Pre-R2 GA (must fix)
+**Priority:** P1 (CISO H-002 finding) · **Owner class:** `pulse-data-engineer`
+**Source:** `docs/security-reviews/FDD-OBS-001-foundation-review.md` §H-002
+
+### Problem
+
+`obs_no_pii_in_metadata()` in migration 018 uses `NEW.metadata ? k`,
+which checks **top-level JSONB keys only**. Nested PII bypasses Layer 2:
+
+```sql
+-- silently passes the trigger:
+INSERT INTO service_squad_ownership (... metadata) VALUES
+  (..., '{"attributes": {"user.email": "x"}}');
+```
+
+Layer 1 (`strip_pii`) and Layer 4 (CI lint) compensate **today**, but
+the DB layer should be the last line of defense — not bypassable.
+
+### Proposed fix (migration 020)
+
+Replace scalar `?` with `jsonb_path_exists` + recursive jsonpath:
+
+```sql
+IF jsonb_path_exists(NEW.metadata, ('$..**.' || k)::jsonpath) THEN
+    RAISE EXCEPTION 'PII key % blocked in obs metadata (ADR-025 L2)', k;
+END IF;
+```
+
+Available since Postgres 12+. Add migration unit test exercising
+`{"attributes":{"user.email":"x"}}` to confirm it raises.
+
+### Acceptance Criteria
+
+- [ ] Migration 020 replaces trigger function body with recursive check.
+- [ ] Test in `tests/integration/test_obs_pii_trigger.py` validates
+      nested PII raises (synthetic INSERT in fixture).
+- [ ] ADR-025 Layer 2 section updated to reflect the fix.
+
+### Estimate
+
+XS — single migration + integration test (~1h).
+
+---
+
+## FDD-OBS-001-RISK-8 · Master key rotation runbook
+
+**Epic:** Observability integration · **Release:** Pre-PR 2 GA (must exist)
+**Priority:** P1 (CISO H-001 follow-up) · **Owner class:** `pulse-ciso` + ops
+**Source:** `docs/security-reviews/FDD-OBS-001-foundation-review.md` §H-001
+
+### Problem
+
+ADR-021 mentions "rotated manually pre-R4" but no runbook exists.
+Without documented rotation procedure, a leaked `PULSE_OBS_MASTER_KEY`
+has permanent retrospective impact on all encrypted credentials.
+
+### Proposed fix (doc-only)
+
+Write `docs/security-reviews/obs-master-key-rotation-runbook.md`
+covering:
+
+1. Generate new key via `openssl rand -base64 32`.
+2. Set `PULSE_OBS_MASTER_KEY_NEW` env var alongside old key.
+3. Re-encryption script: decrypt with old, re-encrypt with new, single
+   transaction per tenant.
+4. Swap env var (delete old, promote new).
+5. Verify with test tenant credential.
+6. Audit: log old/new key fingerprints (sha256[:8]) for rotation history.
+
+Pre-conditions:
+- H-001 validator already in place (✅ shipped in this PR).
+- Re-encryption script in `pulse/scripts/rotate_obs_master_key.py`.
+
+### Acceptance Criteria
+
+- [ ] Runbook committed.
+- [ ] Re-encryption script committed + has dry-run mode.
+- [ ] Smoke test rotates 1 test-tenant credential locally.
+
+### Estimate
+
+S — runbook (~1h) + script (~3h) + smoke test (~1h).
+
+---
+
+## FDD-OBS-001-RISK-9 · Other deferred CISO findings (M-001..M-006, L-001..L-005)
+
+**Epic:** Observability integration · **Release:** Pre-PR 2 / R2 GA
+**Priority:** P1-P2 (CISO Medium/Low findings) · **Owner class:** mixed
+**Source:** `docs/security-reviews/FDD-OBS-001-foundation-review.md`
+
+Bundled here so each item has a tracked acceptance gate. Severity in
+parens; PR # in which they must be addressed.
+
+### Pre-PR 2 must-fix
+
+- **M-001 (PR 2)**: `strip_pii` Unicode look-alikes + dotted-key
+  nesting (`{"usr": {"email": ...}}`). Extend `FORBIDDEN_PARENT_CHILD_PAIRS`
+  + add test case before Datadog adapter ships.
+- **M-005 (PR 2)**: `key_fingerprint` truncation 16 → 32 hex chars
+  (one-liner in `CredentialService`).
+- **L-003 (PR 2)**: `site` column SSRF — CHECK constraint restricting
+  to known DD site domains + DTO validation. **HARD blocker for PR 2**.
+- **L-004 (PR 2)**: `mock_observability_provider` — replace `MagicMock`
+  with `create_autospec(ObservabilityProvider, instance=True)` for
+  test fidelity.
+
+### Pre-PR 4 must-fix
+
+- **M-003 (PR 4)**: `capability_detection` queries — add
+  `SET LOCAL statement_timeout = '2000'` to bound latency.
+- **M-006 (R2 GA)**: `obs_metric_snapshots` retention policy —
+  partition by `hour_bucket` or time-based cleanup proc.
+
+### R1 follow-up
+
+- **M-002**: Add PII trigger to `tenant_feature_flags.metadata` (or
+  document explicit operator-only policy).
+- **M-004**: `set_flag()` RBAC — comment in shared module + route
+  guard at API layer.
+- **L-005**: Audit log on feature flag changes (Kafka event or audit
+  table).
+
+### MVP-acceptable (document only)
+
+- **L-001**: CI lint regex misses `r"..."` / `b"..."` prefix strings.
+  Document limitation in `test_obs_anti_surveillance.py`.
+- **I-005 inverse**: Add cross-validation test that every Layer 1
+  forbidden key is in Layer 4 scan.
+
+### Estimate
+
+Bundled — total ~2 days spread across PR 2 / PR 4 / R1.
