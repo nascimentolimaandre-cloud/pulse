@@ -2122,9 +2122,12 @@ M — already designed in data scientist's spec, ~2 days implementation.
 
 ## FDD-OBS-001-RISK-6 · Vendor concentration risk for R3 prioritization
 
-**Epic:** Observability integration · **Release:** Pre-R2 (validation gate)
-**Priority:** P0 (gates R3 planning) · **Owner class:** `pulse-product-director`
+**Epic:** Observability integration · **Release:** Post-R2 GA (validation gate moved)
+**Priority:** P1 (gates R3 planning, no longer R2) · **Owner class:** `pulse-product-director`
 **Source:** Product director risk inventory (FDD-OBS-001 §8)
+**Decision (2026-05-06):** User chose **option C** — validate
+post-implementation with real R2 tenants. Discovery moved from pre-R2
+to post-R2 GA.
 
 ### Problem
 
@@ -2133,24 +2136,35 @@ becomes lower priority than expected, and we may delay committed customers.
 Conversely, if NR adoption is higher than estimated, we may have shipped
 DD-first wastefully.
 
-### Mitigation (pre-R2 close)
+### Trade-off accepted (option C)
 
-1. **Discovery interviews** (5 design partners — see FDD-OBS-001 §8 hand-off plan):
-   - 2 Webmotors squads (DD anchor)
-   - 1 fintech mid-market (likely DD)
-   - 1 retail e-commerce (likely NR)
-   - 1 SaaS (mixed NR/Grafana)
-2. **Mix validation**: if results show >70% DD, confirm DD-first; if 50/50
-   split, plan dual R2 (DD primary, NR shadow).
-3. **R3 trigger condition**: NR connector starts dev when ≥3 confirmed
-   prospects/customers use NR exclusively.
+We ship R2 with DD-first assumption locked based on market data
+(DD ~60% LatAm enterprise share) and Webmotors as DD-confirmed anchor
+partner — instead of running 5 discovery interviews upfront. **Risk
+accepted:** if real tenant mix is unexpectedly NR-heavy, R3 start
+delays by weeks. **Justified by:** faster R2 ship + ADR-023 abstraction
+makes NR adapter a 1-file (~600 LoC) lift the day we decide.
 
-### Acceptance Criteria
+### Mitigation (during R2 dev, no upfront discovery)
 
-- [ ] 5 discovery interviews completed before R2 development closes.
-- [ ] Mix data published to roadmap alignment doc.
-- [ ] R3 NR connector start date confirmed in roadmap.
+1. **Webmotors anchor partner** (DD-confirmed) de-risks the R2 path.
+2. **ADR-023 abstraction** designed so adding NR is a 1-file lift,
+   not a refactor. R3 can kick off the day post-R2 validation lands.
+3. **Intent-capture telemetry** on `/settings/integrations/observability`:
+   drop-down "I plan to connect: [Datadog | New Relic | Grafana | Other]"
+   captured BEFORE the actual connect step. Gives us a quick mix signal
+   from real users without upfront interviews.
+
+### Acceptance Criteria (post-R2 GA)
+
+- [ ] R2 ships with DD only.
+- [ ] First 5 paying tenants interviewed within 30 days of GA
+      (5 × 30min, mix questions about provider, tagging, services).
+- [ ] If ≥3 NR-only / NR-primary tenants → R3 NR connector starts immediately.
+- [ ] If ≥3 Grafana-primary → R4 Grafana connector elevated to R3.
+- [ ] If DD-dominant (≥4 of 5) → confirm R3 NR ship target unchanged.
 
 ### Estimate
 
-XS for ops (interviews); the actual R3 connector estimate lives elsewhere.
+XS for ops (5 × 30min post-R2 interviews); R3 NR connector estimate
+lives in its own future FDD card.
