@@ -2360,3 +2360,70 @@ itself.
 
 PR 4 work: ~2h (M-001 + M-002).
 R1 hardening: ~1d (auth gate + rate limit + audit polish).
+
+
+## FDD-OBS-001-RISK-11 · DD team taxonomy ≠ PULSE squad taxonomy (team-alias mapping)
+
+**Epic:** Observability integration · **Release:** PR 4 / R2 GA
+**Priority:** P1 · **Source:** PR 3 live test against Webmotors DD (2026-05-07)
+
+### Discovery
+
+Tier 1 inference (DD `team:` tag → squad) works mechanically — 472 of
+473 Webmotors services have a `team` tag (99.8% coverage). BUT zero of
+them match PULSE squad keys, so `coverage_pct = 0.0`. The gap:
+
+| DD `team:` tag value | PULSE squad key (jira_project_catalog) |
+|----------------------|-----------------------------------------|
+| `agenda-facil`       | possibly maps to nothing or a sub-set   |
+| `iazi`               | possibly `IAZI` or new squad            |
+| `webmotors-platform` | possibly `WEMOPF` or shared infra       |
+
+Different naming conventions: DD teams are kebab-case product/area
+labels; PULSE squads are uppercase Jira project keys. They're meant
+to refer to the same human teams but the strings don't collide.
+
+### Architectural option (recommended for PR 4)
+
+Add `tenant_team_alias` table:
+
+```
+tenant_team_alias (
+  tenant_id, provider, vendor_team_value, squad_key, created_at, updated_at
+)
+PK: (tenant_id, provider, vendor_team_value)
+```
+
+Inference flow becomes:
+1. Read DD `team:foo` tag.
+2. Look up alias → maps to PULSE squad `BAR`.
+3. Set `inferred_squad_key='BAR'`, `inferred_confidence='alias'`
+   (NEW confidence value alongside `tag` / `heuristic` / `none`).
+4. Fallback: if no alias, store `inferred_squad_key='foo'`,
+   `inferred_confidence='tag'` (current behaviour — surfaces yellow
+   badge in UI).
+
+UI/UX:
+- New tab in `/settings/integrations/observability/` page: "Team aliases"
+- Bulk add: paste CSV `vendor_team,squad_key` lines.
+- Auto-suggest: list distinct `vendor_team` values seen in inference
+  with no alias yet, alongside Jira project keys for fuzzy match.
+
+### Workarounds available NOW (PR 3)
+
+- **Per-service Tier 3 override** via `PUT /ownership/{id}/override` —
+  works but tedious for 473 services. Realistic for the top 20 high-
+  value services tracked in Carlos's Deploy Health Timeline (PR 4).
+
+### Bulk override (deferred from RISK-10)
+
+Originally planned for R1 hardening; promote to PR 4 alongside the
+team-alias table since they share the "import many mappings at once"
+UX pattern.
+
+### Estimate
+
+- Schema + service + admin endpoint: ~1d
+- UI tab + bulk paste: ~1d
+- Tests: ~0.5d
+- Total: ~2.5d, **fits inside PR 4 scope**

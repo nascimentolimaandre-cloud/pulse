@@ -68,6 +68,12 @@ _METRIC_QUERIES: Final[dict[PulseMetric, str]] = {
 
 _DEFAULT_TIMEOUT_SECONDS: Final[float] = 10.0
 
+# DD `/api/v2/services/definitions` pagination tunables. Page size 100
+# is the documented max; defensive cap on page count prevents a runaway
+# loop if the API ever returns full pages indefinitely.
+_SERVICE_DEFINITION_PAGE_SIZE: Final[int] = 100
+_MAX_SERVICE_DEFINITION_PAGES: Final[int] = 50  # 5,000 services hard cap
+
 
 class DatadogConnectorError(Exception):
     """Raised on auth, rate-limit, or transport failures the caller
@@ -176,52 +182,83 @@ class DatadogProvider:
     async def list_services(self) -> list[ServiceEntity]:
         """Return the service catalog with vendor tags normalized.
 
-        Datadog `GET /api/v2/services` returns `data` array; each entry has
-        `attributes.schema` with the `dd-service` schema (v2.2+) including
-        `team`, `tier`, `repo` etc.
+        Uses Datadog `GET /api/v2/services/definitions` (the schema-based
+        Service Definition catalog) — NOT `/api/v2/services`, which
+        requires the paid Service Catalog product. The definitions
+        endpoint requires the `apm_service_catalog_read` scope only,
+        which is included in standard APM plans.
+
+        Each entry: `data[].attributes.schema` has `dd-service`, `team`,
+        optional `tier`, `languages`, `links`.
+
+        Pagination: DD uses `page[number]` + `page[size]`. We page
+        until an empty `data` (or hit `_MAX_PAGES` to avoid runaway).
 
         Anti-surveillance: every record goes through `strip_pii` before
         being mapped into `ServiceEntity`. Vendor-raw is intentionally
         empty in the dataclass to avoid leaking unexpected fields.
 
-        403 on this endpoint is the canonical "App Key missing
-        `apm_service_catalog_read` scope" — surface a hint so operators
-        don't have to grep DD docs.
+        403 surfaces with a hint pointing at the missing scope so
+        operators don't have to grep DD docs.
         """
-        try:
-            response = await self._client.get("/api/v2/services")
-        except httpx.HTTPError as exc:
-            raise DatadogConnectorError(f"list_services transport: {exc}") from exc
-
-        if response.status_code == 403:
-            raise DatadogConnectorError(
-                "list_services HTTP 403 — Application Key likely missing "
-                "the `apm_service_catalog_read` scope. Edit the App Key in "
-                "Datadog UI (Organization Settings → Application Keys) and "
-                "add Service Catalog read permission."
-            )
-        try:
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise DatadogConnectorError(f"list_services failed: {exc}") from exc
-
-        payload = strip_pii(response.json())
         services: list[ServiceEntity] = []
+        page_number = 0
 
-        for entry in payload.get("data", []):
-            attrs = entry.get("attributes", {}) or {}
-            schema = attrs.get("schema", {}) or {}
-            services.append(
-                ServiceEntity(
-                    service_name=schema.get("dd-service") or attrs.get("name") or "",
-                    external_id=str(entry.get("id") or ""),
-                    owner_squad=self._normalize_ownership(schema, attrs),
-                    repo_url=self._extract_repo_url(schema),
-                    runtime=schema.get("languages", [None])[0] if schema.get("languages") else None,
-                    tier=schema.get("tier"),
-                    vendor_raw={},  # never expose unmapped fields
+        while page_number < _MAX_SERVICE_DEFINITION_PAGES:
+            try:
+                response = await self._client.get(
+                    "/api/v2/services/definitions",
+                    params={
+                        "page[size]": _SERVICE_DEFINITION_PAGE_SIZE,
+                        "page[number]": page_number,
+                    },
                 )
-            )
+            except httpx.HTTPError as exc:
+                raise DatadogConnectorError(
+                    f"list_services transport: {exc}"
+                ) from exc
+
+            if response.status_code == 403:
+                raise DatadogConnectorError(
+                    "list_services HTTP 403 — Application Key likely missing "
+                    "the `apm_service_catalog_read` scope. Edit the App Key in "
+                    "Datadog UI (Organization Settings → Application Keys) and "
+                    "add Service Catalog read permission."
+                )
+            try:
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise DatadogConnectorError(f"list_services failed: {exc}") from exc
+
+            payload = strip_pii(response.json())
+            entries = payload.get("data", []) or []
+            if not entries:
+                break
+
+            for entry in entries:
+                attrs = entry.get("attributes", {}) or {}
+                schema = attrs.get("schema", {}) or {}
+                languages = schema.get("languages") or []
+                services.append(
+                    ServiceEntity(
+                        service_name=(
+                            schema.get("dd-service") or attrs.get("name") or ""
+                        ),
+                        external_id=str(entry.get("id") or ""),
+                        owner_squad=self._normalize_ownership(schema, attrs),
+                        repo_url=self._extract_repo_url(schema),
+                        runtime=languages[0] if languages else None,
+                        tier=schema.get("tier"),
+                        vendor_raw={},  # never expose unmapped fields
+                    )
+                )
+
+            # Stop early when the page came back partial — definitive
+            # last page even if the API doesn't return pagination metadata.
+            if len(entries) < _SERVICE_DEFINITION_PAGE_SIZE:
+                break
+            page_number += 1
+
         return services
 
     @staticmethod
