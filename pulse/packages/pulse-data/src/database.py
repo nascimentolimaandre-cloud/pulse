@@ -13,9 +13,25 @@ from sqlalchemy import text
 
 from src.config import settings
 
+# CISO FDD-OBS-001 PR2 H-001 — `echo` is wired to a DEDICATED
+# `sqlalchemy_echo` setting, NOT to `debug`. SQL `echo=True` logs all
+# bound parameters, which includes the pgcrypto master key and plaintext
+# API keys flowing through `credential_service.upsert_credential`.
+# Flipping app `debug` to True must never silently enable SQL logging.
+#
+# CISO FDD-OBS-001 PR2 H-002 — `hide_parameters=True` strips bound
+# parameter values from EXCEPTION messages and tracebacks. Without this,
+# any DB error that travels up through SQLAlchemy includes the full
+# `[parameters: (...)]` block in the message — which for credential_service
+# would emit the master key and plaintext API key into application logs
+# (caught in the wild during PR 2 live test on 2026-05-06: an
+# AmbiguousParameterError leaked `pgp_sym_encrypt` plaintexts to docker
+# logs). `hide_parameters` is INDEPENDENT of `echo` — exception logging
+# is on a different code path inside SQLAlchemy.
 engine = create_async_engine(
     settings.async_database_url,
-    echo=settings.debug,
+    echo=settings.sqlalchemy_echo,
+    hide_parameters=True,
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,

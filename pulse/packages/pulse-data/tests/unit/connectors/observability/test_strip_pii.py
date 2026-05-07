@@ -103,3 +103,70 @@ class TestAllForbiddenStripped:
         result = strip_pii({forbidden_key: "any-value", "safe": "kept"})
         assert forbidden_key not in result
         assert result["safe"] == "kept"
+
+
+class TestNestedParentChildStrip:
+    """CISO M-001 fix — nested PII like {"usr": {"email": ...}} that
+    bypasses the flat key check must be caught by the parent/child rule."""
+
+    def test_usr_email_subtree_dropped(self):
+        """Datadog APM common pattern — usr nested with email."""
+        record = {
+            "service": "checkout",
+            "usr": {"email": "alice@webmotors.com", "id": "u-1"},
+        }
+        result = strip_pii(record)
+        assert "usr" not in result, "usr subtree should be dropped"
+        assert result["service"] == "checkout"
+
+    def test_usr_id_subtree_dropped(self):
+        record = {"trace_id": "abc", "usr": {"id": "u-42"}}
+        result = strip_pii(record)
+        assert "usr" not in result
+        assert result["trace_id"] == "abc"
+
+    def test_user_email_nested_dropped(self):
+        """`{"user": {"email": ...}}` — `user` IS in FORBIDDEN_FIELD_NAMES
+        so it's dropped by the flat check; this test confirms the result
+        regardless of which path drops it."""
+        result = strip_pii({"user": {"email": "x@y.com"}})
+        assert "user" not in result
+
+    def test_trace_user_id_nested_dropped(self):
+        """{"trace": {"user_id": ...}} — pair (trace, user_id) is forbidden."""
+        record = {"span_id": "s1", "trace": {"user_id": "u-7"}}
+        result = strip_pii(record)
+        assert "trace" not in result
+        assert result["span_id"] == "s1"
+
+    def test_unrelated_nested_dict_preserved(self):
+        """Don't over-strip: {"usr": {"role": "admin"}} has no forbidden child."""
+        record = {"usr": {"role": "admin"}}
+        result = strip_pii(record)
+        # "role" is not in any forbidden pair with "usr", so subtree stays.
+        # However "usr" by itself isn't in FORBIDDEN_FIELD_NAMES, so it's kept.
+        assert "usr" in result
+        assert result["usr"]["role"] == "admin"
+
+    def test_deeply_nested_pii_caught_recursively(self):
+        """{"event": {"actor": {"usr": {"email": ...}}}} — recursive descent
+        eventually evaluates the parent/child rule at the right level."""
+        record = {
+            "event": {
+                "actor": {
+                    "usr": {"email": "alice@webmotors.com"},
+                    "role": "admin",
+                },
+                "type": "deploy",
+            }
+        }
+        result = strip_pii(record)
+        assert "usr" not in result["event"]["actor"]
+        assert result["event"]["actor"]["role"] == "admin"
+        assert result["event"]["type"] == "deploy"
+
+    def test_case_insensitive_parent_child_match(self):
+        """{"USR": {"Email": ...}} — pairs match case-insensitively."""
+        record = {"USR": {"Email": "alice@x.com"}}
+        result = strip_pii(record)
+        assert "USR" not in result and "usr" not in result

@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class PulseMetric(StrEnum):
@@ -137,6 +137,7 @@ class ObservabilityCapabilities:
 # ---------------------------------------------------------------------------
 
 
+@runtime_checkable
 class ObservabilityProvider(Protocol):
     """ADR-023 multi-vendor abstraction. Three methods + identity.
 
