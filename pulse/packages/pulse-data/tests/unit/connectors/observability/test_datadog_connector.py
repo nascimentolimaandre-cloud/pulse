@@ -213,6 +213,18 @@ class TestListServices:
         with pytest.raises(DatadogConnectorError):
             await provider.list_services()
 
+    @pytest.mark.asyncio
+    async def test_403_includes_app_key_scope_hint(self):
+        """Live-caught (PR 3 smoke 2026-05-07): DD returns 403 when the
+        Application Key lacks `apm_service_catalog_read`. Adapter must
+        decorate the error so operators don't have to grep DD docs."""
+        def handler(request):
+            return _json_response({"errors": ["forbidden"]}, status=403)
+
+        provider = _make_provider(handler)
+        with pytest.raises(DatadogConnectorError, match="apm_service_catalog_read"):
+            await provider.list_services()
+
 
 # ---------------------------------------------------------------------------
 # list_deployments — anti-surveillance NULL-out

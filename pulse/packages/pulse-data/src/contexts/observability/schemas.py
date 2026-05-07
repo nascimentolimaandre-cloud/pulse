@@ -92,3 +92,80 @@ class CredentialMetadataResponse(BaseModel):
     last_rotated_at: datetime
     key_fingerprint: str
     status: Literal["validated", "pending_validation", "expired"]
+
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 3 — Service Ownership Map
+# ---------------------------------------------------------------------------
+
+
+class OwnershipSyncResponse(BaseModel):
+    """Result of `POST /admin/integrations/{provider}/ownership/sync`."""
+
+    services_seen: int
+    inferred_with_tag: int
+    inferred_none: int
+    unchanged: int
+    duration_ms: int
+
+
+class OverrideRequest(BaseModel):
+    """Body of `PUT /admin/integrations/{provider}/ownership/{id}/override`.
+
+    `squad_key=null` clears the override. Squad-key allowlist is
+    enforced at the service layer (`SquadDirectory.assert_valid_squad`)
+    against the tenant's qualified squads, so we don't pin to a static
+    Literal here.
+    """
+
+    squad_key: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Squad key from `jira_project_catalog`. Pass null to clear "
+            "the override (effective owner falls back to inferred)."
+        ),
+    )
+
+    @field_validator("squad_key")
+    @classmethod
+    def _no_whitespace(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        stripped = v.strip()
+        if stripped != v or not stripped:
+            raise ValueError(
+                "squad_key must not be empty / contain leading-trailing whitespace"
+            )
+        return stripped
+
+
+class OwnershipRowResponse(BaseModel):
+    """One service row in the ownership map. Frontend consumes
+    `effective_squad_key` directly — no client-side COALESCE."""
+
+    service_external_id: str
+    service_name: str
+    repo_url: str | None
+    inferred_squad_key: str | None
+    inferred_confidence: Literal["tag", "heuristic", "none"] | None
+    override_squad_key: str | None
+    effective_squad_key: str | None
+    last_inference_at: datetime
+    is_qualified_squad: bool
+
+
+class OwnershipListResponse(BaseModel):
+    """Wrapper around `OwnershipRowResponse[]` so we can carry summary
+    fields (squad coverage %) alongside without breaking versioning."""
+
+    services: list[OwnershipRowResponse]
+    coverage_pct: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of services whose effective_squad_key maps to a "
+            "qualified tenant squad. 1.0 = full coverage."
+        ),
+    )

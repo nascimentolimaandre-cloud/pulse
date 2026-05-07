@@ -183,9 +183,24 @@ class DatadogProvider:
         Anti-surveillance: every record goes through `strip_pii` before
         being mapped into `ServiceEntity`. Vendor-raw is intentionally
         empty in the dataclass to avoid leaking unexpected fields.
+
+        403 on this endpoint is the canonical "App Key missing
+        `apm_service_catalog_read` scope" — surface a hint so operators
+        don't have to grep DD docs.
         """
         try:
             response = await self._client.get("/api/v2/services")
+        except httpx.HTTPError as exc:
+            raise DatadogConnectorError(f"list_services transport: {exc}") from exc
+
+        if response.status_code == 403:
+            raise DatadogConnectorError(
+                "list_services HTTP 403 — Application Key likely missing "
+                "the `apm_service_catalog_read` scope. Edit the App Key in "
+                "Datadog UI (Organization Settings → Application Keys) and "
+                "add Service Catalog read permission."
+            )
+        try:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise DatadogConnectorError(f"list_services failed: {exc}") from exc
