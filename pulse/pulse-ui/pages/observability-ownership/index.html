@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PULSE — Service Ownership</title>
+  <link rel="stylesheet" href="../../tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="page" role="main">
+    <!-- Breadcrumb / header -->
+    <header class="page__head">
+      <nav class="breadcrumb" aria-label="Trilha de navegação">
+        <a class="breadcrumb__link" href="#">Settings</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <a class="breadcrumb__link" href="#">Integrations</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <span class="breadcrumb__current">Observability — Ownership</span>
+      </nav>
+      <h1 class="page__title">Service Ownership Map</h1>
+      <p class="page__sub">
+        Mapeia services do Datadog para squads do PULSE. A inferência usa a
+        tag <code>team</code> (Tier 1). Quando a tag estiver ausente ou
+        apontar para um squad não qualificado, você pode definir um override
+        manual (Tier 3).
+      </p>
+    </header>
+
+    <!-- Banner KPI -->
+    <section class="kpi-banner" aria-label="Estado da inferência">
+      <div class="kpi">
+        <div class="kpi__label">Services</div>
+        <div class="kpi__value" id="kpi-total">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Cobertura</div>
+        <div class="kpi__value" id="kpi-coverage">—</div>
+        <div class="kpi__hint">% mapeado a squad qualificado</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Inferred (tag)</div>
+        <div class="kpi__value" id="kpi-tag">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Override manual</div>
+        <div class="kpi__value" id="kpi-override">—</div>
+      </div>
+      <div class="kpi kpi--actions">
+        <button type="button" class="btn btn--primary" id="btn-sync">
+          Run inference
+        </button>
+        <div class="kpi__hint" id="last-sync">—</div>
+      </div>
+    </section>
+
+    <!-- Table -->
+    <section class="card" aria-label="Tabela de ownership">
+      <div class="card__head">
+        <h2 class="card__title">Services</h2>
+        <div class="card__actions">
+          <input
+            type="search"
+            class="input"
+            id="filter"
+            placeholder="Filtrar por nome do service…"
+            aria-label="Filtrar services"
+          />
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table" id="ownership-table">
+          <thead>
+            <tr>
+              <th scope="col">Service</th>
+              <th scope="col">Inferred (tag)</th>
+              <th scope="col">Override</th>
+              <th scope="col">Effective squad</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="table__actions-col">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="ownership-tbody">
+            <tr>
+              <td colspan="6" class="table__empty">Carregando…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Override modal -->
+  <div class="modal" id="override-modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal__backdrop" data-modal-close></div>
+    <div class="modal__panel">
+      <header class="modal__head">
+        <h2 class="modal__title" id="modal-title">Definir override</h2>
+        <button class="modal__close" type="button" aria-label="Fechar" data-modal-close>×</button>
+      </header>
+      <div class="modal__body">
+        <p class="modal__service">
+          Service: <strong id="modal-service-name">—</strong>
+        </p>
+        <p class="modal__inferred">
+          Tag inferida: <code id="modal-inferred">—</code>
+        </p>
+        <label class="form-row">
+          <span class="form-row__label">Squad (override)</span>
+          <select class="select" id="modal-squad-select">
+            <option value="">— Manter inferência —</option>
+          </select>
+        </label>
+        <p class="modal__hint">
+          O override sobrescreve a inferência por tag. Limpar o override
+          (selecionando "manter inferência") faz o effective owner voltar
+          para a tag DD.
+        </p>
+      </div>
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--ghost" data-modal-close>Cancelar</button>
+        <button type="button" class="btn btn--primary" id="btn-save-override">Salvar</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

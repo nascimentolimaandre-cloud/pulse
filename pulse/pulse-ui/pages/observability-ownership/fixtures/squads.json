@@ -1,0 +1,13 @@
+{
+  "qualified_squads": [
+    {"key": "FID", "name": "Financiamento e Documentação"},
+    {"key": "OKM", "name": "OKM Squad"},
+    {"key": "DESC", "name": "Discovery"},
+    {"key": "PTURB", "name": "Performance Turbo"},
+    {"key": "ENO", "name": "Engineering Operations"},
+    {"key": "ANCR", "name": "Anchor"},
+    {"key": "PUSO", "name": "Pulse Solutions"},
+    {"key": "APPF", "name": "App Foundations"},
+    {"key": "CTURBO", "name": "Compute Turbo"}
+  ]
+}

@@ -136,16 +136,32 @@ class TestHealthCheck:
 
 class TestListServices:
     @pytest.mark.asyncio
+    async def test_uses_service_definitions_endpoint(self):
+        """list_services hits /api/v2/services/definitions (schema-based
+        catalog), NOT /api/v2/services (paid Service Catalog product)."""
+        captured: list[httpx.Request] = []
+
+        def handler(request):
+            captured.append(request)
+            return _json_response({"data": []})
+
+        provider = _make_provider(handler)
+        await provider.list_services()
+        assert len(captured) >= 1
+        assert captured[0].url.path == "/api/v2/services/definitions"
+
+    @pytest.mark.asyncio
     async def test_extracts_team_into_owner_squad(self):
         """`schema.team` is the Tier-1 squad signal (ADR-022)."""
         def handler(request):
-            assert request.url.path == "/api/v2/services"
             return _json_response({
                 "data": [
                     {
                         "id": "svc-checkout",
+                        "type": "service-definition",
                         "attributes": {
                             "schema": {
+                                "schema-version": "v2.2",
                                 "dd-service": "checkout",
                                 "team": "checkout-squad",
                                 "tier": "tier-1",
@@ -212,6 +228,71 @@ class TestListServices:
         provider = _make_provider(handler)
         with pytest.raises(DatadogConnectorError):
             await provider.list_services()
+
+    @pytest.mark.asyncio
+    async def test_403_includes_app_key_scope_hint(self):
+        """Live-caught (PR 3 smoke 2026-05-07): DD returns 403 when the
+        Application Key lacks `apm_service_catalog_read`. Adapter must
+        decorate the error so operators don't have to grep DD docs."""
+        def handler(request):
+            return _json_response({"errors": ["forbidden"]}, status=403)
+
+        provider = _make_provider(handler)
+        with pytest.raises(DatadogConnectorError, match="apm_service_catalog_read"):
+            await provider.list_services()
+
+    @pytest.mark.asyncio
+    async def test_pagination_loops_until_partial_page(self):
+        """DD pages by `page[number]`. Loop continues until a page returns
+        fewer than page_size entries — stops cleanly even when DD doesn't
+        report pagination metadata."""
+        from src.connectors.observability.datadog_connector import (
+            _SERVICE_DEFINITION_PAGE_SIZE,
+        )
+
+        def _make_entries(count: int, prefix: str) -> list[dict]:
+            return [
+                {
+                    "id": f"{prefix}-{i}",
+                    "attributes": {
+                        "schema": {"dd-service": f"svc-{prefix}-{i}", "team": prefix},
+                    },
+                }
+                for i in range(count)
+            ]
+
+        # Page 0: full page (= page_size). Page 1: partial → stop.
+        page_responses = [
+            _make_entries(_SERVICE_DEFINITION_PAGE_SIZE, "p0"),
+            _make_entries(7, "p1"),
+        ]
+        call_count = {"n": 0}
+
+        def handler(request):
+            n = call_count["n"]
+            call_count["n"] += 1
+            page_num_param = request.url.params.get("page[number]")
+            assert page_num_param == str(n), f"expected page[number]={n}, got {page_num_param}"
+            return _json_response({"data": page_responses[n] if n < len(page_responses) else []})
+
+        provider = _make_provider(handler)
+        services = await provider.list_services()
+        assert len(services) == _SERVICE_DEFINITION_PAGE_SIZE + 7
+        assert call_count["n"] == 2  # stops after partial page
+
+    @pytest.mark.asyncio
+    async def test_pagination_stops_on_empty_page(self):
+        """Empty data array on first page → 0 services, no further calls."""
+        call_count = {"n": 0}
+
+        def handler(request):
+            call_count["n"] += 1
+            return _json_response({"data": []})
+
+        provider = _make_provider(handler)
+        services = await provider.list_services()
+        assert services == []
+        assert call_count["n"] == 1
 
 
 # ---------------------------------------------------------------------------

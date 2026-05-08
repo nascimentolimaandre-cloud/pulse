@@ -1,0 +1,60 @@
+{
+  "services": [
+    {
+      "service_external_id": "svc-checkout",
+      "service_name": "checkout-api",
+      "repo_url": "https://github.com/webmotors/checkout-api",
+      "inferred_squad_key": "FID",
+      "inferred_confidence": "tag",
+      "override_squad_key": null,
+      "effective_squad_key": "FID",
+      "last_inference_at": "2026-05-07T12:00:00Z",
+      "is_qualified_squad": true
+    },
+    {
+      "service_external_id": "svc-billing",
+      "service_name": "billing-worker",
+      "repo_url": "https://github.com/webmotors/billing-worker",
+      "inferred_squad_key": "OKM",
+      "inferred_confidence": "tag",
+      "override_squad_key": null,
+      "effective_squad_key": "OKM",
+      "last_inference_at": "2026-05-07T12:00:00Z",
+      "is_qualified_squad": true
+    },
+    {
+      "service_external_id": "svc-search",
+      "service_name": "search-indexer",
+      "repo_url": null,
+      "inferred_squad_key": "PTURB",
+      "inferred_confidence": "tag",
+      "override_squad_key": "DESC",
+      "effective_squad_key": "DESC",
+      "last_inference_at": "2026-05-07T12:00:00Z",
+      "is_qualified_squad": true
+    },
+    {
+      "service_external_id": "svc-legacy",
+      "service_name": "legacy-monolith",
+      "repo_url": "https://github.com/webmotors/legacy",
+      "inferred_squad_key": "GHOST-TEAM",
+      "inferred_confidence": "tag",
+      "override_squad_key": null,
+      "effective_squad_key": "GHOST-TEAM",
+      "last_inference_at": "2026-05-07T12:00:00Z",
+      "is_qualified_squad": false
+    },
+    {
+      "service_external_id": "svc-orphan",
+      "service_name": "orphan-service",
+      "repo_url": null,
+      "inferred_squad_key": null,
+      "inferred_confidence": "none",
+      "override_squad_key": null,
+      "effective_squad_key": null,
+      "last_inference_at": "2026-05-07T12:00:00Z",
+      "is_qualified_squad": false
+    }
+  ],
+  "coverage_pct": 0.6
+}
