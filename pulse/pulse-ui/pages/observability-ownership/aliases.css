@@ -1,0 +1,158 @@
+/* ============================================================
+   PULSE · Team Aliases page (extends ownership styles.css)
+   FDD-OBS-001 PR 3.5
+   ============================================================ */
+
+/* ------- Tabs ------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border-default);
+  margin-bottom: 16px;
+}
+.tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--color-text-primary); }
+.tab--active {
+  color: var(--color-brand-primary);
+  border-bottom-color: var(--color-brand-primary);
+}
+
+/* ------- Suggestions banner ------- */
+.suggestions {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+.suggestions__head { margin-bottom: 8px; }
+.suggestions__head .card__title {
+  margin-bottom: 4px;
+  color: var(--color-warning);
+}
+.suggestions__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.suggestions__list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.suggestions__list li {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+/* ------- 2-column layout ------- */
+.layout-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.layout-2col__main, .layout-2col__side { min-width: 0; }
+
+@media (max-width: 1100px) {
+  .layout-2col { grid-template-columns: 1fr; }
+}
+
+/* ------- Bulk paste ------- */
+.bulk {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bulk__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.bulk__hint code {
+  background: var(--color-bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.bulk__textarea {
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 6px;
+  background: var(--color-bg-surface);
+  resize: vertical;
+  min-height: 160px;
+}
+.bulk__textarea:focus {
+  outline: 2px solid var(--color-brand-primary);
+  outline-offset: 1px;
+  border-color: var(--color-brand-primary);
+}
+.bulk__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.bulk__result {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--color-bg-tertiary);
+}
+.bulk__result--ok {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
+}
+.bulk__result--warn {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+}
+
+/* ------- Aliases table specifics ------- */
+.alias-arrow {
+  color: var(--color-text-tertiary);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.alias-vendor {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--color-text-secondary);
+}
+.alias-squad {
+  background: var(--color-brand-light);
+  color: var(--color-brand-primary-hover);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+.alias-time {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.btn--danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.btn--danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}

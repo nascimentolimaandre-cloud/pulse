@@ -1,0 +1,28 @@
+{
+  "aliases": [
+    {
+      "vendor_team_value": "anunciar",
+      "squad_key": "ANUN",
+      "created_at": "2026-05-08T14:50:12Z",
+      "updated_at": "2026-05-08T14:50:12Z"
+    },
+    {
+      "vendor_team_value": "cockpit",
+      "squad_key": "CKP",
+      "created_at": "2026-05-08T14:55:00Z",
+      "updated_at": "2026-05-08T14:55:00Z"
+    }
+  ],
+  "suggestions": [
+    "agenda-facil",
+    "arquitetura",
+    "car10",
+    "crm",
+    "encontrar-oferta",
+    "estoque",
+    "integrações",
+    "money",
+    "pi-sales",
+    "universidade"
+  ]
+}

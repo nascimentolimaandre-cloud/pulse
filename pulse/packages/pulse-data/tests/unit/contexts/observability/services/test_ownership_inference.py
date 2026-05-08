@@ -106,6 +106,10 @@ class TestTier1Sync:
 
         with patch.object(
             ownership_inference, "get_session", return_value=_mock_session_cm(execute),
+        ), patch(
+            "src.contexts.observability.services.ownership_inference."
+            "team_alias_service.load_alias_map",
+            new=AsyncMock(return_value={}),
         ):
             result = await sync_tier1_inference(_TENANT, "datadog", provider)
 
@@ -131,6 +135,10 @@ class TestTier1Sync:
 
         with patch.object(
             ownership_inference, "get_session", return_value=_mock_session_cm(execute),
+        ), patch(
+            "src.contexts.observability.services.ownership_inference."
+            "team_alias_service.load_alias_map",
+            new=AsyncMock(return_value={}),
         ):
             result = await sync_tier1_inference(_TENANT, "datadog", provider)
 
@@ -181,6 +189,10 @@ class TestTier1Sync:
 
         with patch.object(
             ownership_inference, "get_session", return_value=_mock_session_cm(execute),
+        ), patch(
+            "src.contexts.observability.services.ownership_inference."
+            "team_alias_service.load_alias_map",
+            new=AsyncMock(return_value={}),
         ):
             result = await sync_tier1_inference(_TENANT, "datadog", provider)
 
