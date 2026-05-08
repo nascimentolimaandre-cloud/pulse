@@ -204,6 +204,56 @@ services:
           target: /app/src
 
   # --------------------------------------------------------------------------
+  # FDD-OBS-001 PR 4a — Observability Rollup Worker
+  # 15-min cycle: query DD metrics for every (tenant, service, metric)
+  # and write hourly buckets to obs_metric_snapshots. Provides the data
+  # backing the Deploy Health Timeline (PR 4b) and MTTR Phase 2 (PR 5).
+  # Kill switch: OBS_ROLLUP_ENABLED=false to disable on the fly.
+  # --------------------------------------------------------------------------
+  obs-rollup-worker:
+    build:
+      context: ./packages/pulse-data
+      dockerfile: Dockerfile
+    container_name: pulse-obs-rollup-worker
+    command: python -m src.workers.obs_rollup_worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pulse}:${POSTGRES_PASSWORD:-pulse_dev}@postgres:5432/${POSTGRES_DB:-pulse}
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # KEK that protects per-tenant DD/NR credentials at rest. Worker
+      # decrypts per cycle, never persists outside process memory.
+      # See ADR-028 for residence guarantees.
+      PULSE_OBS_MASTER_KEY: ${PULSE_OBS_MASTER_KEY:-}
+      # Kill switch — set to "false" to disable the worker without a
+      # redeploy (e.g. unexpected DD spend, rate-limit calibration miss).
+      OBS_ROLLUP_ENABLED: ${OBS_ROLLUP_ENABLED:-true}
+    volumes:
+      - ./packages/pulse-data/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # CISO PR 4a INFO-1: process-based check matches `metrics-worker`
+      # pattern. The Dockerfile's default HEALTHCHECK is HTTP-based and
+      # would always fail for a worker without an HTTP listener,
+      # triggering spurious restarts.
+      test: ["CMD-SHELL", "python -c 'import os; os.stat(\"/proc/1/status\")'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    # FDD-OPS-001 Linha 1: hot-reload — see pulse-data block above.
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./packages/pulse-data/src
+          target: /app/src
+
+  # --------------------------------------------------------------------------
   # Infrastructure
   # --------------------------------------------------------------------------
   postgres:
