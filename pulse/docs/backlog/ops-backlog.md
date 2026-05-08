@@ -2427,3 +2427,140 @@ UX pattern.
 - UI tab + bulk paste: ~1d
 - Tests: ~0.5d
 - Total: ~2.5d, **fits inside PR 4 scope**
+
+
+## FDD-OBS-001-RISK-12 · Anti-surveillance grep scan misses `src/workers/`
+
+**Epic:** Observability integration · **Release:** PR 4b
+**Priority:** P2 (Low) · **Source:** CISO PR 4a review (2026-05-08)
+
+### Discovery
+
+`tests/unit/test_obs_anti_surveillance.py` (Layer 4 source-grep)
+scans `connectors/observability/` and `contexts/observability/` for
+forbidden PII references. The new `src/workers/obs_rollup_worker.py`
+is outside both roots and not covered. Today the worker file is
+clean (verified by manual review), but a future edit could add a
+forbidden ref and pass the scan.
+
+### Fix
+
+Extend the scan roots in `_iter_observability_python_files` to also
+include `src/workers/obs_*.py` (any worker prefixed `obs_`). One-line
+change to the test file. Estimate: 30 min including a regression
+test that proves the new scan covers the worker module.
+
+
+## FDD-OBS-001-RISK-13 · FORBIDDEN_REFS missing `pr.author_id` / `pr.merge_by` / `pr.reviewer`
+
+**Epic:** Observability integration · **Release:** PR 4b
+**Priority:** P2 (Low) · **Source:** CISO PR 4a review (2026-05-08)
+
+### Discovery
+
+`FORBIDDEN_REFS` in the Layer 4 scan covers vendor PII keys
+(`user.email`, `deployment.author`, `trace.user_id`, etc.). Tier 2
+inference (`tier2_inference.py`) deliberately reads only `pr.title`
+and `pr.repo` from `eng_pull_requests`. But the scan would NOT catch
+a future regression that adds `pr.author_id` / `pr.merge_by` /
+`pr.reviewer` columns to the SQL — those aren't in the forbidden
+set even though they violate the anti-surveillance contract.
+
+### Fix
+
+Extend `FORBIDDEN_REFS` in `_anti_surveillance.py` (or the test file)
+with PR-author column identifiers:
+`{"pr.author", "pr.author_id", "pr.merge_by", "pr.reviewer", "pr.reviewers"}`.
+Run scan to confirm no current code matches (it won't — Tier 2 SQL
+already audited). Estimate: 30 min.
+
+
+## FDD-OBS-001-RISK-14 · Tenant discovery RLS / BYPASSRLS path resolved (R0)
+
+**Epic:** Observability integration · **Release:** R1 multi-tenant
+**Priority:** P1 (was Medium during PR 4a review)
+**Source:** CISO PR 4a review (2026-05-08) · **Status:** Resolved for R0; deferred to R1
+
+### Resolved (in PR 4a)
+
+`_list_eligible_tenants` now scopes the discovery query to
+`settings.default_tenant_id` (R0 single-tenant assumption). No
+BYPASSRLS dependency. Logs a WARNING when zero tenants are eligible
+so the silent no-op CISO flagged is no longer silent.
+
+### Deferred to R1 (reopened as RISK-15)
+
+When R1 multi-tenancy ships, `_list_eligible_tenants` needs to
+discover ALL tenants. Options:
+1. Migration granting BYPASSRLS to a dedicated worker DB role.
+2. SECURITY DEFINER function exposing only `(tenant_id, last_rollup)`
+   tuples for tenants with credentials configured.
+3. New `tenant_registry` table (no RLS, system-owned) that the worker
+   reads cross-tenant.
+
+Decision deferred to R1 architectural review; option 2 is the
+preferred shape (least privilege).
+
+
+## FDD-OBS-001-RISK-15 · R1 multi-tenant rollup worker discovery
+
+**Epic:** Observability integration · **Release:** R1 SaaS
+**Priority:** P0 BLOCKER for R1 multi-tenant
+**Source:** PR 4a deferred from RISK-14
+
+When R1 ships multi-tenancy, the rollup worker must enumerate all
+tenants with `tenant_observability_credentials` rows, not just
+`default_tenant_id`. See RISK-14 for the 3 design options. Pick one
+in the R1 architectural review; the worker change itself is small
+(replace the body of `_list_eligible_tenants`).
+
+### Acceptance
+
+- Worker iterates every tenant with a configured credential.
+- No row-level data leaks across tenants (RLS still enforced inside
+  per-tenant cycles).
+- Coverage in `test_rollup_service.py` for the multi-tenant case.
+
+
+## FDD-OBS-001-RISK-16 · Token bucket calibration vs Webmotors service count
+
+**Epic:** Observability integration · **Release:** PR 4b
+**Priority:** P1 · **Source:** PR 4a live smoke (2026-05-08)
+
+### Discovery
+
+PR 4a default bucket: 500 tokens/hour. Webmotors has ~430 services
+with an effective squad × 5 metrics that actually issue HTTP calls
+(ALERT_COUNT is a free placeholder) = ~2,150 tokens needed per
+cycle to cover everyone. Bucket allows ~100 services per cycle,
+so full coverage takes ~21 cycles (~5h15m) at the 15-min interval.
+
+### Implications
+
+- **For Carlos's Deploy Health Timeline (PR 4b)**: when a squad
+  ships at 14:00 and the timeline opens at 14:30, the post-deploy
+  metric data may not yet be in the rollup table for that service.
+  The UI must communicate "warming up" or last-rollup-at honestly.
+- **For MTTR Phase 2 (PR 5)**: the 7-day accumulation window the
+  product spec assumed is enough — even with partial coverage per
+  cycle, every service gets fresh data within ~6 hours.
+
+### Mitigations to consider in PR 4b
+
+1. **Prioritize "active" services** — query DD for which services
+   produced metrics in the last 24h, roll up only those (~50% of
+   the catalog historically). Cuts cycle pressure ~2x.
+2. **Per-service interval = N × cycle_interval** based on tier or
+   override priority. Top-tier services every cycle, tier-3 every
+   4th cycle.
+3. **Customer-aware bucket**: enterprise plans (DD has custom rate
+   limits per org) → operator-configurable per-tenant capacity via
+   a new admin endpoint.
+4. **Skip 403s in token accounting** — if DD returns 403 we waste
+   the token; treat 403 as "no token consumed, but stop the cycle"
+   to avoid burning the bucket on permission gaps.
+
+### Estimate
+
+(1) is the smallest-LoC mitigation; (3) is the right long-term
+shape. Pick in PR 4b. Estimated 4–6h.
