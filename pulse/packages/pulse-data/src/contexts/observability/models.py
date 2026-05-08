@@ -117,6 +117,36 @@ class ServiceSquadOwnership(Base):
     )
 
 
+class TenantTeamAlias(Base):
+    """FDD-OBS-001 PR 3.5 — vendor_team → PULSE squad mapping per tenant.
+
+    Bridges the gap between vendor team taxonomies (DD: `agenda-facil`,
+    `iazi`, ...) and PULSE squad keys (Jira project keys: `FID`, `OKM`,
+    ...). Live test against Webmotors DD found 99.8% DD-tag coverage
+    but 0% qualified-squad mapping without this translation table.
+
+    Read pattern: `ownership_inference` loads the full alias map for
+    (tenant, provider) once per sync run, resolves each `team:` tag
+    in-memory, and only persists the resolved squad_key when found.
+
+    `vendor_team_value` is normalized lowercase by the service layer
+    before insert (DD tag values are case-insensitive in practice).
+    """
+
+    __tablename__ = "tenant_team_alias"
+
+    tenant_id: Mapped[UUID] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), primary_key=True)
+    vendor_team_value: Mapped[str] = mapped_column(String(128), primary_key=True)
+    squad_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+
 class ObsMetricSnapshot(Base):
     """Hourly rollup of observability metrics (ADR-024 — cache layer 1).
 

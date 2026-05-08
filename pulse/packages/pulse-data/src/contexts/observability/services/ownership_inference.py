@@ -34,6 +34,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from src.connectors.observability.base import ObservabilityProvider
+from src.contexts.observability.services import team_alias_service
 from src.contexts.observability.services.squad_directory import (
     SquadDirectory,
 )
@@ -60,11 +61,17 @@ _METADATA_ALLOWED_KEYS: frozenset[str] = frozenset({
 class InferenceResult:
     """Outcome of one Tier-1 inference run (returned to the admin endpoint).
 
-    `unchanged` + `inferred_*` + `inferred_none` should sum to
-    `services_seen`; the assertion would fail loud if it ever drifts."""
+    `unchanged` + `inferred_with_alias` + `inferred_with_tag` +
+    `inferred_none` together describe how the catalog mapped:
+      - alias → translated via `tenant_team_alias` (FDD-OBS-001 PR 3.5)
+      - tag   → raw DD `team:` value with no alias configured
+                (yellow "tag fora do tenant" badge in UI)
+      - none  → service has no team tag at all
+    """
 
     services_seen: int
     inferred_with_tag: int
+    inferred_with_alias: int
     inferred_none: int
     unchanged: int
     duration_ms: int
@@ -123,22 +130,40 @@ async def sync_tier1_inference(
         return InferenceResult(
             services_seen=0,
             inferred_with_tag=0,
+            inferred_with_alias=0,
             inferred_none=0,
             unchanged=0,
             duration_ms=duration_ms,
         )
 
+    # FDD-OBS-001 PR 3.5 — Load alias map ONCE per sync run. Empty when
+    # no aliases configured (graceful degradation: same as PR 3 behavior
+    # — vendor team value goes through verbatim with confidence='tag').
+    alias_map = await team_alias_service.load_alias_map(tenant_id, provider_id)
+
     inferred_with_tag = 0
+    inferred_with_alias = 0
     inferred_none = 0
     changed_rows = 0
 
     async with get_session(tenant_id) as session:
         for svc in services:
-            squad = svc.owner_squad
-            confidence = "tag" if squad else "none"
-            if squad:
-                inferred_with_tag += 1
+            raw_team = svc.owner_squad
+            # Resolve via alias map if vendor_team has a translation;
+            # otherwise fall back to raw vendor value (PR 3 behavior).
+            if raw_team:
+                aliased = alias_map.get(raw_team.lower())
+                if aliased:
+                    squad = aliased
+                    confidence = "alias"
+                    inferred_with_alias += 1
+                else:
+                    squad = raw_team
+                    confidence = "tag"
+                    inferred_with_tag += 1
             else:
+                squad = None
+                confidence = "none"
                 inferred_none += 1
 
             metadata = _build_metadata(svc)
@@ -202,13 +227,16 @@ async def sync_tier1_inference(
     unchanged = services_seen - changed_rows
 
     logger.info(
-        "[obs-inference] tier1 tenant=%s provider=%s seen=%d tag=%d none=%d unchanged=%d ms=%d",
+        "[obs-inference] tier1 tenant=%s provider=%s seen=%d alias=%d tag=%d "
+        "none=%d unchanged=%d ms=%d",
         tenant_id, provider_id,
-        services_seen, inferred_with_tag, inferred_none, unchanged, duration_ms,
+        services_seen, inferred_with_alias, inferred_with_tag,
+        inferred_none, unchanged, duration_ms,
     )
     return InferenceResult(
         services_seen=services_seen,
         inferred_with_tag=inferred_with_tag,
+        inferred_with_alias=inferred_with_alias,
         inferred_none=inferred_none,
         unchanged=unchanged,
         duration_ms=duration_ms,

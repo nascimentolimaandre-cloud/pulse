@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PULSE — Team Aliases (Datadog)</title>
+  <link rel="stylesheet" href="../../tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="aliases.css" />
+</head>
+<body>
+  <main class="page" role="main">
+    <header class="page__head">
+      <nav class="breadcrumb" aria-label="Trilha de navegação">
+        <a class="breadcrumb__link" href="#">Settings</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <a class="breadcrumb__link" href="#">Integrations</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <a class="breadcrumb__link" href="./index.html">Observability</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <span class="breadcrumb__current">Team Aliases</span>
+      </nav>
+      <h1 class="page__title">Team Aliases (Datadog → PULSE)</h1>
+      <p class="page__sub">
+        Datadog usa nomes de teams próprios (ex.: <code>agenda-facil</code>);
+        o PULSE trabalha com squad keys do Jira (ex.: <code>FACIL</code>).
+        Esta página define a tradução: um alias mapeia um <em>vendor team</em>
+        para um squad qualificado. Sem alias, a inferência guarda o valor
+        bruto e o service aparece com badge "tag fora do tenant" na página
+        de Ownership.
+      </p>
+    </header>
+
+    <!-- Page-level tabs (mini) -->
+    <nav class="tabs" role="tablist" aria-label="Seções de Observability">
+      <a class="tab" href="./index.html" role="tab" aria-selected="false">
+        Service Ownership
+      </a>
+      <a class="tab tab--active" href="./aliases.html" role="tab" aria-selected="true">
+        Team Aliases
+      </a>
+    </nav>
+
+    <!-- Suggestions banner -->
+    <section class="suggestions" id="suggestions-section" hidden>
+      <div class="suggestions__head">
+        <h2 class="card__title">
+          <span id="suggestions-count">—</span> teams DD ainda não mapeados
+        </h2>
+        <p class="suggestions__hint">
+          Estes vendor teams aparecem em services do Datadog mas ainda não
+          têm alias. Mapeie todos via paste-mode abaixo.
+        </p>
+      </div>
+      <ul class="suggestions__list" id="suggestions-list"></ul>
+    </section>
+
+    <div class="layout-2col">
+      <!-- LEFT: existing aliases table -->
+      <section class="card layout-2col__main" aria-label="Aliases configurados">
+        <div class="card__head">
+          <h2 class="card__title">Aliases configurados</h2>
+          <input
+            type="search"
+            class="input"
+            id="filter"
+            placeholder="Filtrar…"
+            aria-label="Filtrar aliases"
+          />
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="aliases-table">
+            <thead>
+              <tr>
+                <th scope="col">Vendor Team (DD)</th>
+                <th scope="col">→</th>
+                <th scope="col">Squad PULSE</th>
+                <th scope="col">Atualizado</th>
+                <th scope="col" class="table__actions-col">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="aliases-tbody">
+              <tr><td colspan="5" class="table__empty">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RIGHT: bulk paste -->
+      <section class="card layout-2col__side" aria-label="Importação em lote">
+        <div class="card__head">
+          <h2 class="card__title">Bulk paste</h2>
+        </div>
+        <div class="bulk">
+          <p class="bulk__hint">
+            Cole linhas no formato <code>vendor_team,squad_key</code>
+            (uma por linha). Squad keys inválidos são contados na resposta
+            mas não param a importação.
+          </p>
+          <textarea
+            class="bulk__textarea"
+            id="bulk-input"
+            placeholder="agenda-facil,FACIL&#10;crm,CRMC&#10;estoque,ESTQ"
+            rows="8"
+            spellcheck="false"
+            aria-label="Mappings em CSV"
+          ></textarea>
+          <div class="bulk__actions">
+            <button type="button" class="btn btn--ghost" id="btn-clear">
+              Limpar
+            </button>
+            <button type="button" class="btn btn--primary" id="btn-import">
+              Importar
+            </button>
+          </div>
+          <div class="bulk__result" id="bulk-result" hidden></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Edit modal (reuses .modal styles from main page) -->
+  <div class="modal" id="edit-modal" hidden role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+    <div class="modal__backdrop" data-modal-close></div>
+    <div class="modal__panel">
+      <header class="modal__head">
+        <h2 class="modal__title" id="edit-modal-title">Editar alias</h2>
+        <button class="modal__close" type="button" aria-label="Fechar" data-modal-close>×</button>
+      </header>
+      <div class="modal__body">
+        <p class="modal__service">
+          Vendor team: <strong id="edit-vendor-name">—</strong>
+        </p>
+        <label class="form-row">
+          <span class="form-row__label">Squad PULSE</span>
+          <select class="select" id="edit-squad-select"></select>
+        </label>
+      </div>
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--ghost" data-modal-close>Cancelar</button>
+        <button type="button" class="btn btn--primary" id="btn-save-edit">Salvar</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="aliases.js"></script>
+</body>
+</html>

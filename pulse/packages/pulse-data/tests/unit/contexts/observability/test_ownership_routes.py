@@ -81,8 +81,8 @@ class TestSync:
     def test_happy_path_returns_summary(self, client):
         adapter, _ = _patch_provider_cm()
         result = InferenceResult(
-            services_seen=3, inferred_with_tag=2, inferred_none=1,
-            unchanged=0, duration_ms=42,
+            services_seen=3, inferred_with_tag=1, inferred_with_alias=1,
+            inferred_none=1, unchanged=0, duration_ms=42,
         )
 
         with patch(
@@ -99,7 +99,8 @@ class TestSync:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["services_seen"] == 3
-        assert body["inferred_with_tag"] == 2
+        assert body["inferred_with_tag"] == 1
+        assert body["inferred_with_alias"] == 1
         assert body["inferred_none"] == 1
         assert body["duration_ms"] == 42
 

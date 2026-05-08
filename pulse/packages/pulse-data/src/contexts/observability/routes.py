@@ -34,6 +34,12 @@ from src.connectors.observability.datadog_connector import (
     DatadogProvider,
 )
 from src.contexts.observability.schemas import (
+    AliasBulkImportRequest,
+    AliasBulkImportResponse,
+    AliasListResponse,
+    AliasMapping,
+    AliasResponse,
+    AliasSuggestionsResponse,
     CredentialMetadataResponse,
     DatadogValidateRequest,
     DatadogValidateResponse,
@@ -46,6 +52,7 @@ from src.contexts.observability.services import (
     credential_service,
     ownership_inference,
     provider_factory,
+    team_alias_service,
 )
 from src.contexts.observability.services.credential_service import (
     InvalidSiteError,
@@ -276,6 +283,7 @@ async def sync_ownership(
     return OwnershipSyncResponse(
         services_seen=result.services_seen,
         inferred_with_tag=result.inferred_with_tag,
+        inferred_with_alias=result.inferred_with_alias,
         inferred_none=result.inferred_none,
         unchanged=result.unchanged,
         duration_ms=result.duration_ms,
@@ -339,3 +347,137 @@ async def list_ownership(
         services=[_row_to_response(r) for r in rows],
         coverage_pct=round(coverage, 4),
     )
+
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 3.5 — Team Alias Map (vendor_team → PULSE squad)
+# ---------------------------------------------------------------------------
+
+
+def _alias_to_response(alias: team_alias_service.TeamAlias) -> AliasResponse:
+    return AliasResponse(
+        vendor_team_value=alias.vendor_team_value,
+        squad_key=alias.squad_key,
+        created_at=alias.created_at,
+        updated_at=alias.updated_at,
+    )
+
+
+@admin_router.get(
+    "/{provider}/aliases",
+    response_model=AliasListResponse,
+    summary="List vendor_team → squad aliases for the provider",
+)
+async def list_aliases(
+    provider: str,
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> AliasListResponse:
+    aliases = await team_alias_service.list_aliases(tenant_id, provider)
+    return AliasListResponse(
+        aliases=[_alias_to_response(a) for a in aliases],
+        total=len(aliases),
+    )
+
+
+@admin_router.put(
+    "/{provider}/aliases/{vendor_team_value}",
+    response_model=AliasResponse,
+    summary="Set / update one vendor_team → squad alias",
+)
+async def upsert_alias(
+    provider: str,
+    vendor_team_value: str,
+    body: AliasMapping,
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> AliasResponse:
+    """Path param `vendor_team_value` is for resource addressing; the
+    body must agree (defense against accidental URL/body mismatch).
+    `squad_key` is validated against the tenant's qualified squads."""
+    if body.vendor_team_value.lower() != vendor_team_value.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="vendor_team_value in path and body must match",
+        )
+    try:
+        alias = await team_alias_service.set_alias(
+            tenant_id=tenant_id,
+            provider_id=provider,
+            vendor_team_value=body.vendor_team_value,
+            squad_key=body.squad_key,
+        )
+    except InvalidSquadKeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc),
+        ) from exc
+    return _alias_to_response(alias)
+
+
+@admin_router.delete(
+    "/{provider}/aliases/{vendor_team_value}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove an alias (effective owner falls back to raw tag)",
+)
+async def delete_alias(
+    provider: str,
+    vendor_team_value: str,
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> None:
+    deleted = await team_alias_service.delete_alias(
+        tenant_id=tenant_id,
+        provider_id=provider,
+        vendor_team_value=vendor_team_value,
+    )
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No alias for vendor_team_value={vendor_team_value!r}",
+        )
+
+
+@admin_router.post(
+    "/{provider}/aliases/import",
+    response_model=AliasBulkImportResponse,
+    summary="Bulk import vendor_team → squad mappings (CSV/JSON)",
+)
+async def bulk_import_aliases(
+    provider: str,
+    body: AliasBulkImportRequest,
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> AliasBulkImportResponse:
+    """Atomic batch upsert. Rows with invalid squad_keys are counted
+    rejected (not failing the whole batch) so operators can fix typos
+    and retry. Hard cap of 2000 mappings per call (Pydantic enforced)."""
+    result = await team_alias_service.bulk_import(
+        tenant_id=tenant_id,
+        provider_id=provider,
+        mappings=[(m.vendor_team_value, m.squad_key) for m in body.mappings],
+    )
+    return AliasBulkImportResponse(
+        inserted=result.inserted,
+        updated=result.updated,
+        rejected_invalid_squad=result.rejected_invalid_squad,
+        rejected_empty=result.rejected_empty,
+        total_submitted=result.total_submitted,
+    )
+
+
+@admin_router.get(
+    "/{provider}/aliases/suggestions",
+    response_model=AliasSuggestionsResponse,
+    summary="Distinct unaliased vendor_team values from past inference runs",
+)
+async def alias_suggestions(
+    provider: str,
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> AliasSuggestionsResponse:
+    """Returns vendor_team values seen in `service_squad_ownership`
+    that have NO alias yet. UI uses this to surface "you have N
+    unmapped teams" + the fast-track import flow."""
+    teams = await team_alias_service.list_unaliased_vendor_teams(
+        tenant_id, provider,
+    )
+    return AliasSuggestionsResponse(vendor_teams=teams, total=len(teams))

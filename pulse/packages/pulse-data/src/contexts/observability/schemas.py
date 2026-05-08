@@ -100,10 +100,17 @@ class CredentialMetadataResponse(BaseModel):
 
 
 class OwnershipSyncResponse(BaseModel):
-    """Result of `POST /admin/integrations/{provider}/ownership/sync`."""
+    """Result of `POST /admin/integrations/{provider}/ownership/sync`.
+
+    FDD-OBS-001 PR 3.5: added `inferred_with_alias` to track services
+    whose DD team tag was translated through `tenant_team_alias`.
+    `inferred_with_tag` now counts only services whose raw vendor team
+    survived (no alias configured → UI yellow badge).
+    """
 
     services_seen: int
     inferred_with_tag: int
+    inferred_with_alias: int = 0
     inferred_none: int
     unchanged: int
     duration_ms: int
@@ -148,7 +155,7 @@ class OwnershipRowResponse(BaseModel):
     service_name: str
     repo_url: str | None
     inferred_squad_key: str | None
-    inferred_confidence: Literal["tag", "heuristic", "none"] | None
+    inferred_confidence: Literal["tag", "alias", "heuristic", "none"] | None
     override_squad_key: str | None
     effective_squad_key: str | None
     last_inference_at: datetime
@@ -169,3 +176,67 @@ class OwnershipListResponse(BaseModel):
             "qualified tenant squad. 1.0 = full coverage."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 3.5 — Team Alias Map
+# ---------------------------------------------------------------------------
+
+
+class AliasMapping(BaseModel):
+    """One vendor_team → squad_key mapping. Used in single-PUT and bulk
+    import payloads."""
+
+    vendor_team_value: str = Field(..., min_length=1, max_length=128)
+    squad_key: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("vendor_team_value", "squad_key")
+    @classmethod
+    def _strip_nonempty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("must not be empty after trim")
+        return s
+
+
+class AliasResponse(BaseModel):
+    """Read-model for the alias map. `vendor_team_value` is always the
+    lowercase canonical form (set/lookup are case-insensitive)."""
+
+    vendor_team_value: str
+    squad_key: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AliasListResponse(BaseModel):
+    aliases: list[AliasResponse]
+    total: int
+
+
+class AliasBulkImportRequest(BaseModel):
+    """Body for `POST /admin/integrations/{provider}/aliases/import`.
+
+    Atomic batch — all-or-nothing on the SQL transaction, but rows
+    individually rejected for invalid squad keys (typos) get counted
+    in the response so operators can fix and retry."""
+
+    mappings: list[AliasMapping] = Field(..., max_length=2000)
+
+
+class AliasBulkImportResponse(BaseModel):
+    inserted: int
+    updated: int
+    rejected_invalid_squad: int
+    rejected_empty: int
+    total_submitted: int
+
+
+class AliasSuggestionsResponse(BaseModel):
+    """Distinct vendor_team values seen in inference but not yet aliased.
+
+    UI uses this to surface "you have N unmapped teams" + offer the
+    fast-track import flow."""
+
+    vendor_teams: list[str]
+    total: int
