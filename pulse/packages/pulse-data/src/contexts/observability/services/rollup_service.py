@@ -60,16 +60,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CYCLE_DEADLINE_SECONDS: Final[int] = 12 * 60
 
 
-# Order matters for the cycle: cheap metrics (single number) first, so
-# even an exhausted bucket has covered the headlines for the timeline.
-_CYCLE_METRICS: Final[tuple[PulseMetric, ...]] = (
+# FDD-OBS-001 PR 4a.5 — Webmotors DD plan doesn't include the Query API
+# (RISK-19). The cycle now collects ONE rolled-up `MONITOR_HEALTH` score
+# per (service, hour) by reading `/api/v1/monitor` (which IS in plan).
+# Each cycle costs N services × 1 monitor-list call (was N × 6 metric
+# queries) — 6× cheaper on the rate-limit budget.
+#
+# When R3 onboards a tenant with Query API access, set
+# `provider_capabilities.has_query_api = True` and the cycle picks the
+# old `_CYCLE_QUERY_METRICS` path instead. Both code paths still ship.
+_CYCLE_QUERY_METRICS: Final[tuple[PulseMetric, ...]] = (
     PulseMetric.ERROR_RATE,
     PulseMetric.P95_LATENCY_MS,
     PulseMetric.APDEX,
     PulseMetric.THROUGHPUT_RPS,
     PulseMetric.P99_LATENCY_MS,
-    # ALERT_COUNT placeholder — adapter returns has_data=False without a
-    # network call. Listed for future when DD's monitor/search wires in.
     PulseMetric.ALERT_COUNT,
 )
 
@@ -258,13 +263,10 @@ async def _rollup_one_tenant(
     if not services:
         return result
 
-    # Hourly bucket aligned to UTC.
+    # Hourly bucket aligned to UTC. The PR 4a.5 monitor path snapshots
+    # the *current* state at bucket_start; the (R3) query_metric path
+    # would build a TimeWindow here for the trailing hour.
     bucket_start = _floor_to_hour(datetime.now(timezone.utc))
-    window = TimeWindow(
-        start=bucket_start,
-        end=bucket_start.replace(minute=59, second=59, microsecond=999_999),
-        granularity_seconds=300,  # 5-min granularity inside the bucket
-    )
 
     for external_id, service_name in services:
         if time.monotonic() > deadline:
@@ -274,67 +276,61 @@ async def _rollup_one_tenant(
             )
             break
 
-        for metric in _CYCLE_METRICS:
-            # Token bucket: 1 token = 1 query_metric call. Skip
-            # remaining metrics for this service when exhausted —
-            # later services may fall to the next cycle.
-            allowed = await bucket.try_acquire(tenant_id, provider_id, n=1)
-            if not allowed:
-                result.rate_limited_skipped += 1
-                logger.info(
-                    "[rollup] rate-limited tenant=%s svc_hash=%s — pausing this cycle",
-                    tenant_id, _hash_service_name(service_name),
-                )
-                return result
-
-            result.queries_attempted += 1
-            try:
-                series = await provider.query_metric(metric, service_name, window)
-            except DatadogConnectorError as exc:
-                result.errors += 1
-                # CISO PR 4a follow-up (live smoke 2026-05-08): the
-                # underlying httpx error string carries the FULL DD
-                # query URL — including `?query=...service:<name>...` —
-                # which leaks the service name even though we redact
-                # `svc_hash` in the rest of the log line. Log only the
-                # exception class name; full traceback is suppressed.
-                logger.warning(
-                    "[rollup] query_metric failed tenant=%s svc_hash=%s metric=%s exc=%s",
-                    tenant_id, _hash_service_name(service_name), metric,
-                    type(exc).__name__,
-                )
-                continue
-            except Exception as exc:
-                result.errors += 1
-                logger.warning(
-                    "[rollup] unexpected error tenant=%s svc_hash=%s metric=%s exc=%s",
-                    tenant_id, _hash_service_name(service_name), metric,
-                    type(exc).__name__,
-                )
-                continue
-
-            result.queries_succeeded += 1
-
-            if not series.has_data:
-                # Honest empty: don't write a row. Capability detection
-                # interprets the absent (service, metric, hour) tuple
-                # as "no signal" — better than a row with NULL.
-                continue
-
-            value = _series_to_bucket_value(series.points)
-            if value is None:
-                continue
-
-            await _upsert_snapshot(
-                tenant_id=tenant_id,
-                provider_id=provider_id,
-                service=service_name,
-                metric=metric,
-                hour_bucket=bucket_start,
-                value=value,
-                samples_count=len(series.points),
+        # FDD-OBS-001 PR 4a.5: ONE call per service via `list_monitors_
+        # for_service` (Webmotors DD plan path). Replaces the previous
+        # 6-metric loop; cuts bucket consumption by 6×.
+        allowed = await bucket.try_acquire(tenant_id, provider_id, n=1)
+        if not allowed:
+            result.rate_limited_skipped += 1
+            logger.info(
+                "[rollup] rate-limited tenant=%s svc_hash=%s — pausing this cycle",
+                tenant_id, _hash_service_name(service_name),
             )
-            result.rows_written += 1
+            return result
+
+        result.queries_attempted += 1
+        try:
+            monitors = await provider.list_monitors_for_service(service_name)
+        except DatadogConnectorError as exc:
+            result.errors += 1
+            logger.warning(
+                "[rollup] list_monitors failed tenant=%s svc_hash=%s exc=%s",
+                tenant_id, _hash_service_name(service_name), type(exc).__name__,
+            )
+            continue
+        except Exception as exc:
+            result.errors += 1
+            logger.warning(
+                "[rollup] unexpected error tenant=%s svc_hash=%s exc=%s",
+                tenant_id, _hash_service_name(service_name), type(exc).__name__,
+            )
+            continue
+
+        result.queries_succeeded += 1
+
+        # No monitors configured for this service — honest empty (skip).
+        # Capability detection sees the gap and the UI shows "service
+        # has no DD monitors" rather than a fake green health.
+        if not monitors:
+            continue
+
+        # Aggregate to worst-case severity for the hour. This mirrors
+        # how a human reads a dashboard: any active alert dominates
+        # the row's color, regardless of how many monitors are OK.
+        # `samples_count` carries the monitor count so downstream
+        # routes can show "aggregated from N monitors".
+        worst_severity = max(m.severity for m in monitors)
+
+        await _upsert_snapshot(
+            tenant_id=tenant_id,
+            provider_id=provider_id,
+            service=service_name,
+            metric=PulseMetric.MONITOR_HEALTH,
+            hour_bucket=bucket_start,
+            value=worst_severity,
+            samples_count=len(monitors),
+        )
+        result.rows_written += 1
 
     result.duration_ms = int((time.monotonic() - started_at) * 1000)
     return result

@@ -2564,3 +2564,97 @@ so full coverage takes ~21 cycles (~5h15m) at the 15-min interval.
 
 (1) is the smallest-LoC mitigation; (3) is the right long-term
 shape. Pick in PR 4b. Estimated 4–6h.
+
+
+## FDD-OBS-001-RISK-19 · DD plan limitation — Query API not entitled (Webmotors)
+
+**Epic:** Observability integration · **Release:** R3+ revisit
+**Priority:** P1 · **Source:** PR 4a live diagnosis (2026-05-08)
+
+### Discovery
+
+Live smoke against Webmotors DD with all relevant scopes confirmed:
+
+| Endpoint | Status | Plan inclusion |
+|---|---|---|
+| `/api/v1/validate` | 200 | always |
+| `/api/v2/services/definitions` | 200 | APM standard |
+| `/api/v1/monitor` | 200 | APM standard |
+| `/api/v2/metrics` (catalog) | 200 | included |
+| `/api/v1/query` | **403** | paid Query API add-on |
+| `/api/v2/query/scalar` | **403** | paid Query API add-on |
+
+DD bills the Query API as a separate paid add-on on multiple plan
+tiers. Webmotors's plan includes APM Pro features (services catalog,
+APM trace metrics, monitors) but NOT ad-hoc metric query API access.
+
+### Resolved (PR 4a.5)
+
+`rollup_service` was pivoted to consume `/api/v1/monitor` (state +
+overall_state per service tag) instead of `query_metric`. The data
+flowing into `obs_metric_snapshots` is now a **monitor health
+severity score** (0=OK, 1=WARN, 2=ALERT, 3=NO_DATA) rather than raw
+metric values. From the Carlos persona's perspective this is actually
+a stronger signal — "did the deploy break a configured alarm" beats
+"what's the percentile latency".
+
+### Deferred to R3+
+
+When PULSE onboards a tenant **with** Query API access, reactivate
+the `query_metric` path (still implemented, just not invoked by the
+worker). The connector's `query_metric` method is intact + unit-
+tested; the rollup orchestrator gets a `data_source` flag (`monitor`
+vs `metric`) per tenant, and per-tenant capability detection picks
+the right path automatically.
+
+Track when this becomes urgent: when ≥2 tenants with Query API
+configured request percentile-latency timelines specifically.
+
+### Estimate
+
+R3 reactivation: ~4h (orchestrator switch + capability flag + tests).
+
+
+## FDD-OBS-001-RISK-20 · PII tag-name patterns in DD metric tags
+
+**Epic:** Observability integration · **Release:** PR 4b
+**Priority:** P2 (Low) · **Source:** PR 4a live diagnosis (2026-05-08)
+
+### Discovery
+
+`/api/v2/metrics` catalog response from Webmotors included a
+`manage_tags` config block with tag names like
+`["customerphonenumber", "maskphonenumber"]`. These are tag KEY
+NAMES (not values), but they reveal that some Webmotors services
+tag DD metrics with PII fields (phone numbers).
+
+When PR 4a.5 consumes monitors (which carry tags inline in the
+response), those tag values could surface raw PII into our pipeline
+even if we don't request them explicitly.
+
+### Fix
+
+Extend `_anti_surveillance.py` `FORBIDDEN_FIELD_NAMES` set with
+PII-name patterns matched as substrings (currently exact-match
+only):
+
+```python
+FORBIDDEN_NAME_PATTERNS: frozenset[str] = frozenset({
+    "phonenumber", "phone_number", "phone-number",
+    "cpf", "cnpj", "rg", "passport",
+    "email_address", "emailaddress",
+})
+
+def _name_has_pii_pattern(key: str) -> bool:
+    lk = key.lower()
+    return any(p in lk for p in FORBIDDEN_NAME_PATTERNS)
+```
+
+Apply the substring check alongside the exact-match check in
+`strip_pii`. Same pattern for tags inside monitor payloads when
+the rollup worker consumes them.
+
+### Estimate
+
+~30 min including regression tests (parametrize across the new
+patterns).

@@ -31,6 +31,12 @@ class PulseMetric(StrEnum):
     APDEX = "apdex"                     # 0..1
     THROUGHPUT_RPS = "throughput_rps"
     ALERT_COUNT = "alert_count"         # active alerts in window
+    # FDD-OBS-001 PR 4a.5 — fallback metric for tenants whose DD plan
+    # doesn't include the Query API. Single value per (service, hour),
+    # severity 0..3 (see MONITOR_SEVERITY_MAP). When this metric is
+    # populated, the timeline UI shows alarm-state transitions instead
+    # of percentile timeseries.
+    MONITOR_HEALTH = "monitor_health"
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,51 @@ class MetricSeries:
     points: list[tuple[datetime, float]]
     has_data: bool                      # False when service has no signal yet
     stale: bool = False                 # True when cache layer returns expired data
+
+
+@dataclass(frozen=True)
+class MonitorState:
+    """FDD-OBS-001 PR 4a.5 — single monitor's current state for a service.
+
+    Used as the FALLBACK signal when a tenant's DD plan doesn't include
+    the Query API (RISK-19, e.g. Webmotors). Where `MetricSeries` carries
+    raw time-series, `MonitorState` carries the aggregated alarm state of
+    a configured monitor — a stronger product signal for "did the deploy
+    break something the team cares about" anyway.
+
+    `severity` is the PULSE-normalized severity score (matches the order
+    used by `obs_metric_snapshots.value`):
+      0.0 = OK, no issues
+      1.0 = WARN
+      2.0 = ALERT (active critical)
+      3.0 = NO_DATA (monitor configured but no data; ambiguous)
+
+    Anti-surveillance: `creator` / `author` fields from the DD payload
+    are stripped via `strip_pii` before this dataclass is built; we
+    never carry person identifiers downstream.
+    """
+
+    monitor_id: int
+    name: str
+    service: str           # the service: tag the monitor matches
+    severity: float        # PULSE-normalized severity (see above)
+    state: str             # raw DD state: 'OK' / 'Warn' / 'Alert' / 'No Data' / ...
+    last_modified: datetime | None = None
+    vendor_raw: dict = field(default_factory=dict)
+
+
+# Severity normalization map. Public so tests can import + assert
+# values stay stable. DD's overall_state values are mixed-case strings
+# documented at https://docs.datadoghq.com/api/latest/monitors/.
+MONITOR_SEVERITY_MAP: dict[str, float] = {
+    "OK": 0.0,
+    "Ignored": 0.0,
+    "Skipped": 0.0,
+    "No Data": 3.0,
+    "Warn": 1.0,
+    "Alert": 2.0,
+}
+MONITOR_DEFAULT_SEVERITY: float = 3.0   # unknown state → treat as no-data
 
 
 @dataclass(frozen=True)

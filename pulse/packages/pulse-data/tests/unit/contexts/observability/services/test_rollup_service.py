@@ -86,23 +86,31 @@ class TestServiceNameHash:
 # ---------------------------------------------------------------------------
 
 
-def _make_provider_mock(metric_series_factory=None) -> tuple[MagicMock, MagicMock]:
+def _make_provider_mock(monitor_factory=None) -> tuple[MagicMock, MagicMock]:
     """Build a mock provider that supports `async with`. We don't use
     `spec=ObservabilityProvider` because the Protocol declares only
     the query methods, not lifetime methods (__aenter__/__aexit__) —
     those are on the concrete `DatadogProvider`. Tests verify the
-    orchestrator's behavior, not Protocol shape."""
+    orchestrator's behavior, not Protocol shape.
+
+    PR 4a.5: rollup now consumes `list_monitors_for_service` (not
+    `query_metric`). Default returns one OK monitor per service."""
+    from src.connectors.observability.base import MonitorState
+
     instance = MagicMock()
 
-    def _series(metric, service, window):
-        if metric_series_factory is None:
-            return MetricSeries(
-                metric=metric, service=service,
-                points=[(window.start, 0.5)], has_data=True,
-            )
-        return metric_series_factory(metric, service, window)
+    async def _monitors(service):
+        if monitor_factory is None:
+            return [MonitorState(
+                monitor_id=1, name=f"mon-{service}", service=service,
+                severity=0.0, state="OK",
+            )]
+        return monitor_factory(service)
 
-    instance.query_metric = AsyncMock(side_effect=_series)
+    instance.list_monitors_for_service = AsyncMock(side_effect=_monitors)
+    # Keep query_metric on the mock for tests that still touch it (none
+    # in PR 4a.5 but harmless).
+    instance.query_metric = AsyncMock()
     instance.aclose = AsyncMock()
     instance.__aenter__ = AsyncMock(return_value=instance)
     instance.__aexit__ = AsyncMock(return_value=None)
@@ -209,8 +217,9 @@ async def test_run_cycle_processes_all_tenants_when_bucket_unlimited():
 
     assert result.tenants_seen == 2
     assert result.tenants_completed == 2
-    # 2 tenants × 1 service × 6 metrics = 12 upserts
-    assert upsert_mock.await_count == 12
+    # PR 4a.5: 2 tenants × 1 service × 1 monitor_health row = 2 upserts
+    # (was 12 with the old 6-metric query path).
+    assert upsert_mock.await_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -259,17 +268,15 @@ async def test_run_cycle_rate_limited_marks_tenant_partial():
 
 
 @pytest.mark.asyncio
-async def test_query_metric_failure_does_not_abort_cycle():
-    """One service's metric raises DatadogConnectorError → counted as
-    error, next service continues."""
+async def test_list_monitors_failure_does_not_abort_cycle():
+    """list_monitors_for_service raising DatadogConnectorError →
+    counted as error, next service still runs (PR 4a.5 path)."""
     bucket = MagicMock()
     bucket.try_acquire = AsyncMock(return_value=True)
 
     provider, cm = _make_provider_mock()
-    # First call raises, rest succeed
-    provider.query_metric = AsyncMock(
-        side_effect=[DatadogConnectorError("DD 500")]
-        + [MetricSeries(metric=m, service="x", points=[(datetime.now(timezone.utc), 1.0)], has_data=True) for m in range(20)],
+    provider.list_monitors_for_service = AsyncMock(
+        side_effect=DatadogConnectorError("DD 500"),
     )
 
     with patch.object(
@@ -297,21 +304,20 @@ async def test_query_metric_failure_does_not_abort_cycle():
 
 
 # ---------------------------------------------------------------------------
-# has_data=False → no row written
+# Empty monitors list → no row written
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_empty_series_does_not_write_row():
-    """has_data=False → no upsert (capability detection sees the
-    absence honestly)."""
+async def test_empty_monitors_does_not_write_row():
+    """Service with NO configured DD monitors → no upsert (capability
+    detection sees the gap honestly; UI shows 'no monitors' rather
+    than fake-green)."""
     bucket = MagicMock()
     bucket.try_acquire = AsyncMock(return_value=True)
 
     provider, cm = _make_provider_mock(
-        metric_series_factory=lambda m, s, w: MetricSeries(
-            metric=m, service=s, points=[], has_data=False,
-        ),
+        monitor_factory=lambda service: [],
     )
 
     with patch.object(
@@ -336,8 +342,60 @@ async def test_empty_series_does_not_write_row():
 
     assert upsert_mock.await_count == 0
     assert result.tenants_completed == 1
-    assert result.per_tenant[0].queries_succeeded == len(rollup_service._CYCLE_METRICS)
+    # 1 service × 1 list_monitors call (succeeded but returned empty)
+    assert result.per_tenant[0].queries_succeeded == 1
     assert result.per_tenant[0].rows_written == 0
+
+
+@pytest.mark.asyncio
+async def test_worst_severity_aggregation():
+    """When multiple monitors report different severities, the upsert
+    value is the WORST (max). Mirrors how a human reads a dashboard:
+    one active alert dominates the row's color."""
+    from src.connectors.observability.base import MonitorState
+    bucket = MagicMock()
+    bucket.try_acquire = AsyncMock(return_value=True)
+
+    # 3 monitors: OK (0.0), Warn (1.0), Alert (2.0). Worst = 2.0.
+    provider, cm = _make_provider_mock(
+        monitor_factory=lambda service: [
+            MonitorState(monitor_id=1, name="ok", service=service, severity=0.0, state="OK"),
+            MonitorState(monitor_id=2, name="warn", service=service, severity=1.0, state="Warn"),
+            MonitorState(monitor_id=3, name="alert", service=service, severity=2.0, state="Alert"),
+        ],
+    )
+
+    upsert_calls: list = []
+
+    async def _capture_upsert(**kwargs):
+        upsert_calls.append(kwargs)
+
+    with patch.object(
+        rollup_service, "_list_eligible_tenants",
+        new=AsyncMock(return_value=[_TENANT]),
+    ), patch(
+        "src.contexts.observability.services.rollup_service."
+        "provider_factory.build_for_tenant",
+        new=AsyncMock(return_value=cm),
+    ), patch.object(
+        rollup_service, "_list_services_for_rollup",
+        new=AsyncMock(return_value=[("ext-1", "svc-a")]),
+    ), patch.object(
+        rollup_service, "_upsert_snapshot",
+        new=_capture_upsert,
+    ), patch(
+        "src.contexts.observability.services.rollup_service."
+        "tier2_inference.sync_tier2_inference",
+        new=AsyncMock(),
+    ):
+        await run_cycle(bucket=bucket)
+
+    assert len(upsert_calls) == 1
+    assert upsert_calls[0]["value"] == 2.0  # worst severity wins
+    assert upsert_calls[0]["samples_count"] == 3
+    # Confirm we used the new MONITOR_HEALTH metric type
+    from src.connectors.observability.base import PulseMetric
+    assert upsert_calls[0]["metric"] == PulseMetric.MONITOR_HEALTH
 
 
 # ---------------------------------------------------------------------------
