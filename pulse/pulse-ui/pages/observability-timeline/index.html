@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PULSE — Deploy Health Timeline</title>
+  <link rel="stylesheet" href="../../tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="page" role="main">
+    <header class="page__head">
+      <nav class="breadcrumb" aria-label="Trilha de navegação">
+        <a class="breadcrumb__link" href="#">Observability</a>
+        <span class="breadcrumb__sep" aria-hidden="true">/</span>
+        <span class="breadcrumb__current">Deploy Health Timeline</span>
+      </nav>
+      <h1 class="page__title">Deploy Health Timeline</h1>
+      <p class="page__sub">
+        Severidade dos monitores Datadog (agregada por hora, pior service na
+        squad) sobreposta com markers de deploy. Use isso para ver se um
+        deploy quebrou um alarme configurado para a squad ouvir.
+      </p>
+    </header>
+
+    <!-- Filters -->
+    <section class="filters" aria-label="Filtros">
+      <label class="filter">
+        <span class="filter__label">Squad</span>
+        <select class="select" id="filter-squad">
+          <option value="ANCR" selected>ANCR — PF Anunciar</option>
+          <option value="CRW">CRW — PJ CRM</option>
+          <option value="ENO">ENO — PF Encontrar Oferta</option>
+          <option value="SALES">SALES — PI Sales</option>
+          <option value="ESTQ">ESTQ — PJ Estoque</option>
+          <option value="MONEY">MONEY — PI Money</option>
+          <option value="FACIL">FACIL — Agenda Fácil</option>
+        </select>
+      </label>
+      <label class="filter">
+        <span class="filter__label">Janela</span>
+        <select class="select" id="filter-window">
+          <option value="24">Últimas 24h</option>
+          <option value="168" selected>Últimos 7 dias</option>
+          <option value="720">Últimos 30 dias</option>
+        </select>
+      </label>
+      <div class="filter filter--push">
+        <button type="button" class="btn btn--ghost" id="btn-refresh">
+          Atualizar
+        </button>
+      </div>
+    </section>
+
+    <!-- KPI banner -->
+    <section class="kpi-banner" aria-label="KPIs">
+      <div class="kpi">
+        <div class="kpi__label">Services</div>
+        <div class="kpi__value" id="kpi-services">—</div>
+        <div class="kpi__hint">na squad</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Hour buckets</div>
+        <div class="kpi__value" id="kpi-buckets">—</div>
+        <div class="kpi__hint">com data no período</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Deploys</div>
+        <div class="kpi__value" id="kpi-deploys">—</div>
+        <div class="kpi__hint">no período</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Severidade média</div>
+        <div class="kpi__value" id="kpi-avg-severity">—</div>
+        <div class="kpi__hint">0=OK · 1=Warn · 2=Alert · 3=NoData</div>
+      </div>
+    </section>
+
+    <!-- Chart card -->
+    <section class="card chart-card" aria-label="Timeline gráfica">
+      <div class="card__head">
+        <h2 class="card__title">Timeline</h2>
+        <div class="legend">
+          <span class="legend__item legend__item--ok">OK</span>
+          <span class="legend__item legend__item--warn">Warn</span>
+          <span class="legend__item legend__item--alert">Alert</span>
+          <span class="legend__item legend__item--nodata">No Data</span>
+          <span class="legend__sep">·</span>
+          <span class="legend__deploy">▼ deploy</span>
+          <span class="legend__deploy legend__deploy--fail">▼ failed</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <svg id="timeline-chart" class="chart"
+             viewBox="0 0 1200 240" preserveAspectRatio="none"
+             aria-label="Timeline chart of severity bars and deploy markers"></svg>
+      </div>
+      <p class="chart-hint" id="chart-hint">
+        Passe o mouse sobre uma barra ou marker para detalhes.
+      </p>
+    </section>
+
+    <!-- Deploys table -->
+    <section class="card" aria-label="Deploys no período">
+      <div class="card__head">
+        <h2 class="card__title">Deploys</h2>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="deploys-table">
+          <thead>
+            <tr>
+              <th scope="col">Quando</th>
+              <th scope="col">Repo</th>
+              <th scope="col">Env</th>
+              <th scope="col">Commit</th>
+              <th scope="col">Status</th>
+              <th scope="col">Link</th>
+            </tr>
+          </thead>
+          <tbody id="deploys-tbody">
+            <tr><td colspan="6" class="table__empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Tooltip floating -->
+  <div class="tooltip" id="tooltip" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

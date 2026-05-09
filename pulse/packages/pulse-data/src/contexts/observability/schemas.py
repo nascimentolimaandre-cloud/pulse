@@ -240,3 +240,49 @@ class AliasSuggestionsResponse(BaseModel):
 
     vendor_teams: list[str]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 4b — Deploy Health Timeline
+# ---------------------------------------------------------------------------
+
+
+class TimelineHealthBucket(BaseModel):
+    """One hour-bucket of health severity on the timeline."""
+
+    hour_bucket: datetime
+    severity: float = Field(..., ge=0.0, le=3.0)
+    samples_count: int = Field(..., ge=0)
+    metric: str
+    service: str | None = None  # null on squad-aggregated rows
+
+
+class TimelineDeployMarker(BaseModel):
+    """Deploy event for the timeline.
+
+    ANTI-SURVEILLANCE (ADR-025): NEVER includes `author`. The
+    underlying `eng_deployments` table has the column, but the
+    timeline service explicitly omits it from the SELECT. If a
+    future refactor adds it back, the source-grep CI test
+    (`test_obs_anti_surveillance.py`) will catch it.
+    """
+
+    deployed_at: datetime
+    repo: str
+    environment: str | None
+    sha: str | None
+    is_failure: bool
+    url: str | None
+    service: str | None = None
+
+
+class TimelineResponseDTO(BaseModel):
+    scope: Literal["squad", "service"]
+    squad_key: str | None
+    service: str | None
+    since: datetime
+    until: datetime
+    buckets: list[TimelineHealthBucket]
+    deploys: list[TimelineDeployMarker]
+    services_in_squad: int = Field(..., ge=0)
+    has_data: bool
