@@ -418,3 +418,147 @@ class TestQueryMetric:
         )
         result = await provider.query_metric(PulseMetric.ALERT_COUNT, "x", window)
         assert result.has_data is False
+
+
+# ---------------------------------------------------------------------------
+# list_monitors_for_service (FDD-OBS-001 PR 4a.5 — Query API fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestListMonitorsForService:
+    @pytest.mark.asyncio
+    async def test_filters_by_service_tag(self):
+        captured: list[httpx.Request] = []
+
+        def handler(request):
+            captured.append(request)
+            return _json_response([])
+
+        provider = _make_provider(handler)
+        await provider.list_monitors_for_service("checkout-api")
+
+        assert len(captured) >= 1
+        assert captured[0].url.path == "/api/v1/monitor"
+        # `monitor_tags=service:<name>` is the documented DD filter for
+        # narrowing monitors to a specific service.
+        assert "service:checkout-api" in captured[0].url.params.get("monitor_tags")
+
+    @pytest.mark.asyncio
+    async def test_maps_overall_state_to_pulse_severity(self):
+        """OK→0.0, Warn→1.0, Alert→2.0, No Data→3.0."""
+        def handler(request):
+            return _json_response([
+                {"id": 1, "name": "OK monitor", "overall_state": "OK"},
+                {"id": 2, "name": "Warn monitor", "overall_state": "Warn"},
+                {"id": 3, "name": "Alert monitor", "overall_state": "Alert"},
+                {"id": 4, "name": "No data monitor", "overall_state": "No Data"},
+            ])
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+
+        assert len(monitors) == 4
+        sev = {m.monitor_id: m.severity for m in monitors}
+        assert sev[1] == 0.0
+        assert sev[2] == 1.0
+        assert sev[3] == 2.0
+        assert sev[4] == 3.0
+
+    @pytest.mark.asyncio
+    async def test_unknown_state_falls_back_to_no_data_severity(self):
+        """Defensive — DD has occasionally added new states; unknown
+        ones are treated as No Data (severity=3.0)."""
+        def handler(request):
+            return _json_response([
+                {"id": 1, "name": "future state", "overall_state": "QuantumSuperposition"},
+            ])
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+        assert monitors[0].severity == 3.0
+
+    @pytest.mark.asyncio
+    async def test_strips_pii_from_creator_and_message(self):
+        """ADR-025 / RISK-17: monitor payload typically includes
+        `creator.{name,email}` and `message` (oncall mentions). After
+        the explicit allowlist in `_build_monitor_state`, MonitorState
+        carries no person identifier and `vendor_raw` stays empty."""
+        def handler(request):
+            return _json_response([
+                {
+                    "id": 1,
+                    "name": "monitor",
+                    "overall_state": "OK",
+                    "creator": {
+                        "name": "Operator Person",
+                        "email": "operator@webmotors.com.br",
+                    },
+                    "message": "@oncall-team alert details",
+                },
+            ])
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+
+        assert monitors[0].vendor_raw == {}
+        ms_str = repr(monitors[0])
+        assert "operator@webmotors.com.br" not in ms_str
+        assert "@oncall-team" not in ms_str
+
+    @pytest.mark.asyncio
+    async def test_403_includes_monitors_read_scope_hint(self):
+        """Same UX pattern as the services 403 — operator-friendly hint
+        pointing at the missing scope."""
+        def handler(request):
+            return _json_response({"errors": ["forbidden"]}, status=403)
+
+        provider = _make_provider(handler)
+        with pytest.raises(DatadogConnectorError, match="monitors_read"):
+            await provider.list_monitors_for_service("svc")
+
+    @pytest.mark.asyncio
+    async def test_404_returns_empty_list(self):
+        """No monitors for this service tag → clean empty (NOT raise)."""
+        def handler(request):
+            return _json_response({"errors": ["not found"]}, status=404)
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+        assert monitors == []
+
+    @pytest.mark.asyncio
+    async def test_pagination_loops_through_full_pages(self):
+        """Page 0 returns full (100). Page 1 returns partial → stop."""
+        def _make(n: int, page_id: str):
+            return [
+                {"id": i, "name": f"{page_id}-{i}", "overall_state": "OK"}
+                for i in range(n)
+            ]
+
+        page_responses = [_make(100, "p0"), _make(5, "p1")]
+        call_n = {"i": 0}
+
+        def handler(request):
+            i = call_n["i"]
+            call_n["i"] += 1
+            assert request.url.params.get("page") == str(i)
+            return _json_response(page_responses[i])
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+        assert len(monitors) == 105
+        assert call_n["i"] == 2
+
+    @pytest.mark.asyncio
+    async def test_long_monitor_name_capped_at_200_chars(self):
+        """Defensive — DD allows 500-char names. We cap at 200 to keep
+        log lines + DB rows reasonable."""
+        long_name = "X" * 500
+        def handler(request):
+            return _json_response([
+                {"id": 1, "name": long_name, "overall_state": "OK"},
+            ])
+
+        provider = _make_provider(handler)
+        monitors = await provider.list_monitors_for_service("svc")
+        assert len(monitors[0].name) == 200
