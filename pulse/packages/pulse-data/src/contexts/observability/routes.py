@@ -47,12 +47,16 @@ from src.contexts.observability.schemas import (
     OwnershipListResponse,
     OwnershipRowResponse,
     OwnershipSyncResponse,
+    TimelineDeployMarker,
+    TimelineHealthBucket,
+    TimelineResponseDTO,
 )
 from src.contexts.observability.services import (
     credential_service,
     ownership_inference,
     provider_factory,
     team_alias_service,
+    timeline_service,
 )
 from src.contexts.observability.services.credential_service import (
     InvalidSiteError,
@@ -73,6 +77,15 @@ logger = logging.getLogger(__name__)
 admin_router = APIRouter(
     prefix="/data/v1/admin/integrations",
     tags=["Observability — Admin"],
+)
+
+
+# Public read-only router for tenant-facing timeline + capability views.
+# (Admin operations stay on `admin_router`; this one is what the Carlos
+# UI calls.)
+public_router = APIRouter(
+    prefix="/data/v1/obs",
+    tags=["Observability — Read"],
 )
 
 
@@ -481,3 +494,97 @@ async def alias_suggestions(
         tenant_id, provider,
     )
     return AliasSuggestionsResponse(vendor_teams=teams, total=len(teams))
+
+
+# ---------------------------------------------------------------------------
+# FDD-OBS-001 PR 4b — Deploy Health Timeline (public read)
+# ---------------------------------------------------------------------------
+
+
+def _bucket_to_dto(b: timeline_service.HealthBucket) -> TimelineHealthBucket:
+    return TimelineHealthBucket(
+        hour_bucket=b.hour_bucket,
+        severity=b.severity,
+        samples_count=b.samples_count,
+        metric=b.metric,
+        service=b.service,
+    )
+
+
+def _deploy_to_dto(d: timeline_service.DeployMarkerDTO) -> TimelineDeployMarker:
+    return TimelineDeployMarker(
+        deployed_at=d.deployed_at,
+        repo=d.repo,
+        environment=d.environment,
+        sha=d.sha,
+        is_failure=d.is_failure,
+        url=d.url,
+        service=d.service,
+    )
+
+
+def _result_to_dto(result: timeline_service.TimelineResponse) -> TimelineResponseDTO:
+    return TimelineResponseDTO(
+        scope=result.scope,
+        squad_key=result.squad_key,
+        service=result.service,
+        since=result.since,
+        until=result.until,
+        buckets=[_bucket_to_dto(b) for b in result.buckets],
+        deploys=[_deploy_to_dto(d) for d in result.deploys],
+        services_in_squad=result.services_in_squad,
+        has_data=result.has_data,
+    )
+
+
+@public_router.get(
+    "/timeline",
+    response_model=TimelineResponseDTO,
+    summary="Deploy Health Timeline for a squad (or one service via ?service=)",
+)
+async def get_timeline(
+    squad_key: str | None = None,
+    service: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    provider: str = "datadog",
+    tenant_id: UUID = Depends(get_tenant_id),
+) -> TimelineResponseDTO:
+    """Returns hourly health buckets (severity 0..3) intercalated with
+    deploy markers for either a squad (default, aggregated) or a single
+    service (`?service=...`). Default lookback: 7 days.
+
+    Anti-surveillance: deploy markers NEVER include `author` (eng_
+    deployments column is explicitly omitted from the SELECT in the
+    timeline service). Source-grep CI lint enforces this.
+    """
+    if not squad_key and not service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One of `squad_key` or `service` is required.",
+        )
+    if squad_key and service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pass `squad_key` OR `service`, not both. To drill into "
+                   "one service from a squad view, the UI navigates with "
+                   "service= alone.",
+        )
+
+    if service:
+        result = await timeline_service.get_service_timeline(
+            tenant_id=tenant_id,
+            service=service,
+            since=since,
+            until=until,
+            provider_id=provider,
+        )
+    else:
+        result = await timeline_service.get_squad_timeline(
+            tenant_id=tenant_id,
+            squad_key=squad_key,  # type: ignore[arg-type]
+            since=since,
+            until=until,
+            provider_id=provider,
+        )
+    return _result_to_dto(result)
