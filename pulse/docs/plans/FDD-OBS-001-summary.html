@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FDD-OBS-001 — Resumo do Master Plan</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --ink-soft: #334155;
+    --ink-muted: #64748b;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --brand: #4f46e5;
+    --brand-soft: #eef2ff;
+    --ok: #10b981;
+    --ok-soft: #d1fae5;
+    --warn: #f59e0b;
+    --warn-soft: #fef3c7;
+    --danger: #ef4444;
+    --danger-soft: #fee2e2;
+    --info: #0ea5e9;
+    --info-soft: #e0f2fe;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    padding: 32px 24px 64px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+
+  header.cover {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    color: white;
+    border-radius: 16px;
+    padding: 36px 40px;
+    margin-bottom: 32px;
+    box-shadow: 0 10px 30px rgba(79, 70, 229, 0.18);
+  }
+  header.cover .tag {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.18);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  header.cover h1 {
+    margin: 0 0 8px;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  header.cover p {
+    margin: 0;
+    font-size: 15px;
+    opacity: 0.92;
+  }
+  header.cover .meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    font-size: 12px;
+    opacity: 0.85;
+  }
+
+  h2.section {
+    margin: 36px 0 12px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2.section::before {
+    content: "";
+    width: 4px;
+    height: 16px;
+    background: var(--brand);
+    border-radius: 2px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 12px;
+    transition: border-color 150ms, transform 150ms;
+  }
+  .card:hover { border-color: var(--border-strong); }
+  .card h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .card p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+
+  /* Status indicators */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .pill--ok { background: var(--ok-soft); color: #065f46; }
+  .pill--warn { background: var(--warn-soft); color: #92400e; }
+  .pill--danger { background: var(--danger-soft); color: #991b1b; }
+  .pill--info { background: var(--info-soft); color: #075985; }
+  .pill--brand { background: var(--brand-soft); color: #4338ca; }
+
+  /* Verdict box */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .verdict__item {
+    background: var(--surface);
+    border-left: 4px solid var(--brand);
+    border-radius: 8px;
+    padding: 14px 18px;
+  }
+  .verdict__item--danger { border-left-color: var(--danger); }
+  .verdict__item--warn { border-left-color: var(--warn); }
+  .verdict__item--ok { border-left-color: var(--ok); }
+  .verdict__label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-muted);
+    margin-bottom: 4px;
+  }
+  .verdict__value {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  /* Decisions */
+  .decisions {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 1px solid #fbbf24;
+    border-radius: 14px;
+    padding: 22px 26px;
+    margin: 24px 0;
+  }
+  .decisions h2 {
+    margin: 0 0 6px;
+    color: #92400e;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .decisions p {
+    margin: 0 0 16px;
+    color: #78350f;
+    font-size: 13px;
+  }
+  .decision-item {
+    background: white;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: 50px 1fr 220px;
+    gap: 16px;
+    align-items: center;
+  }
+  .decision-item:last-child { margin-bottom: 0; }
+  .decision-item__id {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--brand);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .decision-item__question {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .decision-item__sub {
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-top: 2px;
+  }
+  .decision-item__hint {
+    background: #f1f5f9;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-align: center;
+  }
+  .decision-item__hint strong { color: var(--brand); }
+
+  /* Phases */
+  .phases {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .phase {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 16px;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .phase__num {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-radius: 8px;
+    padding: 6px 10px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 12px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .phase__num strong { font-size: 14px; display: block; }
+  .phase__body h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .phase__body p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .phase__agents {
+    font-size: 10px;
+    color: var(--ink-muted);
+    text-align: right;
+  }
+  .phase__agents .pill { font-size: 10px; padding: 1px 7px; }
+  .phase--blocking {
+    background: #fff7ed;
+    border-color: var(--warn);
+  }
+
+  /* Done items */
+  .done-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .done-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .done-item::before {
+    content: "✓";
+    color: var(--ok);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* Gaps */
+  .gap-grid { display: grid; gap: 8px; }
+  .gap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .gap--p1 { border-left-color: var(--warn); }
+  .gap__title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 2px;
+  }
+  .gap__sub {
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+
+  /* Next steps */
+  .next {
+    background: linear-gradient(135deg, var(--brand) 0%, #6366f1 100%);
+    color: white;
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-top: 32px;
+  }
+  .next h2 {
+    margin: 0 0 12px;
+    color: white;
+    font-size: 18px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .next h2::before { display: none; }
+  .next ol {
+    margin: 0;
+    padding-left: 24px;
+  }
+  .next li { margin-bottom: 8px; }
+  .next code {
+    background: rgba(255, 255, 255, 0.22);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-muted);
+    font-size: 12px;
+    text-align: center;
+  }
+  footer a { color: var(--brand); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 720px) {
+    .verdict { grid-template-columns: 1fr; }
+    .decision-item { grid-template-columns: 1fr; gap: 6px; }
+    .decision-item__hint { text-align: left; }
+    .phase { grid-template-columns: 64px 1fr; }
+    .phase__agents { grid-column: span 2; text-align: left; margin-top: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <span class="tag">Master Plan · Resumo Executivo</span>
+    <h1>FDD-OBS-001 — Remediação R2</h1>
+    <p>De "internal pilot ready" para <strong>"friendly-tenant ready"</strong>. 6 fases, ~60-70h, ~10-14 dias úteis.</p>
+    <div class="meta">
+      <span>📅 Gerado em 2026-05-10 noite</span>
+      <span>📖 Plano completo: <code style="background: rgba(255,255,255,0.18); padding: 1px 6px; border-radius: 4px;">docs/plans/FDD-OBS-001-remediation-master-plan.md</code></span>
+    </div>
+  </header>
+
+  <!-- ====================================================
+       VEREDICTOS — o que os reviews disseram
+       ==================================================== -->
+  <h2 class="section">📊 Veredictos dos reviews</h2>
+  <div class="verdict">
+    <div class="verdict__item verdict__item--warn">
+      <div class="verdict__label">Pulse-engineer</div>
+      <div class="verdict__value">Backend B+ · Frontend F</div>
+      <p style="margin: 4px 0 0; font-size: 12px; color: var(--ink-muted);">"Internal pilot ready, NOT friendly-tenant ready"</p>
+    </div>
+    <div class="verdict__item verdict__item--danger">
+      <div class="verdict__label">Pulse-frontend</div>
+      <div class="verdict__value">Protótipo B+ · React D</div>
+      <p style="margin: 4px 0 0; font-size: 12px; color: var(--ink-muted);">"Not production-ready" para cliente pagante</p>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       PRINCIPAIS MENSAGENS
+       ==================================================== -->
+  <h2 class="section">📌 Principais mensagens</h2>
+
+  <div class="card">
+    <h3>1. O gap maior é a UI de produção</h3>
+    <p>Os 3 protótipos (Ownership Map, Aliases, Timeline) vivem só em <code>pulse-ui/</code> na porta 8080 com HTML/JS vanilla. <strong>Zero código em <code>pulse-web/</code></strong> (React, port 5173). Carlos no Webmotors não consegue ver Timeline em produção.</p>
+  </div>
+
+  <div class="card">
+    <h3>2. <code>pulse-api</code> (NestJS) nunca foi proxy dos endpoints novos</h3>
+    <p>Sem proxy, o React teria que falar com <code>pulse-data</code> direto (porta 8000) — quebra a arquitetura. Phase 2 corrige isso e prepara o terreno para auth do R1.</p>
+  </div>
+
+  <div class="card">
+    <h3>3. Há gaps de integridade backend que o CISO não pegou</h3>
+    <p>Vazamento de abstração no Protocol (<code>list_monitors_for_service</code>), runbook de rotação fictício, f-string SQL no <code>_set_tenant</code>, <code>hide_parameters</code> incompleto. Phase 1 fecha em ~12h.</p>
+  </div>
+
+  <div class="card">
+    <h3>4. Carlos page (Timeline) é 100% inacessível</h3>
+    <p>SVG sem keyboard nav, sem screen reader, severidade só por cor, time-window selector cosmético, 6 estados não tratados. Phase 5 reescreve com Chart.js + acessibilidade completa.</p>
+  </div>
+
+  <div class="card">
+    <h3>5. Precisamos análise <strong>antes</strong> da Phase 5 (Timeline)</h3>
+    <p>O <code>pulse-data-scientist</code> tem que validar se <code>MONITOR_HEALTH</code> severity é o sinal certo pro Carlos antes de a gente reescrever o chart. Senão arrisca rework. ~2h, BLOCKING.</p>
+  </div>
+
+  <!-- ====================================================
+       DECISÕES TOMADAS
+       ==================================================== -->
+  <h2 class="section">✅ Decisões já tomadas (suas)</h2>
+  <div class="done-grid">
+    <div class="done-item">Opção A: fechar tudo antes de cliente</div>
+    <div class="done-item">Stack DDD + TDD + OO mantida</div>
+    <div class="done-item">Anti-surveillance non-negotiable (ADR-025)</div>
+    <div class="done-item">DD-first (NR fica pra R3)</div>
+    <div class="done-item">Webmotors anchor partner</div>
+    <div class="done-item">Pivot Monitors API (Query API limitação)</div>
+    <div class="done-item">Worker continua rodando + acumulando</div>
+    <div class="done-item">Master key gerada e armazenada local</div>
+  </div>
+
+  <!-- ====================================================
+       DECISÕES PENDENTES — DESTAQUE
+       ==================================================== -->
+  <div class="decisions">
+    <h2>⚠️ Decisões que você precisa tomar</h2>
+    <p>São o que trava o "GO" da Phase 1. Você decide → eu disparo.</p>
+
+    <div class="decision-item">
+      <div class="decision-item__id">D1</div>
+      <div>
+        <div class="decision-item__question">Solo ou pair programming?</div>
+        <div class="decision-item__sub">Solo: ~10-14 dias · Pair: ~7 dias (paraleliza Phase 3 + Phase 2)</div>
+      </div>
+      <div class="decision-item__hint">Sem recomendação<br/>(depende do seu tempo)</div>
+    </div>
+
+    <div class="decision-item">
+      <div class="decision-item__id">D2</div>
+      <div>
+        <div class="decision-item__question">Stage gate após Phase 2?</div>
+        <div class="decision-item__sub">Parar pós-backend pra CISO revisar antes de começar React UI</div>
+      </div>
+      <div class="decision-item__hint">Recomendo <strong>SIM</strong><br/>(risco baixo, ROI alto)</div>
+    </div>
+
+    <div class="decision-item">
+      <div class="decision-item__id">D3</div>
+      <div>
+        <div class="decision-item__question">Webmotors vê algo agora ou só pós-Phase 5?</div>
+        <div class="decision-item__sub">Prototype hoje (porta 8080) vs. React em ~10 dias</div>
+      </div>
+      <div class="decision-item__hint">Recomendo <strong>WAIT</strong><br/>(prototype só confunde)</div>
+    </div>
+
+    <div class="decision-item">
+      <div class="decision-item__id">D4</div>
+      <div>
+        <div class="decision-item__question">R3 features (NewRelic, sub-hourly buckets, Query API path) no escopo?</div>
+        <div class="decision-item__sub">Atrasaria R2 em ~3-4 semanas</div>
+      </div>
+      <div class="decision-item__hint">Recomendo <strong>NÃO</strong><br/>(mantém R2 honesto)</div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       FASES — visão tabular compacta
+       ==================================================== -->
+  <h2 class="section">🗺️ As 6 fases</h2>
+  <div class="phases">
+    <div class="phase">
+      <div class="phase__num">P1<strong>1.5d</strong></div>
+      <div class="phase__body">
+        <h4>🔧 Backend integrity fixes</h4>
+        <p>Protocol leak · Rotation runbook · SQL hardening · Anti-surveillance gaps · Layer 2/4 trigger upgrades</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span><br/>
+        <span class="pill pill--warn">⚠ CISO review</span>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase__num">P2<strong>1d</strong></div>
+      <div class="phase__body">
+        <h4>🔌 pulse-api proxy NestJS</h4>
+        <p>11 endpoints proxy · DTOs em pulse-shared · Auth surface preparada pra R1 · ADR-029</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span><br/>
+        <span class="pill pill--warn">⚠ CISO review</span>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase__num">P3<strong>2d</strong></div>
+      <div class="phase__body">
+        <h4>🎨 React UI A — Shell + Ownership Map</h4>
+        <p>Design system primitives (Modal, Table, StatusBadge, Tabs) · 4 novos tokens · Sidebar · API client + hooks</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span> <span class="pill pill--info">frontend</span><br/>
+        <span class="pill pill--warn">⚠ ux-reviewer · test-engineer</span>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase__num">P4<strong>1.5d</strong></div>
+      <div class="phase__body">
+        <h4>🏷️ React UI B — Team Aliases</h4>
+        <p>Reusa primitives da P3 · Bulk paste UX · Sugestões panel · Optimistic updates</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span> <span class="pill pill--info">frontend</span>
+      </div>
+    </div>
+
+    <div class="phase phase--blocking">
+      <div class="phase__num" style="background:#fed7aa; color:#9a3412;">🔍<strong>2h</strong></div>
+      <div class="phase__body">
+        <h4>BLOCKING — pulse-data-scientist analysis</h4>
+        <p>"MONITOR_HEALTH severity é o sinal certo pro Carlos?" Recomendação de visualização. Evita rewrite do chart depois.</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--danger">data-scientist ⚠⚠</span>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase__num">P5<strong>2.5d</strong></div>
+      <div class="phase__body">
+        <h4>📊 React UI C — Deploy Health Timeline (Carlos page!)</h4>
+        <p>Chart.js substituindo SVG · Acessibilidade WCAG AA · Time-window funcional · 6 estados · Drill-down service</p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span> <span class="pill pill--info">frontend</span> <span class="pill pill--info">data-sci</span><br/>
+        <span class="pill pill--warn">⚠ ux-reviewer · product-dir · test-engineer</span>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase__num">P6<strong>1d</strong></div>
+      <div class="phase__body">
+        <h4>🛡️ Customer test + CISO final + ops runbook → Tag v1.0</h4>
+        <p>Webmotors customer test extension · CISO final security review · Onboarding runbook · Tag <code>obs-001-v1.0</code></p>
+      </div>
+      <div class="phase__agents">
+        <span class="pill pill--brand">engineer</span> <span class="pill pill--info">test-eng</span><br/>
+        <span class="pill pill--danger">⚠⚠ CISO final gate</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       GAPS CRÍTICOS QUE OS REVIEWS ENCONTRARAM
+       ==================================================== -->
+  <h2 class="section">🚨 Gaps críticos que motivaram o plano</h2>
+  <div class="gap-grid">
+    <div class="gap">
+      <div class="gap__title">UI de produção inexistente</div>
+      <div class="gap__sub">Zero código observability em <code>pulse-web/</code>. Carlos só vê em localhost:8080 via Python http.server.</div>
+    </div>
+    <div class="gap">
+      <div class="gap__title">pulse-api sem proxy</div>
+      <div class="gap__sub">React teria que falar com pulse-data direto. Quebra arquitetura + auth surface no lugar errado.</div>
+    </div>
+    <div class="gap">
+      <div class="gap__title">Protocol leak (P0 que CISO não pegou)</div>
+      <div class="gap__sub"><code>rollup_service:293</code> chama método que existe só no DatadogProvider. NewRelic adapter quebra com AttributeError.</div>
+    </div>
+    <div class="gap">
+      <div class="gap__title">Master-key rotation é fictício</div>
+      <div class="gap__sub">RISK-8 no backlog mas <code>scripts/rotate_obs_master_key.py</code> não existe. Sem runbook.</div>
+    </div>
+    <div class="gap">
+      <div class="gap__title">Timeline 100% inacessível</div>
+      <div class="gap__sub">SVG sem keyboard, sem screen reader, severidade só por cor. Carlos com a11y needs não usa.</div>
+    </div>
+    <div class="gap gap--p1">
+      <div class="gap__title">Zero integration test end-to-end</div>
+      <div class="gap__sub">Worker→DB→API path nunca foi testado integrado. Só unit tests com mocks.</div>
+    </div>
+    <div class="gap gap--p1">
+      <div class="gap__title">9 hardcoded hex codes</div>
+      <div class="gap__sub">"Tokens-only" é 90% honesto. Sweep + 4 novos soft-color tokens necessários.</div>
+    </div>
+    <div class="gap gap--p1">
+      <div class="gap__title">f-string SQL em <code>_set_tenant</code></div>
+      <div class="gap__sub">Seguro hoje (UUID validado por Pydantic), H-severity se algum dia vier de string user-controlled.</div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       PRÓXIMOS PASSOS — chamada à ação
+       ==================================================== -->
+  <div class="next">
+    <h2>🌅 Amanhã ao acordar — 3 passos</h2>
+    <ol>
+      <li>Lê <code>docs/plans/TOMORROW.md</code> (5 min)</li>
+      <li>Decide <strong>D1, D2, D3, D4</strong> da seção amarela acima (10 min)</li>
+      <li>Me responde uma das opções:
+        <ul style="margin-top: 6px;">
+          <li><code>"manda Phase 1"</code> → expando as 6 sub-tarefas + dispatch pro pulse-engineer</li>
+          <li><code>"discutir D1-D4"</code> → converso primeiro</li>
+          <li><code>"ajusta o plano X"</code> → refino antes de codar</li>
+        </ul>
+      </li>
+    </ol>
+  </div>
+
+  <footer>
+    Master plan completo em <a href="FDD-OBS-001-remediation-master-plan.md">FDD-OBS-001-remediation-master-plan.md</a> ·
+    Reviews em <a href="../reviews/FDD-OBS-001-engineering-review.md">engineering</a> +
+    <a href="../reviews/FDD-OBS-001-frontend-review.md">frontend</a>
+  </footer>
+
+</div>
+</body>
+</html>
