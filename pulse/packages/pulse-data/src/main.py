@@ -24,6 +24,7 @@ from src.contexts.observability.routes import public_router as observability_pub
 from src.contexts.pipeline.routes import router as pipeline_router
 from src.contexts.pipeline.routes import squad_admin_router as pipeline_squad_admin_router
 from src.contexts.tenant.routes import router as tenant_router
+from src.shared.exception_middleware import SanitizingExceptionMiddleware
 from src.shared.tenant import TenantMiddleware
 
 
@@ -47,6 +48,11 @@ app = FastAPI(
 )
 
 # --- Middleware ---
+# Order matters: in Starlette, the LAST `add_middleware` becomes the
+# OUTERMOST wrapper. We want `SanitizingExceptionMiddleware` outermost so
+# any exception raised by inner middlewares (Tenant) or route handlers
+# is caught and sanitized BEFORE FastAPI/Starlette stringifies it into
+# the default 500 response.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -55,6 +61,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TenantMiddleware)
+# FDD-OBS-001 T1.4 — outermost: catches driver-level exceptions
+# (asyncpg, psycopg) that may carry bound-parameter values, logs
+# only the exception class + request shape, returns opaque 500.
+app.add_middleware(SanitizingExceptionMiddleware)
 
 # --- Routers ---
 app.include_router(engineering_data_router)
