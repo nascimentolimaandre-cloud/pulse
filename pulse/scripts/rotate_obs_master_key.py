@@ -23,11 +23,27 @@ which covers:
 
 ADR-021 requires:
   - Master key never logged.
-  - Plaintext decrypt happens INSIDE postgres (`pgp_sym_decrypt`),
-    immediately re-encrypted with the NEW key, in a single transaction.
+  - Honest data flow (CISO FIND-002): `pgp_sym_decrypt` runs INSIDE
+    postgres so the OLD master key never leaves the DB process. The
+    decrypted plaintext then returns over the trusted libpq channel
+    into Python heap, where the script computes the M-005 sha256[:32]
+    fingerprint of the plaintext. A SECOND statement re-encrypts via
+    `pgp_sym_encrypt` with the NEW key and UPDATEs the row. Plaintext
+    therefore lives briefly in the script's Python heap (bounded to
+    one row's worth per iteration); never logged, never persisted
+    further, never sent over the network beyond libpq.
   - `key_fingerprint` recomputed to match the (unchanged) plaintext —
     fingerprint depends on the API key, not the master key.
   - `last_rotated_at = NOW()`.
+
+Memory residence threat model: plaintext is bounded to one row per
+loop iteration. After the re-encrypt UPDATE, the local row variable
+goes out of scope and is gc'd at the end of the iteration. The
+process is short-lived (one-shot CLI, not a daemon), so heap inspection
+windows are minimal. Operator running rotation already has access to
+the OLD master key, so this script does not elevate access. For
+hardened deployments, consider running rotation in an ephemeral
+container with `mlock`-ed memory (out of scope for R0).
 
 The script intentionally does NOT print plaintext API keys; only the
 8-char prefix of the new fingerprint, the count of rows updated, and
@@ -214,6 +230,11 @@ async def rotate(*, dry_run: bool, db_url: str, old_key: str, new_key: str) -> i
                     "rotated tenant=%s provider=%s new_fp=%s...",
                     tenant_id, provider, new_fp[:8],
                 )
+                # CISO FIND-002: make the plaintext residence window
+                # explicit — drop the reference so the row's plaintext
+                # api_key/app_key fields are eligible for gc immediately
+                # rather than only at end-of-iteration.
+                del drow
                 rows_touched += 1
             except Exception as exc:
                 # NEVER include str(exc) — pgcrypto wrong-key errors

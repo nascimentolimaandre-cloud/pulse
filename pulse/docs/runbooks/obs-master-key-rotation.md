@@ -233,6 +233,46 @@ All tests must pass before declaring the rotation complete.
 
 ---
 
+## What rotation does (and the threat model)
+
+Per row:
+
+1. Postgres decrypts `api_key_encrypted` (and `app_key_encrypted` if
+   present) with the OLD master key via `pgp_sym_decrypt`. The OLD key
+   never leaves the DB process.
+2. The decrypted plaintext returns to the script process over the
+   trusted libpq channel and lands in Python heap.
+3. Script computes the M-005 fingerprint (sha256 of plaintext, first
+   32 hex chars) in the Python process.
+4. A SECOND statement re-encrypts the same plaintext with the NEW
+   master key via `pgp_sym_encrypt`.
+5. The UPDATE writes the new ciphertext + new fingerprint +
+   `last_rotated_at = NOW()`.
+
+**Plaintext residence**: bounded to one row's worth of heap memory per
+loop iteration. Never logged, never persisted, never sent over the
+network beyond the trusted libpq channel between the script and
+postgres. After step 5, the local row reference is `del`-ed and the
+plaintext fields become eligible for gc immediately.
+
+**Acceptable risk**: the operator running rotation already has access
+to the OLD master key (it must be present in the environment to drive
+step 1). The script does not elevate access — it only re-keys the
+ciphertext layer. Python's gc-after-scope-exit is sufficient because
+the process is short-lived (one-shot CLI, not a long-running daemon).
+
+For high-security deployments, consider running rotation in an
+ephemeral container with `mlock`-ed memory and a hardened base image
+(out of scope for R0; revisit if a regulator asks).
+
+This is the HONEST data flow. An earlier version of the docstring
+claimed plaintext "stays inside postgres in a single transaction" —
+that was wrong: plaintext briefly transits Python heap to allow
+fingerprint recomputation. Corrected per CISO FIND-002 of the Phase 1
+review.
+
+---
+
 ## What rotation does NOT change
 
 - `tenant_id`, `provider`, `site`, `validated_at` — preserved.
