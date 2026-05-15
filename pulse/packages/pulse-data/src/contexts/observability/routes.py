@@ -122,9 +122,13 @@ async def validate_datadog_credential(
         try:
             ok = await provider.health_check()
         except Exception as exc:  # defensive — health_check shouldn't raise
-            logger.exception(
-                "[obs-admin] datadog validate unexpected error tenant=%s site=%s",
-                tenant_id, body.site,
+            # CISO FIND-001: logger.exception attaches exc_info=True, which
+            # serializes the full traceback (local var bindings, chained
+            # exceptions). Driver exceptions (asyncpg) can carry bound
+            # parameter values. Use logger.error + err_class only.
+            logger.error(
+                "[obs-admin] datadog validate unexpected error tenant=%s site=%s err_class=%s",
+                tenant_id, body.site, type(exc).__name__,
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
