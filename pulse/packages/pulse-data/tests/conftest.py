@@ -550,6 +550,7 @@ def mock_observability_provider():
       - `deployments` → `list_deployments` returns this list
       - `services`    → `list_services` returns this list
       - `metric`      → `query_metric` returns this MetricSeries
+      - `monitors`    → `list_monitors_for_service` returns this list
       - `health`      → `health_check` returns this bool (default True)
     """
     from unittest.mock import AsyncMock, MagicMock
@@ -562,6 +563,7 @@ def mock_observability_provider():
         deployments: list | None = None,
         services: list | None = None,
         metric=None,
+        monitors: list | None = None,
         health: bool = True,
     ) -> MagicMock:
         # `spec=Protocol` enforces that only Protocol-declared attrs +
@@ -572,6 +574,7 @@ def mock_observability_provider():
         provider.list_deployments = AsyncMock(return_value=deployments or [])
         provider.list_services = AsyncMock(return_value=services or [])
         provider.query_metric = AsyncMock(return_value=metric)
+        provider.list_monitors_for_service = AsyncMock(return_value=monitors or [])
         provider.health_check = AsyncMock(return_value=health)
         return provider
 

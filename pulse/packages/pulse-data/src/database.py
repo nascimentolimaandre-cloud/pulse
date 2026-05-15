@@ -45,8 +45,27 @@ async_session_factory = async_sessionmaker(
 
 
 async def _set_tenant(session: AsyncSession, tenant_id: UUID) -> None:
-    """Set the current tenant on the PostgreSQL session for RLS."""
-    await session.execute(text(f"SET app.current_tenant = '{tenant_id}'"))
+    """Set the current tenant on the PostgreSQL session for RLS.
+
+    FDD-OBS-001 Phase 1 T1.3 — uses `set_config(name, value, is_local)`
+    with a bound parameter instead of f-string interpolation. The old
+    pattern was safe in practice because Pydantic validates the UUID
+    upstream, but a single misuse anywhere on the call chain (string
+    parameter accidentally typed `UUID | str`) would expose H-severity
+    SQL injection at the RLS layer. `set_config` is the canonical
+    PostgreSQL helper for this exact pattern — `SET ... = '...'` is
+    statement-level and rejects bound parameters in its operand
+    position, whereas `set_config(:t, :v, true)` accepts them.
+
+    `is_local=true` keeps the setting scoped to the current
+    transaction — same semantics as `SET LOCAL`, identical to what
+    the previous `SET app.current_tenant = '...'` provided since RLS
+    policies read it via `current_setting('app.current_tenant')`.
+    """
+    await session.execute(
+        text("SELECT set_config('app.current_tenant', :t, true)"),
+        {"t": str(tenant_id)},
+    )
 
 
 @asynccontextmanager

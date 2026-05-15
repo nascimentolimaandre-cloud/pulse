@@ -225,6 +225,23 @@ class ObservabilityProvider(Protocol):
         """Service catalog with vendor tags normalized to PULSE format."""
         ...
 
+    async def list_monitors_for_service(
+        self, service: str,
+    ) -> list[MonitorState]:
+        """List configured monitors (alerts) for a single service with
+        normalized severity. Used as the fallback signal when the
+        tenant's plan does not expose the timeseries Query API
+        (FDD-OBS-001 PR 4a.5 — addresses RISK-19 / Webmotors). Every
+        provider must implement this; vendors without a "monitor"
+        concept should map their equivalent (e.g. NR alert policy
+        condition state) onto `MonitorState`.
+
+        Returns an empty list when no monitors target the service yet.
+        Anti-surveillance: `creator`, `notification`, and `message`
+        fields MUST be dropped by the adapter (ADR-025 L1).
+        """
+        ...
+
     async def health_check(self) -> bool:
         """True when credentials valid + provider reachable. Used by
         the `/v1/admin/integrations/<provider>/validate` endpoint

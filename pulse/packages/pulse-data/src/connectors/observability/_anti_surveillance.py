@@ -52,6 +52,34 @@ FORBIDDEN_PARENT_CHILD_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("rum", "user_email"),
     ("incident", "assignee"),
     ("alert", "assignee"),
+    # FDD-OBS-001 T1.6 (RISK-17) — additional vendor shapes we've
+    # observed where structural PII bypasses the top-level scan:
+    #   - Datadog monitor payload `{"creator": {"email": ..., "name": ...}}`
+    #   - Jira-derived metadata sometimes nests `{"modified_by": {...}}`
+    #   - GitHub-derived metadata uses `{"author": {"email": ...}}`
+    ("creator", "email"),
+    ("creator", "name"),
+    ("modified_by", "email"),
+    ("author", "email"),
+})
+
+
+# FDD-OBS-001 T1.6 (RISK-13) — names of SQL columns that carry
+# individual-level identifiers and must never appear in SELECTs from
+# observability business code (rollup_service, tier2_inference,
+# timeline_service). The Layer-4 source scan greps for these strings
+# in observability modules so a future regression like
+# `SELECT pr.author FROM eng_pull_requests` lights up the build.
+#
+# These are NOT runtime checks — `pr.author` IS a real column on
+# `eng_pull_requests` (the engineering-data domain genuinely needs
+# it). They're "do not import into the observability boundary" rules.
+FORBIDDEN_SQL_COLUMNS: frozenset[str] = frozenset({
+    "pr.author",
+    "pr.author_id",
+    "pr.merge_by",
+    "pr.reviewer",
+    "pr.reviewers",
 })
 
 

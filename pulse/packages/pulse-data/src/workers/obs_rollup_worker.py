@@ -72,8 +72,13 @@ async def _run_one_cycle() -> None:
     bucket = TokenBucket()  # fresh per cycle — Redis is the shared state
     try:
         await rollup_service.run_cycle(provider_id="datadog", bucket=bucket)
-    except Exception:
-        logger.exception("[obs-rollup] cycle raised — continuing scheduler")
+    except Exception as exc:
+        # CISO FIND-001: avoid logger.exception (exc_info=True attaches full
+        # traceback w/ local var bindings; driver excs may carry bound params).
+        logger.error(
+            "[obs-rollup] cycle raised — continuing scheduler err_class=%s",
+            type(exc).__name__,
+        )
 
 
 async def run_worker(interval_minutes: int = _DEFAULT_INTERVAL_MINUTES) -> None:

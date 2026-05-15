@@ -176,6 +176,27 @@ These are explicitly **deep-link only** in the UI ("Open in Datadog").
 - Adding a 4th vendor (R4) may surface a normalized field we missed.
   Acceptable: ADR addendum + schema migration.
 
+## Addendum — `list_monitors_for_service` added to Protocol (2026-05-11)
+
+PR 4a.5 (rollup-worker pivot to monitors API) shipped
+`list_monitors_for_service(service) -> list[MonitorState]` on
+`DatadogProvider` to support tenants whose plan does not include the
+Query API (RISK-19, Webmotors). The method was wired into
+`rollup_service.py:293` via the `ObservabilityProvider`-typed argument
+but was **never added to the Protocol** in `base.py` — meaning a
+runtime `AttributeError` the moment a second provider adapter (NR R3)
+landed without implementing it.
+
+The method is now declared on the Protocol (FDD-OBS-001 Phase 1 T1.1)
+and is a required surface for every new adapter alongside the
+existing four. `MonitorState` is the normalized dataclass; vendors
+without a native "monitor" concept (e.g. Grafana with no Alertmanager
+rules) should return an empty list rather than raise — Tier-2
+fallback in `rollup_service` handles "no signal yet" cleanly.
+
+Test guard at `tests/unit/connectors/observability/test_protocol_compliance.py`
+locks the Protocol surface so future drift is caught at PR time.
+
 ## Open questions (filed)
 
 - **FDD-OBS-001-FU-3**: should `MetricSeries.points` be a domain
