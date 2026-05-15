@@ -19,6 +19,7 @@ Duplication is INTENTIONAL — defense in depth (ADR-025).
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -286,3 +287,81 @@ class TestNestedPiiPairs:
         result = strip_pii(payload)
         assert "creator" not in result
         assert result == {"service": "checkout"}
+
+
+class TestPiiTriggerMatchesPythonSet:
+    """CISO FIND-004 — contract test: the SQL trigger's forbidden keys
+    (migration 023) and the Python `FORBIDDEN_FIELD_NAMES` frozenset
+    (connectors/observability/_anti_surveillance.py) must be identical.
+
+    They're kept in lockstep by comments in both files, but no test
+    enforces it. They match today (15 keys); the moment someone updates
+    one side, the layers silently diverge.
+
+    This test parses the migration as AST (no SQL execution required)
+    and asserts set-equality with the Python frozenset.
+    """
+
+    def test_migration_023_forbidden_keys_match_python_set(self) -> None:
+        migration_path = (
+            Path(__file__).resolve().parents[2]
+            / "alembic"
+            / "versions"
+            / "023_obs_pii_trigger_recursive.py"
+        )
+        assert migration_path.exists(), (
+            f"Migration not found at {migration_path}. If it was renamed, "
+            f"update this contract test to point at the new file."
+        )
+
+        tree = ast.parse(migration_path.read_text(encoding="utf-8"))
+
+        # Find the module-level assignment to `_FORBIDDEN_KEYS`.
+        sql_keys: set[str] | None = None
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "_FORBIDDEN_KEYS":
+                    if not isinstance(node.value, ast.Tuple):
+                        pytest.fail(
+                            "_FORBIDDEN_KEYS in migration 023 is no longer a "
+                            "tuple literal — update this contract test."
+                        )
+                    extracted: set[str] = set()
+                    for elt in node.value.elts:
+                        if not isinstance(elt, ast.Constant) or not isinstance(
+                            elt.value, str
+                        ):
+                            pytest.fail(
+                                "Non-string constant in _FORBIDDEN_KEYS tuple — "
+                                "unexpected migration shape."
+                            )
+                        extracted.add(elt.value)
+                    sql_keys = extracted
+                    break
+            if sql_keys is not None:
+                break
+
+        assert sql_keys is not None, (
+            "Could not locate `_FORBIDDEN_KEYS = (...)` module-level "
+            "assignment in migration 023."
+        )
+
+        from src.connectors.observability._anti_surveillance import (
+            FORBIDDEN_FIELD_NAMES,
+        )
+
+        py_keys = set(FORBIDDEN_FIELD_NAMES)
+
+        only_in_sql = sql_keys - py_keys
+        only_in_py = py_keys - sql_keys
+
+        assert sql_keys == py_keys, (
+            "CISO FIND-004: the SQL trigger forbidden-keys tuple "
+            "(migration 023) and Python `FORBIDDEN_FIELD_NAMES` frozenset "
+            "(connectors/observability/_anti_surveillance.py) have "
+            "drifted. Update BOTH sides simultaneously.\n\n"
+            f"  Keys only in SQL trigger: {sorted(only_in_sql) or '(none)'}\n"
+            f"  Keys only in Python set:  {sorted(only_in_py) or '(none)'}"
+        )
