@@ -36,6 +36,7 @@ from typing import Awaitable, Callable
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,13 @@ class SanitizingExceptionMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         try:
             return await call_next(request)
+        except StarletteHTTPException:
+            # CISO FIND-003: FastAPI's HTTPException subclasses Starlette's.
+            # Catching bare Exception below would swallow legitimate 4xx
+            # (Pydantic 422, InvalidSiteError 422, get_provider_metadata
+            # 404, rotation 503) and convert them to opaque sanitized 500s.
+            # Let FastAPI's default handler emit the proper status + detail.
+            raise
         except Exception as exc:
             request_id = str(uuid.uuid4())
             # IMPORTANT: NEVER include str(exc), repr(exc), exc.args, or

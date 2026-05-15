@@ -14,7 +14,7 @@ import logging
 import re
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.shared.exception_middleware import SanitizingExceptionMiddleware
@@ -47,6 +47,16 @@ def _build_app() -> FastAPI:
     @app.get("/ok")
     async def ok() -> dict:
         return {"status": "ok"}
+
+    @app.get("/http-422")
+    async def http_422() -> dict:
+        # FastAPI HTTPException (subclass of Starlette's). Must pass
+        # through the middleware untouched (CISO FIND-003).
+        raise HTTPException(status_code=422, detail="bad input")
+
+    @app.get("/http-404")
+    async def http_404() -> dict:
+        raise HTTPException(status_code=404, detail="not found")
 
     return app
 
@@ -129,6 +139,47 @@ def test_successful_request_passes_through_unchanged() -> None:
     response = client.get("/ok")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_http_exception_4xx_passes_through(caplog) -> None:
+    """CISO FIND-003: FastAPI's HTTPException must NOT be swallowed by
+    the middleware. A handler raising HTTPException(422, "bad input")
+    must produce a real 422 with the original detail — not an opaque
+    sanitized 500 with a request_id."""
+    client = TestClient(_build_app())
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/http-422")
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body == {"detail": "bad input"}
+    assert "request_id" not in body  # confirm it didn't go through sanitize
+    # No ERROR-level log from our middleware should fire for a legit 4xx.
+    middleware_records = [
+        r for r in caplog.records
+        if r.name == "src.shared.exception_middleware"
+        and r.levelno >= logging.ERROR
+    ]
+    assert not middleware_records, (
+        "Middleware logged an error for a legitimate HTTPException 422 — "
+        "it should have re-raised silently. "
+        f"Records: {[r.getMessage() for r in middleware_records]!r}"
+    )
+
+
+def test_http_exception_404_passes_through(caplog) -> None:
+    """Same as the 422 case, but exercising a different status code to
+    confirm we're not status-code-specific."""
+    client = TestClient(_build_app())
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/http-404")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body == {"detail": "not found"}
+    assert "request_id" not in body
 
 
 def test_request_id_is_unique_per_invocation() -> None:
