@@ -10,6 +10,7 @@ import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
 import { IdentityModule } from './modules/identity/identity.module';
 import { IntegrationModule } from './modules/integration/integration.module';
 import { JiraAdminModule } from './modules/integrations/jira-admin/jira-admin.module';
+import { ObservabilityModule } from './modules/observability/observability.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { JiraAdminModule } from './modules/integrations/jira-admin/jira-admin.mo
     IdentityModule,
     IntegrationModule,
     JiraAdminModule,
+    ObservabilityModule,
   ],
   providers: [
     {

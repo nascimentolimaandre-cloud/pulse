@@ -194,6 +194,10 @@ class TestForbiddenSqlColumnsScan:
             "pr.merge_by",
             "pr.reviewer",
             "pr.reviewers",
+            # CISO FIND-005 (Phase 2) additions:
+            "pr.merged_by",
+            "pr.requested_reviewers",
+            "pr.committer",
         ):
             assert expected in FORBIDDEN_SQL_COLUMNS, (
                 f"{expected!r} missing from FORBIDDEN_SQL_COLUMNS — "

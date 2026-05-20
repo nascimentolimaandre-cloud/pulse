@@ -80,6 +80,10 @@ FORBIDDEN_SQL_COLUMNS: frozenset[str] = frozenset({
     "pr.merge_by",
     "pr.reviewer",
     "pr.reviewers",
+    # CISO FIND-005 (Phase 2) — additional individual-level columns:
+    "pr.merged_by",            # GitHub "who pressed merge" field
+    "pr.requested_reviewers",  # JSONB array of reviewer logins
+    "pr.committer",            # GPG-signed commit committer identity
 })
 
 
