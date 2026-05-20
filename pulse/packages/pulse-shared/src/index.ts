@@ -33,6 +33,29 @@ export type {
   WipStatus,
 } from './types/metrics';
 
+// BC-Obs Observability (FDD-OBS-001)
+export type {
+  DatadogValidateRequest,
+  DatadogValidateResponse,
+  CredentialStatus,
+  CredentialMetadataResponse,
+  OwnershipSyncResponse,
+  OverrideRequest,
+  InferredConfidence,
+  OwnershipRowResponse,
+  OwnershipListResponse,
+  AliasMapping,
+  AliasResponse,
+  AliasListResponse,
+  AliasBulkImportRequest,
+  AliasBulkImportResponse,
+  AliasSuggestionsResponse,
+  TimelineHealthBucket,
+  TimelineDeployMarker,
+  TimelineScope,
+  TimelineResponse,
+} from './types/observability';
+
 // BC2 Integration — Jira Admin (Dynamic Discovery, ADR-014)
 export type {
   JiraDiscoveryMode,

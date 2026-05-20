@@ -277,10 +277,17 @@ async def sync_ownership(
     """
     try:
         adapter = await provider_factory.build_for_tenant(tenant_id, provider)
-    except UnknownProviderError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ProviderNotConfiguredError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except UnknownProviderError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown observability provider: {provider!r}.",
+        )
+    except ProviderNotConfiguredError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No credential configured for provider={provider!r}. "
+                   "Validate and persist a credential first.",
+        )
 
     async with adapter:
         try:
@@ -289,13 +296,14 @@ async def sync_ownership(
             )
         except DatadogConnectorError as exc:
             logger.warning(
-                "[obs-ownership] sync failed tenant=%s provider=%s err=%s",
-                tenant_id, provider, exc,
+                "[obs-ownership] sync failed tenant=%s provider=%s err_class=%s",
+                tenant_id, provider, type(exc).__name__,
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Provider call failed: {exc}",
-            ) from exc
+                detail="Ownership sync failed due to a provider communication error. "
+                       "Check provider credentials and network, then retry.",
+            ) from None
 
     return OwnershipSyncResponse(
         services_seen=result.services_seen,
@@ -329,14 +337,18 @@ async def upsert_override(
             row = await ownership_inference.set_override(
                 tenant_id, provider, service_external_id, body.squad_key,
             )
-    except InvalidSquadKeyError as exc:
+    except InvalidSquadKeyError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc),
-        ) from exc
-    except LookupError as exc:
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid squad_key. The value must match a qualified "
+                   "squad in the tenant's team directory.",
+        )
+    except LookupError:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc),
-        ) from exc
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Service {service_external_id!r} not found in the "
+                   f"ownership map for provider={provider!r}.",
+        )
 
     return _row_to_response(row)
 
@@ -422,14 +434,18 @@ async def upsert_alias(
             vendor_team_value=body.vendor_team_value,
             squad_key=body.squad_key,
         )
-    except InvalidSquadKeyError as exc:
+    except InvalidSquadKeyError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc),
-        ) from exc
-    except ValueError as exc:
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid squad_key. The value must match a qualified "
+                   "squad in the tenant's team directory.",
+        )
+    except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc),
-        ) from exc
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid alias mapping. Check vendor_team_value and "
+                   "squad_key values.",
+        )
     return _alias_to_response(alias)
 
 
